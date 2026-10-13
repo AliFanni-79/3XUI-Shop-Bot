@@ -23,8 +23,11 @@ const client = axios.create({
 // ─── Auth ────────────────────────────────────────────────────────────────────
 export const getMe = () => client.get('/auth/me')
 
-// ─── Plans ───────────────────────────────────────────────────────────────────
+// ─── Plans & Trial ───────────────────────────────────────────────────────────
 export const getPlans = () => client.get('/plans')
+export const getTrialStatus = () => client.get('/trial/status')
+export const claimFreeTrial = (customName = null) =>
+  client.post('/trial/claim', { custom_name: customName })
 
 // ─── Services ────────────────────────────────────────────────────────────────
 export const getServices = () => client.get('/services')

@@ -201,7 +201,7 @@ def apply():
             return False
         return C.ORIGINALS["purchase_gate"](uid)
 
-    def checkout(uid, plan, payment_method, kind="NEW", target_service_email=None, extra_volume_gb=0):
+    def checkout(uid, plan, payment_method, kind="NEW", target_service_email=None, extra_volume_gb=0, custom_name=None, **kwargs):
         blocked, reason = C.blocked(uid)
         if blocked:
             return None, "دسترسی خرید این حساب محدود شده است." + (f" دلیل: {reason}" if reason else "")
@@ -209,7 +209,16 @@ def apply():
             return None, C.setting("maintenance_message", "🛠 سرویس موقتاً در حال نگهداری است.")
         if C.mode() == "SALES_PAUSED":
             return None, C.setting("sales_paused_message", "🛒 فروش و تمدید موقتاً متوقف شده است.")
-        return C.ORIGINALS["checkout"](uid, plan, payment_method, kind, target_service_email, extra_volume_gb)
+        return C.ORIGINALS["checkout"](
+            uid,
+            plan,
+            payment_method,
+            kind,
+            target_service_email,
+            extra_volume_gb,
+            custom_name=custom_name,
+            **kwargs,
+        )
 
     def trial_enabled():
         return False if C.mode() == "MAINTENANCE" else bool(C.ORIGINALS["trial_enabled"]())

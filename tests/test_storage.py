@@ -2,6 +2,7 @@ import base64
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 
 from speedybot import context as C, corepatch, linked_services, storage, updates
@@ -66,7 +67,7 @@ class StorageTests(unittest.TestCase):
         )
         con.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,is_active INTEGER,balance INTEGER)")
         con.execute("CREATE TABLE transactions(id INTEGER PRIMARY KEY,user_id INTEGER,plan_id INTEGER,status TEXT,kind TEXT,service_email TEXT)")
-        con.execute("CREATE TABLE trial_services(user_id INTEGER,status TEXT,email TEXT)")
+        con.execute("CREATE TABLE trial_services(user_id INTEGER,status TEXT,email TEXT,created_at INTEGER,activated_at INTEGER)")
         con.execute(
             "CREATE TABLE linked_services(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,email TEXT NOT NULL UNIQUE,linked_at INTEGER NOT NULL,source TEXT,approved_by INTEGER)"
         )
@@ -96,9 +97,9 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(plan["category_id"], category["id"])
 
     def test_global_trial_defaults_are_seeded(self):
-        self.assertEqual(C.setting("trial_default_volume_gb", ""), "1")
+        self.assertEqual(C.setting("trial_default_volume_gb", ""), "0.3")
         self.assertEqual(C.setting("trial_default_days", ""), "1")
-        self.assertEqual(C.setting("trial_default_ip_limit", ""), "1")
+        self.assertEqual(C.setting("trial_default_ip_limit", ""), "0")
 
     def test_brand_and_customer_menu_defaults_are_seeded(self):
         self.assertEqual(C.brand_name(), "فروشگاه")
@@ -279,6 +280,82 @@ class StorageTests(unittest.TestCase):
                     self.assertEqual(f.read(), "legacy_db_content")
             finally:
                 os.chdir(old_cwd)
+
+    def test_corepatch_checkout_accepts_custom_name(self):
+        from speedybot import corepatch, context as C
+        # Mock ORIGINALS checkout
+        received = {}
+        def fake_orig_checkout(uid, plan, payment_method, kind="NEW", target_service_email=None, extra_volume_gb=0, custom_name=None, **kwargs):
+            received["uid"] = uid
+            received["custom_name"] = custom_name
+            return {"tx_id": 999}, None
+
+        fake_core = type(
+            "Core",
+            (),
+            {
+                "_create_checkout_transaction": staticmethod(fake_orig_checkout),
+                "purchase_gate": lambda u: True,
+                "trial_enabled": lambda: True,
+                "generate_trial_xui_config": lambda *a: None,
+                "notify_admins": lambda *a, **k: None,
+                "_get_delivery_links": lambda *a: [],
+                "_configured_inbound_ids": lambda *a: [],
+                "_set_inbound_toggle": lambda *a: None,
+                "_sync_client_inbounds": lambda *a: None,
+                "_service_monitor_loop": lambda *a: None,
+                "get_db_setting": lambda self, k, d="": d,
+            },
+        )()
+        C.CORE = fake_core
+        corepatch.apply()
+
+        # Calling core._create_checkout_transaction with custom_name must not raise TypeError
+        res, err = fake_core._create_checkout_transaction(
+            123, {"plan_id": 1}, "WALLET", custom_name="laptop"
+        )
+        self.assertIsNone(err)
+        self.assertEqual(received["custom_name"], "laptop")
+        self.assertEqual(received["uid"], 123)
+
+    def test_trial_monthly_eligibility_and_defaults(self):
+        from speedybot import trial
+        con = sqlite3.connect("app.db")
+        con.execute("CREATE TABLE IF NOT EXISTS trial_services (user_id INTEGER PRIMARY KEY, status TEXT, created_at INTEGER, activated_at INTEGER)")
+        con.execute("DELETE FROM trial_services")
+        con.commit()
+
+        # 1. New user is eligible
+        eligible, rem, _, status = trial.get_trial_eligibility(1001, conn=con)
+        self.assertTrue(eligible)
+        self.assertEqual(rem, 0)
+
+        # 2. User activated trial 10 days ago (within 30 days cooldown) -> Not eligible
+        now = int(time.time())
+        ten_days_ago = now - (10 * 86400)
+        con.execute("INSERT INTO trial_services (user_id, status, created_at, activated_at) VALUES (1002, 'ACTIVE', ?, ?)", (ten_days_ago, ten_days_ago))
+        con.commit()
+
+        eligible, rem, _, status = trial.get_trial_eligibility(1002, conn=con)
+        self.assertFalse(eligible)
+        self.assertEqual(rem, 20)  # 20 days remaining
+
+        # 3. User activated trial 31 days ago -> Eligible again for monthly test!
+        thirty_one_days_ago = now - (31 * 86400)
+        con.execute("INSERT INTO trial_services (user_id, status, created_at, activated_at) VALUES (1003, 'EXPIRED', ?, ?)", (thirty_one_days_ago, thirty_one_days_ago))
+        con.commit()
+
+        eligible, rem, _, status = trial.get_trial_eligibility(1003, conn=con)
+        self.assertTrue(eligible)
+        self.assertEqual(rem, 0)
+
+        # 4. Check defaults: 300MB (0.3 GB), 1 day, unlimited users (0)
+        gb, days, ip = trial.default_values()
+        self.assertEqual(gb, 0.3)
+        self.assertEqual(days, 1)
+        self.assertEqual(ip, 0)
+
+        con.close()
 
 
 if __name__ == "__main__":

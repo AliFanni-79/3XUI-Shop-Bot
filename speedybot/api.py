@@ -287,6 +287,10 @@ class InitStarsOrderRequest(BaseModel):
     custom_name: Optional[str] = None
 
 
+class TrialClaimRequest(BaseModel):
+    custom_name: Optional[str] = None
+
+
 class AdminPlanCreateRequest(BaseModel):
     name: str
     price: int
@@ -399,8 +403,8 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/plans")
-async def get_plans(_user: Dict[str, Any] = Depends(get_current_user)):
-    """Return active plans grouped by category."""
+async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
+    """Return active plans grouped by category and trial info."""
     conn = _db()
     cats = conn.execute(
         "SELECT id, name FROM plan_categories WHERE active = 1 ORDER BY sort_order, id"
@@ -432,7 +436,67 @@ async def get_plans(_user: Dict[str, Any] = Depends(get_current_user)):
             "ip_limit": p["ip_limit"],
         })
 
-    return {"categories": [v for v in grouped.values() if v["plans"]]}
+    from . import trial as _trial
+    uid = user["id"]
+    eligible, rem_days, last_ts, trial_status = _trial.get_trial_eligibility(uid)
+    gb, days, ip, _ = _trial.values(uid)
+
+    trial_info = {
+        "enabled": _core.trial_enabled(),
+        "eligible": eligible,
+        "remaining_days": rem_days,
+        "status": trial_status,
+        "last_activated_at": last_ts,
+        "name": "تست رایگان ۱ روزه",
+        "volume_gb": gb,
+        "volume_display": "300 مگابایت" if abs(gb - 0.3) < 0.05 else f"{gb:g} GB",
+        "days": days,
+        "ip_limit": ip,
+        "price": 0,
+        "is_free": True,
+    }
+
+    return {
+        "categories": [v for v in grouped.values() if v["plans"]],
+        "trial_info": trial_info,
+    }
+
+
+@app.get("/api/trial/status")
+async def get_trial_status(user: Dict[str, Any] = Depends(get_current_user)):
+    """Return whether user is eligible for monthly free trial and trial plan specs."""
+    from . import trial as _trial
+    uid = user["id"]
+    eligible, rem_days, last_ts, trial_status = _trial.get_trial_eligibility(uid)
+    gb, days, ip, _ = _trial.values(uid)
+    return {
+        "enabled": _core.trial_enabled(),
+        "eligible": eligible,
+        "remaining_days": rem_days,
+        "status": trial_status,
+        "last_activated_at": last_ts,
+        "name": "تست رایگان ۱ روزه",
+        "volume_gb": gb,
+        "volume_display": "300 مگابایت" if abs(gb - 0.3) < 0.05 else f"{gb:g} GB",
+        "days": days,
+        "ip_limit": ip,
+        "price": 0,
+        "is_free": True,
+    }
+
+
+@app.post("/api/trial/claim")
+async def claim_trial(
+    body: TrialClaimRequest = TrialClaimRequest(),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Claim monthly free trial (1 day, 300MB, unlimited users)."""
+    uid = user["id"]
+    from . import trial as _trial
+    res = _trial.issue_trial_for_user(uid, custom_name=body.custom_name)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "خطا در صدور تست رایگان"))
+    return res
 
 
 # ---------------------------------------------------------------------------

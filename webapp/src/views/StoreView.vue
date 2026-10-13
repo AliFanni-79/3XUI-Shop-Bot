@@ -25,6 +25,69 @@
     <!-- MODE 1: PRE-MADE CATALOG PLANS                                        -->
     <!-- ===================================================================== -->
     <div v-if="activeMode === 'catalog'" class="space-y-4">
+      <!-- Free Monthly Trial Card -->
+      <div
+        v-if="trialInfo && trialInfo.enabled"
+        class="bg-gradient-to-br from-emerald-950/40 via-tg-sec to-tg-sec rounded-2xl p-4 border border-emerald-500/30 shadow-sm flex flex-col justify-between hover:border-emerald-500/50 transition relative overflow-hidden"
+      >
+        <div class="absolute -top-6 -left-6 w-20 h-20 bg-emerald-500/10 rounded-full blur-xl pointer-events-none"></div>
+
+        <div>
+          <div class="flex justify-between items-start mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🎁</span>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="font-bold text-sm text-tg">{{ trialInfo.name || 'تست رایگان ۱ روزه' }}</h3>
+                  <span class="text-[10px] bg-emerald-500/20 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                    هدیه ماهانه
+                  </span>
+                </div>
+                <span class="text-[10px] text-tg-hint block mt-0.5">
+                  سهمیه هر کاربر: یک‌بار در ماه (هر ۳۰ روز)
+                </span>
+              </div>
+            </div>
+            <span class="text-xs bg-emerald-500/20 text-emerald-300 font-bold px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+              {{ trialInfo.volume_display || '300 مگابایت' }}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs text-tg-hint my-3">
+            <div class="flex items-center gap-1.5 bg-tg/40 p-2 rounded-lg">
+              <span>⏱</span>
+              <span>مدت: {{ trialInfo.days || 1 }} روز</span>
+            </div>
+            <div class="flex items-center gap-1.5 bg-tg/40 p-2 rounded-lg">
+              <span>👥</span>
+              <span>کاربر: {{ trialInfo.ip_limit > 0 ? `${trialInfo.ip_limit} کاربر` : 'نامحدود' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-gray-700/30 mt-1">
+          <div>
+            <span class="text-xs text-tg-hint block">هزینه</span>
+            <span class="text-sm font-bold text-emerald-400">رایگان (۰ تومان)</span>
+          </div>
+
+          <div v-if="trialInfo.eligible">
+            <button
+              @click="openTrialModal"
+              class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow active:scale-95 transition flex items-center gap-1.5"
+            >
+              <span>⚡️</span>
+              <span>دریافت تست رایگان</span>
+            </button>
+          </div>
+          <div v-else>
+            <span class="text-[11px] text-tg-hint bg-tg/50 px-3 py-1.5 rounded-xl border border-gray-700/40 block text-center">
+              {{ trialInfo.status === 'ACTIVE' ? 'سرویس تست فعال دارید' : `تست بعدی تا ${trialInfo.remaining_days} روز دیگر` }}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- Category Tabs -->
       <div v-if="categories.length > 1" class="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
         <button
@@ -433,6 +496,78 @@
         </div>
       </div>
     </div>
+
+    <!-- ===================================================================== -->
+    <!-- FREE TRIAL ACTIVATION MODAL                                           -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="trialModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+      @click.self="closeTrialModal"
+    >
+      <div class="bg-tg-sec w-full max-w-sm rounded-2xl p-5 border border-gray-700/40 shadow-xl space-y-4">
+        <div class="flex justify-between items-center pb-2 border-b border-gray-700/30">
+          <h3 class="font-bold text-sm text-tg flex items-center gap-1.5">
+            <span>🎁</span>
+            <span>دریافت تست رایگان ۱ روزه</span>
+          </h3>
+          <button @click="closeTrialModal" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div class="space-y-3">
+          <div class="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 text-xs text-tg space-y-1.5">
+            <div class="flex justify-between font-semibold">
+              <span>حجم هدیه:</span>
+              <span class="text-emerald-400 font-bold">۳۰۰ مگابایت</span>
+            </div>
+            <div class="flex justify-between font-semibold">
+              <span>مدت اعتبار:</span>
+              <span>۱ روز</span>
+            </div>
+            <div class="flex justify-between font-semibold">
+              <span>محدودیت کاربر:</span>
+              <span>نامحدود</span>
+            </div>
+            <div class="flex justify-between font-semibold pt-1 border-t border-emerald-500/20">
+              <span>هزینه:</span>
+              <span class="text-emerald-400 font-bold">۰ تومان (کاملاً رایگان)</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs text-tg-hint mb-1">نام دلخواه کانفیگ (اختیاری):</label>
+            <input
+              v-model="trialServiceName"
+              type="text"
+              dir="ltr"
+              placeholder="مثلاً: test-phone, trial"
+              class="w-full bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center tracking-wider focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+
+          <p class="text-[11px] text-tg-hint">
+            ⚠️ هر کاربر می‌تواند در هر ماه (هر ۳۰ روز) یک‌بار این تست رایگان را دریافت کند.
+          </p>
+
+          <div
+            v-if="trialMessage"
+            class="p-2.5 rounded-xl text-xs text-center border"
+            :class="trialSuccess ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-red-500/15 text-red-400 border-red-500/30'"
+          >
+            {{ trialMessage }}
+          </div>
+
+          <button
+            @click="claimTrial"
+            :disabled="submittingTrial"
+            class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <span v-if="submittingTrial" class="inline-block animate-spin">⏳</span>
+            <span>{{ submittingTrial ? 'در حال فعال‌سازی...' : 'تأیید و فعال‌سازی تست رایگان' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -448,7 +583,8 @@ import {
   initCustomWalletOrder,
   getActiveGateways,
   initGatewayOrder,
-  initStarsOrder
+  initStarsOrder,
+  claimFreeTrial
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -459,6 +595,12 @@ const auth = useAuthStore()
 const activeMode = ref('catalog') // 'catalog' | 'builder'
 const categories = ref([])
 const selectedCategoryId = ref(null)
+const trialInfo = ref(null)
+const trialModalOpen = ref(false)
+const trialServiceName = ref('')
+const submittingTrial = ref(false)
+const trialMessage = ref('')
+const trialSuccess = ref(false)
 const activeGateways = ref({ card: true, wallet: true, zibal: false, zarinpal: false, stars: false, stars_rate: 1500 })
 
 // Builder state
@@ -798,6 +940,43 @@ const payStars = async () => {
   }
 }
 
+const openTrialModal = () => {
+  trialModalOpen.value = true
+  trialServiceName.value = ''
+  trialMessage.value = ''
+  trialSuccess.value = false
+}
+
+const closeTrialModal = () => {
+  trialModalOpen.value = false
+  submittingTrial.value = false
+}
+
+const claimTrial = async () => {
+  submittingTrial.value = true
+  trialMessage.value = ''
+  try {
+    const sName = trialServiceName.value.trim() || null
+    await claimFreeTrial(sName)
+    trialSuccess.value = true
+    trialMessage.value = '🎉 تست رایگان با موفقیت فعال شد! در حال انتقال به بخش سرویس‌ها...'
+    if (trialInfo.value) {
+      trialInfo.value.eligible = false
+      trialInfo.value.status = 'ACTIVE'
+      trialInfo.value.remaining_days = 30
+    }
+    setTimeout(() => {
+      trialModalOpen.value = false
+      router.push('/services')
+    }, 1200)
+  } catch (err) {
+    trialSuccess.value = false
+    trialMessage.value = err.response?.data?.detail || 'خطا در فعال‌سازی تست رایگان'
+  } finally {
+    submittingTrial.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const [pRes, bRes, gRes] = await Promise.all([
@@ -806,6 +985,9 @@ onMounted(async () => {
       getActiveGateways().catch(() => null)
     ])
     categories.value = pRes.data.categories || []
+    if (pRes.data?.trial_info) {
+      trialInfo.value = pRes.data.trial_info
+    }
     if (categories.value.length) {
       selectedCategoryId.value = categories.value[0].id
     }
