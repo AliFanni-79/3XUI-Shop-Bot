@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from unittest.mock import MagicMock
 
 from speedybot import context as C, corepatch, linked_services, storage, updates
 
@@ -357,7 +358,105 @@ class StorageTests(unittest.TestCase):
 
         con.close()
 
+    def test_trial_override_precedence(self):
+        from speedybot import trial, context as C
+        con = sqlite3.connect("app.db")
+        con.execute("CREATE TABLE IF NOT EXISTS trial_overrides (user_id INTEGER PRIMARY KEY, volume_gb REAL, days INTEGER, ip_limit INTEGER, note TEXT, updated_at INTEGER, updated_by INTEGER)")
+        con.execute("DELETE FROM trial_overrides")
+        con.commit()
+
+        # Without override -> defaults
+        gb, days, ip, is_ov = trial.values(9901)
+        self.assertFalse(is_ov)
+        self.assertEqual(gb, 0.3)
+        self.assertEqual(days, 1)
+        self.assertEqual(ip, 0)
+
+        # With override
+        con.execute(
+            "INSERT INTO trial_overrides (user_id, volume_gb, days, ip_limit, updated_at, updated_by) VALUES (9901, 5.0, 7, 3, 1000, 1)"
+        )
+        con.commit()
+        con.close()
+
+        gb, days, ip, is_ov = trial.values(9901)
+        self.assertTrue(is_ov)
+        self.assertEqual(gb, 5.0)
+        self.assertEqual(days, 7)
+        self.assertEqual(ip, 3)
+
+    def test_trial_issue_flow_records_email_and_custom_name(self):
+        from speedybot import trial, context as C
+        con = sqlite3.connect("app.db")
+        con.execute("CREATE TABLE IF NOT EXISTS trial_services (user_id INTEGER PRIMARY KEY, email TEXT, status TEXT, last_error TEXT, sub_id TEXT, created_at INTEGER, activated_at INTEGER)")
+        con.execute("DELETE FROM trial_services")
+        con.commit()
+
+        # Mock XUI calls in fake core
+        class FakeCore:
+            DEVELOPMENT_MODE = False
+            requests = MagicMock()
+            @staticmethod
+            def trial_enabled(): return True
+            @staticmethod
+            def purchase_gate(uid): return True
+            @staticmethod
+            def get_db_setting(key, default=""): return default
+            @staticmethod
+            def _xui_headers(): return {}
+            @staticmethod
+            def _xui_proxies(): return {}
+            @staticmethod
+            def _xui_url(p): return f"http://xui.test/{p}"
+            @staticmethod
+            def _selected_inbound_ids_for(*a): return [1]
+            @staticmethod
+            def _get_client_data(*a): return None
+            @staticmethod
+            def _safe_json(*a): return {"success": True}
+            @staticmethod
+            def _sync_client_inbounds(*a): pass
+            @staticmethod
+            def _get_client_subscription_id(*a): return "sub_trial_uuid_123"
+            @staticmethod
+            def _get_delivery_links(*a): return ["vless://testlink"]
+            @staticmethod
+            def _subscription_url(sub): return f"http://sub.test/{sub}"
+            @staticmethod
+            def _subscription_markup(*a, **k): return None
+            @staticmethod
+            def _xui_assign_group(*a): pass
+            @staticmethod
+            def _mark_trial(uid, status, err=None):
+                c = sqlite3.connect("app.db")
+                c.execute("UPDATE trial_services SET status=?, activated_at=? WHERE user_id=?", (status, int(time.time()), uid))
+                c.commit()
+                c.close()
+            @staticmethod
+            def notify_admins(*a, **k): pass
+            @staticmethod
+            def main_menu(): return None
+
+        fake_resp = MagicMock()
+        fake_resp.status_code = 200
+        FakeCore.requests.post.return_value = fake_resp
+
+        C.CORE = FakeCore()
+
+        res = trial.issue_trial_for_user(7788, custom_name="my_trial_box")
+        self.assertTrue(res["success"])
+        self.assertEqual(res["sub_id"], "sub_trial_uuid_123")
+        self.assertIn("my_trial_box", res["email"])
+
+        row = con.execute("SELECT status, email, sub_id FROM trial_services WHERE user_id=7788").fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "ACTIVE")
+        self.assertIn("my_trial_box", row[1])
+        self.assertEqual(row[2], "sub_trial_uuid_123")
+        con.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -5,6 +5,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlencode
 
+import os
+os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+
 from fastapi.testclient import TestClient
 
 from speedybot.api import app, _verify_init_data, _VERIFIED_CACHE
@@ -214,6 +217,86 @@ class TestMiniAppApi(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         # Should return html content with <!DOCTYPE html>
         self.assertIn("<!DOCTYPE html>", response.text)
+
+    def test_get_plans_includes_trial_info(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 555666, "first_name": "TestUser"})
+            with patch("speedybot.trial.get_trial_eligibility", return_value=(True, 0, 0, "NONE")):
+                with patch("speedybot.trial.values", return_value=(0.3, 1, 0, False)):
+                    response = self.client.get("/api/plans", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(response.status_code, 200)
+                    data = response.json()
+                    self.assertIn("categories", data)
+                    self.assertIn("trial_info", data)
+                    trial = data["trial_info"]
+                    self.assertEqual(trial["volume_gb"], 0.3)
+                    self.assertEqual(trial["days"], 1)
+                    self.assertEqual(trial["ip_limit"], 0)
+                    self.assertEqual(trial["price"], 0)
+                    self.assertTrue(trial["eligible"])
+
+    def test_get_trial_status_and_claim(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 555666, "first_name": "TestUser"})
+            with patch("speedybot.trial.get_trial_eligibility", return_value=(True, 0, 0, "NONE")):
+                with patch("speedybot.trial.values", return_value=(0.3, 1, 0, False)):
+                    status_res = self.client.get("/api/trial/status", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(status_res.status_code, 200)
+                    status_data = status_res.json()
+                    self.assertTrue(status_data["eligible"])
+                    self.assertEqual(status_data["remaining_days"], 0)
+                    self.assertEqual(status_data["volume_gb"], 0.3)
+
+            # Test successful claim
+            with patch("speedybot.trial.issue_trial_for_user", return_value={"success": True, "email": "vpn_trial_555", "sub_url": "https://sub.test/123"}):
+                claim_res = self.client.post(
+                    "/api/trial/claim",
+                    json={"custom_name": "my_fast_vpn"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(claim_res.status_code, 200)
+                claim_data = claim_res.json()
+                self.assertTrue(claim_data["success"])
+                self.assertEqual(claim_data["email"], "vpn_trial_555")
+
+            # Test cooldown rejection (already claimed this month)
+            with patch("speedybot.trial.issue_trial_for_user", return_value={"success": False, "error": "شما در این ماه از تست رایگان استفاده کرده‌اید. امکان دریافت مجدد تا ۲۵ روز دیگر وجود ندارد."}):
+                cooldown_res = self.client.post(
+                    "/api/trial/claim",
+                    json={"custom_name": "my_fast_vpn"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(cooldown_res.status_code, 400)
+                self.assertIn("۲۵ روز", cooldown_res.json()["detail"])
+
+    def test_init_card_order_passes_custom_name(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 555666, "first_name": "TestUser"})
+            with patch("speedybot.api._get_plan", return_value={"id": 1, "name": "Plan 1", "price": 50000, "days": 30, "volume_gb": 10, "ip_limit": 1}):
+                with patch("speedybot.core._start_card_checkout") as mock_card_checkout:
+                    res = self.client.post(
+                        "/api/orders/init-card",
+                        json={"plan_id": 1, "custom_name": "home_pc"},
+                        headers={"X-Telegram-Init-Data": init_data}
+                    )
+                    self.assertEqual(res.status_code, 200)
+                    self.assertTrue(mock_card_checkout.called)
+                    self.assertEqual(mock_card_checkout.call_args[1].get("custom_name"), "home_pc")
+
+    def test_init_wallet_order_passes_custom_name(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 555666, "first_name": "TestUser"})
+            with patch("speedybot.api._get_plan", return_value={"id": 1, "name": "Plan 1", "price": 50000, "days": 30, "volume_gb": 10, "ip_limit": 1}):
+                with patch("speedybot.core._create_checkout_transaction", return_value=({"tx_id": 101}, None)) as mock_wallet_checkout:
+                    with patch("speedybot.core.finalize_service_transaction", return_value=True):
+                        res = self.client.post(
+                            "/api/orders/init-wallet",
+                            json={"plan_id": 1, "custom_name": "office_pc"},
+                            headers={"X-Telegram-Init-Data": init_data}
+                        )
+                        self.assertEqual(res.status_code, 200)
+                        self.assertTrue(mock_wallet_checkout.called)
+                        self.assertEqual(mock_wallet_checkout.call_args[1].get("custom_name"), "office_pc")
 
 
 if __name__ == "__main__":

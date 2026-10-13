@@ -5,6 +5,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 from urllib.parse import urlencode
 
+import os
+os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+
 from fastapi.testclient import TestClient
 
 from speedybot.api import app

@@ -26,6 +26,7 @@ jobs:
         run: |
           bash -n install.sh
           bash -n update.sh
+          bash -n upgrade.sh
           bash -n restore.sh
       - name: Integrated layout
         run: |
@@ -37,5 +38,5 @@ jobs:
           test ! -e speedybot_v4
       - name: Version file
         run: |
-          test "$(cat VERSION.txt)" = "5.0.0"
-          python -c 'import speedybot; assert speedybot.VERSION == "5.0.0"'
+          test -f VERSION.txt
+          python -c 'import speedybot; assert speedybot.VERSION == open("VERSION.txt").read().strip()'

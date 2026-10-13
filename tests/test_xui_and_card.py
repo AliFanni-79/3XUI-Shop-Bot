@@ -18,11 +18,21 @@ except ImportError:
             def callback_query_handler(self, *args, **kwargs):
                 def decorator(fn): return fn
                 return decorator
+            def pre_checkout_query_handler(self, *args, **kwargs):
+                def decorator(fn): return fn
+                return decorator
             def register_next_step_handler(self, *args, **kwargs): pass
             def send_message(self, *args, **kwargs): pass
             def send_photo(self, *args, **kwargs): pass
             def remove_webhook(self, *args, **kwargs): pass
             def answer_callback_query(self, *args, **kwargs): pass
+            def __getattr__(self, name):
+                if name.endswith("_handler"):
+                    def decorator(*args, **kwargs):
+                        def inner(fn): return fn
+                        return inner
+                    return decorator
+                return lambda *args, **kwargs: None
         class types:
             class InlineKeyboardMarkup:
                 def __init__(self, *args, **kwargs): pass
@@ -44,6 +54,22 @@ except ImportError:
     sys.modules['telebot.types'] = m.types
     sys.modules['telebot.apihelper'] = m.apihelper
 
+try:
+    import requests
+except ImportError:
+    import types
+    mock_requests = types.ModuleType("requests")
+    mock_requests.get = lambda *args, **kwargs: None
+    mock_requests.post = lambda *args, **kwargs: None
+    mock_requests.Session = lambda *args, **kwargs: None
+    mock_requests.exceptions = types.ModuleType("requests.exceptions")
+    mock_requests.exceptions.RequestException = Exception
+    mock_requests.exceptions.Timeout = Exception
+    mock_requests.exceptions.ConnectionError = Exception
+    sys.modules["requests"] = mock_requests
+    sys.modules["requests.exceptions"] = mock_requests.exceptions
+
+os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
 from speedybot import env_manager, core
 
 

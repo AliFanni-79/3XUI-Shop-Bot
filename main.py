@@ -38,7 +38,7 @@ def _start_api_server():
 
 
 def run():
-    if not core.BOT_TOKEN or core.BOT_TOKEN == "DUMMY_TEST_TOKEN":
+    if not core.BOT_TOKEN or "DUMMY" in core.BOT_TOKEN:
         print("\n" + "=" * 60)
         print("❌ خطا: فایل .env وجود ندارد یا مقدار BOT_TOKEN در آن تنظیم نشده است!")
         print("لطفاً یک کپی از فایل .env با نام .env بسازید:")
