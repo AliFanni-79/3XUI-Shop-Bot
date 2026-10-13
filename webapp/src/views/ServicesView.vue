@@ -25,7 +25,7 @@
               <span>⚡️</span>
               <span>{{ svc.plan_name || 'سرویس اشتراکی' }}</span>
             </h3>
-            <span class="text-[11px] text-tg-hint block mt-0.5">شناسه: {{ svc.email }}</span>
+            <span class="text-[11px] text-tg-hint block mt-0.5">نام کانفیگ: {{ svc.custom_name || svc.email }}</span>
           </div>
 
           <span

@@ -385,7 +385,7 @@ def _legacy_spec(call):
     if action == "delete_sub":
         return (
             "حذف Client از 3x-ui",
-            "نام/Email دقیق Client در پنل 3x-ui را بفرستید.\n\n<b>مثال:</b> <code>speedping_123456789_42</code>\n\n"
+            f"نام/Email دقیق Client در پنل 3x-ui را بفرستید.\n\n<b>مثال:</b> <code>{core.get_brand_slug()}_123456789_42</code>\n\n"
             "⚠️ این عملیات Client را از پنل حذف می‌کند؛ قبل از ارسال نام را دوباره بررسی کنید.",
             core.process_delete_panel_sub,
             (),

@@ -147,7 +147,8 @@ def request(message):
     if not C.CORE.purchase_gate(uid):
         return
 
-    email = f"speedping_trial_{uid}"
+    from .db import get_brand_slug
+    email = f"{get_brand_slug()}_trial_{uid}"
     c = C.db()
     try:
         c.execute("BEGIN IMMEDIATE")

@@ -23,6 +23,13 @@ except ImportError:
 
 from . import env_manager
 from . import backup_manager
+from .db import (
+    get_brand_name,
+    get_brand_slug,
+    get_connection,
+    get_db_path,
+    resolve_unique_service_email,
+)
 env_manager.load_env_file()
 # --- CONFIGURATIONS (READING FROM SYSTEM ENV) ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -52,6 +59,10 @@ DEFAULT_PLANS = [
 ]
 
 # --- DATABASE SETUP / MIGRATIONS ---
+def _db_connect(timeout: int = 15):
+    from .db import get_connection
+    return get_connection(timeout=timeout)
+
 def _ensure_column(cursor, table, column, definition):
     cursor.execute(f"PRAGMA table_info({table})")
     columns = {row[1] for row in cursor.fetchall()}
@@ -59,7 +70,7 @@ def _ensure_column(cursor, table, column, definition):
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 def init_db():
-    conn = sqlite3.connect('speedping.db', timeout=15)
+    conn = _db_connect(15)
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
@@ -115,6 +126,8 @@ def init_db():
         ('discount_code', 'TEXT'),
         ('discount_amount', 'INTEGER NOT NULL DEFAULT 0'),
         ('extra_volume_gb', 'REAL NOT NULL DEFAULT 0'),
+        ('sub_id', 'TEXT'),
+        ('custom_name', 'TEXT'),
     ]:
         _ensure_column(cursor, 'transactions', col, definition)
 
@@ -126,6 +139,7 @@ def init_db():
         activated_at INTEGER,
         last_error TEXT
     )''')
+    _ensure_column(cursor, 'trial_services', 'sub_id', 'TEXT')
     cursor.execute('''CREATE TABLE IF NOT EXISTS support_messages (admin_msg_id INTEGER PRIMARY KEY, user_id INTEGER)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
 
@@ -345,8 +359,8 @@ def init_db():
         'xui_bearer_token': XUI_BEARER_TOKEN or '',
         'xui_sub_server_url': XUI_SUB_SERVER_URL or '',
         'xui_sub_path': XUI_SUB_PATH or '/sub/',
-        'welcome_text': 'سلام به ربات فروش خودکار **SpeedPing** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید.',
-        'faq_text': '📚 **راهنمای SpeedPing**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید.',
+        'welcome_text': f"سلام به ربات فروش خودکار **{get_brand_name()}** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید.",
+        'faq_text': f"📚 **راهنمای {get_brand_name()}**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید.",
     }
     for key, value in defaults.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
@@ -370,7 +384,7 @@ init_db()
 # --- DATABASE HELPERS ---
 def get_db_setting(key, default_value=""):
     try:
-        conn = sqlite3.connect('speedping.db')
+        conn = _db_connect()
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = cursor.fetchone()
@@ -380,7 +394,7 @@ def get_db_setting(key, default_value=""):
         return default_value
 
 def update_db_setting(key, value):
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
@@ -504,10 +518,6 @@ def replace_domain_in_all_configs(old_domain, new_domain):
 
     return True, f"دامنه با موفقیت جایگزین شد. بخش‌های به‌روزرسانی‌شده: {', '.join(changes) if changes else 'تنظیمات با دامنه جدید همگام بودند'}"
 
-def _db_connect():
-    conn = sqlite3.connect('speedping.db', timeout=15)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def _row_to_plan(row):
@@ -750,15 +760,15 @@ def create_database_backup(manual=False):
     backup_root = Path('backups') / 'auto'
     backup_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    target = backup_root / f"speedping-{stamp}.db"
-    src = sqlite3.connect('speedping.db', timeout=30)
+    target = backup_root / f"backup-{stamp}.db"
+    src = _db_connect(30)
     dst = sqlite3.connect(str(target))
     try:
         src.backup(dst)
     finally:
         dst.close(); src.close()
     retention = max(1, int(get_db_setting('automatic_backup_retention', '14') or 14))
-    backups = sorted(backup_root.glob('speedping-*.db'), key=lambda x: x.stat().st_mtime, reverse=True)
+    backups = sorted(list(backup_root.glob('backup-*.db')) + list(backup_root.glob('speedping-*.db')), key=lambda x: x.stat().st_mtime, reverse=True)
     for old in backups[retention:]:
         try: old.unlink()
         except Exception: pass
@@ -837,7 +847,7 @@ def _channel_membership_ok(user_id):
         member = bot.get_chat_member(channel, int(user_id))
         if member.status in ('member', 'administrator', 'creator'):
             return True, None
-        return False, "برای خرید باید ابتدا عضو کانال SpeedPing شوید."
+        return False, f"برای خرید باید ابتدا عضو کانال {get_brand_name()} شوید."
     except Exception as e:
         return False, "امکان بررسی عضویت کانال وجود ندارد؛ به پشتیبانی اطلاع دهید."
 
@@ -1294,7 +1304,7 @@ def _maybe_ask_acquisition_source(user_id):
     conn.execute('UPDATE user_acquisition SET asked_at=COALESCE(asked_at,?) WHERE user_id=?', (now, int(user_id))); conn.commit(); conn.close()
     m = types.InlineKeyboardMarkup(row_width=2)
     for code, title in ACQUISITION_SOURCES.items(): m.add(types.InlineKeyboardButton(title, callback_data=f'survey:source:{code}'))
-    bot.send_message(int(user_id), '🙏 یک سؤال کوتاه برای بهتر شدن SpeedPing:\n**از چه طریقی با ما آشنا شدید؟**', parse_mode='Markdown', reply_markup=m)
+    bot.send_message(int(user_id), f'🙏 یک سؤال کوتاه برای بهتر شدن {get_brand_name()}:\n**از چه طریقی با ما آشنا شدید؟**', parse_mode='Markdown', reply_markup=m)
     return True
 
 
@@ -1409,11 +1419,11 @@ def send_welcome(message):
     if is_new_user and referral_code:
         bound_referrer = bind_referrer_for_new_user(user_id, referral_code)
 
-    welcome_text = get_db_setting('welcome_text', "سلام به ربات فروش خودکار **SpeedPing** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید.")
+    welcome_text = get_db_setting('welcome_text', f"سلام به ربات فروش خودکار **{get_brand_name()}** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید.")
     if bound_referrer:
         welcome_text += "\n\n🤝 لینک دعوت شما با موفقیت ثبت شد. اگر خرید موفق انجام دهید، پورسانت به کیف پول معرف شما اضافه می‌شود."
         try:
-            bot.send_message(bound_referrer, "🎯 یک کاربر جدید با لینک دعوت شما وارد SpeedPing شد.\nپورسانت بعد از خرید موفق او به کیف پول شما اضافه می‌شود.")
+            bot.send_message(bound_referrer, f"🎯 یک کاربر جدید با لینک دعوت شما وارد {get_brand_name()} شد.\nپورسانت بعد از خرید موفق او به کیف پول شما اضافه می‌شود.")
         except Exception:
             pass
 
@@ -1510,7 +1520,7 @@ def show_plans(message):
         return
     bot.send_message(
         message.chat.id,
-        f"🛒 **لیست پلان‌های SpeedPing**\n\n" + "\n\n".join(plan_lines) +
+        f"🛒 **لیست پلان‌های {get_brand_name()}**\n\n" + "\n\n".join(plan_lines) +
         f"\n\n👛 موجودی کیف پول شما: `{balance:,} تومان`\n\n💡 تعداد کاربر هر پلن همان IP Limit سرویس روی پنل Sanaei است.",
         reply_markup=markup,
         parse_mode="Markdown"
@@ -1530,7 +1540,7 @@ def show_affiliate_panel(message):
     percent = get_referral_percent()
 
     text = (
-        "🤝 **همکاری در فروش SpeedPing**\n\n"
+        f"🤝 **همکاری در فروش {get_brand_name()}**\n\n"
         f"👛 موجودی کیف پول: **{balance:,} تومان**\n"
         f"👥 تعداد دعوت‌شده‌ها: **{invited} نفر**\n"
         f"✅ خریداران موفق: **{buyers} نفر**\n"
@@ -1546,7 +1556,7 @@ def show_affiliate_panel(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     if link:
         text += f"\n🔗 **لینک اختصاصی دعوت شما:**\n`{link}`"
-        share_url = f"https://t.me/share/url?url={quote(link, safe='')}&text={quote('با لینک من وارد SpeedPing شو و سرویس‌ها را ببین ⚡️', safe='')}"
+        share_url = f"https://t.me/share/url?url={quote(link, safe='')}&text={quote(f'با لینک من وارد {get_brand_name()} شو و سرویس‌ها را ببین ⚡️', safe='')}"
         markup.add(types.InlineKeyboardButton("📤 ارسال لینک دعوت", url=share_url))
     else:
         text += f"\n🔑 کد دعوت شما: `{code}`\n⚠️ در حال حاضر دریافت username ربات از تلگرام ممکن نشد؛ کمی بعد دوباره این بخش را باز کنید."
@@ -1584,10 +1594,11 @@ def request_free_trial(message):
         return
     if not purchase_gate(user_id):
         return
-    trial_email = f"speedping_trial_{user_id}"
+    from .db import get_brand_name, get_brand_slug
+    trial_email = f"{get_brand_slug()}_trial_{user_id}"
 
     # رزرو اتمیک تست: با چند بار کلیک هم فقط یک درخواست برای هر کاربر ساخته می‌شود.
-    conn = sqlite3.connect('speedping.db', timeout=15)
+    conn = _db_connect(15)
     cursor = conn.cursor()
     try:
         cursor.execute("BEGIN IMMEDIATE")
@@ -1608,7 +1619,7 @@ def request_free_trial(message):
             else:
                 bot.send_message(
                     message.chat.id,
-                    "🎁 شما قبلاً تست رایگان SpeedPing را دریافت کرده‌اید. هر کاربر فقط یک‌بار امکان دریافت تست دارد.",
+                    f"🎁 شما قبلاً تست رایگان {get_brand_name()} را دریافت کرده‌اید. هر کاربر فقط یک‌بار امکان دریافت تست دارد.",
                     reply_markup=main_menu()
                 )
             return
@@ -1659,7 +1670,7 @@ def _release_stale_checkouts(user_id=None):
 def _product_snapshot(plan):
     return {
         'plan_id': int(plan.get('id', 0)),
-        'name': str(plan.get('name') or 'SpeedPing'),
+        'name': str(plan.get('name') or get_brand_name()),
         'price': int(plan.get('price') or 0),
         'days': int(plan.get('days') or 0),
         'volume': float(plan.get('volume', plan.get('volume_gb', 0)) or 0),
@@ -1667,7 +1678,7 @@ def _product_snapshot(plan):
     }
 
 
-def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0):
+def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
     plan = _product_snapshot(plan)
     _release_stale_checkouts(user_id)
     conn = _db_connect()
@@ -1687,21 +1698,26 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
-                service_email, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
+                service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
                 plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb)
-               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(user_id), int(plan['plan_id']), status, int(final_price), payment_method, int(wallet_used), int(cash_amount), now_ts,
-             target_service_email, kind, plan['name'], int(plan['days']), float(plan['volume']), int(plan['ip_limit']),
+             target_service_email, custom_name, kind, plan['name'], int(plan['days']), float(plan['volume']), int(plan['ip_limit']),
              code, int(discount_amount), float(extra_volume_gb or 0))
         )
         tx_id = int(cur.lastrowid)
         if kind == 'NEW' and not target_service_email:
             username_mode = get_db_setting('service_username_mode', 'telegram_tx')
-            if username_mode == 'random':
-                service_email = f"speedping_{secrets.token_hex(6)}"
+            if custom_name and str(custom_name).strip():
+                from .db import resolve_unique_service_email
+                service_email = resolve_unique_service_email(custom_name, user_id=user_id, tx_id=tx_id, conn=conn)
+            elif username_mode == 'random':
+                from .db import get_brand_slug
+                service_email = f"{get_brand_slug()}_{secrets.token_hex(6)}"
             else:
-                service_email = f"speedping_{int(user_id)}_{tx_id}"
-            conn.execute("UPDATE transactions SET service_email = ? WHERE id = ?", (service_email, tx_id))
+                from .db import resolve_unique_service_email
+                service_email = resolve_unique_service_email(None, user_id=user_id, tx_id=tx_id, conn=conn)
+            conn.execute("UPDATE transactions SET service_email = ?, custom_name = ? WHERE id = ?", (service_email, custom_name or service_email, tx_id))
         if code and discount_amount > 0:
             _reserve_discount(conn, int(user_id), tx_id, code, discount_amount)
         if payment_method == 'WALLET':
@@ -1763,8 +1779,8 @@ def _send_receipt_to_admins(tx_id, photo_id):
             continue
 
 
-def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0):
-    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb)
+def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
+    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name)
     if not result:
         bot.send_message(chat_id, f"❌ خطا در ایجاد تراکنش: {error}", reply_markup=main_menu())
         return
@@ -1801,8 +1817,8 @@ def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_emai
     bot.register_next_step_handler(msg, process_receipt, result['tx_id'])
 
 
-def _start_wallet_checkout(call, plan, kind='NEW', target_service_email=None, extra_volume_gb=0):
-    result, error = _create_checkout_transaction(call.from_user.id, plan, 'WALLET', kind, target_service_email, extra_volume_gb)
+def _start_wallet_checkout(call, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
+    result, error = _create_checkout_transaction(call.from_user.id, plan, 'WALLET', kind, target_service_email, extra_volume_gb, custom_name=custom_name)
     if not result:
         bot.answer_callback_query(call.id, error or "خطا در خرید کیف پول", show_alert=True)
         return
@@ -1954,7 +1970,7 @@ def show_account(message):
     balance = int(balance_row['balance'] if balance_row else 0)
 
     msg_text = (
-        f"👤 **حساب کاربری شما در SpeedPing**\n\n"
+        f"👤 **حساب کاربری شما در {get_brand_name()}**\n\n"
         f"🆔 آیدی تلگرام: `{user_id}`\n"
         f"👛 موجودی کیف پول: **{balance:,} تومان**\n"
     )
@@ -2023,7 +2039,8 @@ def handle_view_status(call):
     if not row:
         bot.answer_callback_query(call.id, "این سرویس برای حساب شما پیدا نشد.", show_alert=True)
         return
-    user_email = row['service_email'] or f"speedping_{user_id}_{tx_id}"
+    from .db import get_brand_slug
+    user_email = row['service_email'] or f"{get_brand_slug()}_{user_id}_{tx_id}"
     bot.answer_callback_query(call.id, "در حال استعلام وضعیت زنده...")
     send_xui_status(user_id, user_email, tx_id)
 
@@ -2088,7 +2105,7 @@ def process_existing_service_claim(message):
 @bot.callback_query_handler(func=lambda call: call.data == 'view:trial')
 def handle_view_trial_status(call):
     user_id = call.message.chat.id
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM trial_services WHERE user_id = ? AND status = 'ACTIVE'", (user_id,))
     row = cursor.fetchone()
@@ -2144,7 +2161,7 @@ def send_xui_status(user_id, user_email, service_tx_id=None):
             if not sub_id:
                 sub_id = "error_id"
                 
-            status_text = f"📊 **گزارش وضعیت زنده سرویس SpeedPing**\n\n" \
+            status_text = f"📊 **گزارش وضعیت زنده سرویس {get_brand_name()}**\n\n" \
                           f"✉️ نام کاربری: `{user_email}`\n" \
                           f"⚡️ وضعیت سرویس: {enable_status}\n" \
                           f"📥 حجم مصرف شده: `{used_gb:.2f} GB`\n" \
@@ -2330,12 +2347,13 @@ def volume_wallet_checkout(call):
 @bot.message_handler(func=lambda message: message.text == "📞 پشتیبانی")
 def support_mode(message):
     USER_STATES[message.chat.id] = 'SUPPORT'
-    bot.send_message(message.chat.id, "📞 **بخش پشتیبانی SpeedPing**\n\nپیام خود را ارسال کنید. مدیریت به زودی پاسخ خواهد داد.", reply_markup=back_menu(), parse_mode="Markdown")
+    from .db import get_brand_name
+    bot.send_message(message.chat.id, f"📞 **بخش پشتیبانی {get_brand_name()}**\n\nپیام خود را ارسال کنید. مدیریت به زودی پاسخ خواهد داد.", reply_markup=back_menu(), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.reply_to_message is not None and is_admin(message.from_user.id))
 def handle_admin_reply(message):
     admin_reply_id = message.reply_to_message.message_id
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     cursor.execute("SELECT user_id FROM support_messages WHERE admin_msg_id = ?", (admin_reply_id,))
     row = cursor.fetchone()
@@ -2354,7 +2372,7 @@ def forward_to_admin(message):
     bot.send_message(ADMIN_ID, f"👤 **پیام جدید پشتیبانی از کاربر:** `{message.chat.id}`\nReply کنید:")
     admin_msg = bot.copy_message(chat_id=ADMIN_ID, from_chat_id=message.chat.id, message_id=message.message_id)
     
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     cursor.execute("INSERT INTO support_messages (admin_msg_id, user_id) VALUES (?, ?)", (admin_msg.message_id, message.chat.id))
     conn.commit()
@@ -2455,7 +2473,7 @@ def super_admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ شما به این منو دسترسی ندارید.")
         return
-    bot.send_message(message.chat.id, "🚀 **به پنل مدیریت ارشد SpeedPing خوش آمدید**\nتنظیمات مورد نظر را انتخاب کنید:", reply_markup=admin_main_menu(), parse_mode="Markdown")
+    bot.send_message(message.chat.id, f"🚀 **به پنل مدیریت ارشد {get_brand_name()} خوش آمدید**\nتنظیمات مورد نظر را انتخاب کنید:", reply_markup=admin_main_menu(), parse_mode="Markdown")
 
 def _show_admin_bank_config(admin_chat):
     card_num = get_db_setting('card_number')
@@ -2596,7 +2614,7 @@ def handle_admin_panel_callbacks(call):
         conn.close()
 
         stats_text = (
-            f"📊 **آمار سیستم فروش SpeedPing:**\n\n"
+            f"📊 **آمار سیستم فروش {get_brand_name()}:**\n\n"
             f"👤 کل کاربران ثبت‌شده: `{int(total_users)} نفر`\n"
             f"🟢 کاربران فعال در ربات: `{int(active_users)} نفر`\n"
             f"📦 عملیات مالی موفق: `{int(total_sales_count)} عدد`\n"
@@ -3141,7 +3159,7 @@ def handle_admin_panel_callbacks(call):
                 xray_state = obj.get("xray", {}).get("state", "unknown")
                 xray_ver = obj.get("xray", {}).get("version", "unknown")
                 
-                srv_txt = f"🖥 **وضعیت فعلی سرور آلمان SpeedPing:**\n\n" \
+                srv_txt = f"🖥 **وضعیت فعلی سرور {get_brand_name()}:**\n\n" \
                           f"🔥 مصرف پردازنده: `{cpu}%`\n" \
                           f"🧠 حافظه رم: `{mem_curr:.2f} GB / {mem_total:.2f} GB`\n" \
                           f"💾 دیسک سرور: `{disk_curr:.2f} GB / {disk_total:.2f} GB`\n" \
@@ -3614,7 +3632,7 @@ def refund_issue_wallet_transaction(call, tx_id):
 
 
 def process_admin_broadcast(message):
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE is_active = 1")
     users = cursor.fetchall()
@@ -3804,9 +3822,10 @@ def process_admin_backup_restore(message):
             )
             return
 
+        from .db import get_db_path
         success, res_msg, stats, safety_path = backup_manager.restore_database_from_file(
             str(temp_file),
-            target_db="speedping.db",
+            target_db=get_db_path(),
             pre_restore_backup=True
         )
 
@@ -3917,6 +3936,32 @@ def _subscription_url(sub_id):
     if not path.endswith("/"):
         path += "/"
     return f"{base}{path}{quote(str(sub_id), safe='')}"
+
+
+def get_client_sub_url(email: str, sub_id: Optional[str] = None) -> Optional[str]:
+    """Resolve the true subscription URL using sub_id or by querying 3x-ui panel."""
+    if sub_id and str(sub_id).strip() and str(sub_id).strip().lower() not in ("none", "null", "error_id"):
+        return _subscription_url(str(sub_id).strip())
+    if not email:
+        return None
+    try:
+        headers = _xui_headers()
+        proxies = _xui_proxies()
+        client = _get_client_data(email, headers, proxies)
+        resolved_sid = _get_client_subscription_id(email, headers, proxies, client)
+        if resolved_sid:
+            try:
+                conn = _db_connect()
+                conn.execute("UPDATE transactions SET sub_id = ? WHERE service_email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
+                conn.execute("UPDATE trial_services SET sub_id = ? WHERE email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+            return _subscription_url(resolved_sid)
+    except Exception:
+        pass
+    return None
 
 
 def _xui_response_error(response, action):
@@ -4231,7 +4276,7 @@ def add_volume_xui_service(user_email, volume_gb):
 
 
 def _mark_trial(user_id, status, error=None):
-    conn = sqlite3.connect('speedping.db')
+    conn = _db_connect()
     cursor = conn.cursor()
     if status == 'ACTIVE':
         cursor.execute(
@@ -4321,7 +4366,7 @@ def generate_trial_xui_config(user_id, user_email):
         return
 
     msg_text = (
-            "🎁 **تست رایگان SpeedPing شما فعال شد!**\n\n"
+            f"🎁 **تست رایگان {get_brand_name()} شما فعال شد!**\n\n"
             "📦 حجم: **1 گیگابایت**\n"
             "⏱ اعتبار: **1 روز**\n"
             "👤 هر کاربر فقط یک‌بار می‌تواند تست رایگان دریافت کند.\n\n"
@@ -4358,7 +4403,7 @@ def _tx_plan_snapshot(tx):
     plan = get_plan(int(tx['plan_id']), include_inactive=True) if int(tx['plan_id'] or 0) > 0 else None
     return {
         'id': int(tx['plan_id'] or 0),
-        'name': tx['plan_name_snapshot'] or (plan['name'] if plan else 'SpeedPing'),
+        'name': tx['plan_name_snapshot'] or (plan['name'] if plan else get_brand_name()),
         'price': int(tx['price'] or 0),
         'days': int(tx['plan_days_snapshot'] if tx['plan_days_snapshot'] is not None else (plan['days'] if plan else 0)),
         'volume': float(tx['plan_volume_gb_snapshot'] if tx['plan_volume_gb_snapshot'] is not None else (plan['volume'] if plan else 0)),
@@ -4431,9 +4476,9 @@ def _send_transaction_success(tx_id, sub_id=None, config_links=None):
         return
     user_id = int(tx['user_id'])
     kind = tx['kind'] or 'NEW'
-    name = tx['plan_name_snapshot'] or 'SpeedPing'
+    name = tx['plan_name_snapshot'] or get_brand_name()
     if kind == 'NEW':
-        msg_text = f"🎉 **سرویس SpeedPing شما فعال شد!**\n\n📦 پلن: **{name}**\n🆔 تراکنش: `{tx_id}`\n\n"
+        msg_text = f"🎉 **سرویس {get_brand_name()} شما فعال شد!**\n\n📦 پلن: **{name}**\n🆔 تراکنش: `{tx_id}`\n\n"
         if sub_id:
             msg_text += f"🌐 **لینک سابسکریپشن:**\n```\n{_subscription_url(sub_id)}\n```\n"
         if config_links:
@@ -4469,7 +4514,8 @@ def finalize_service_transaction(tx_id, admin_message_id=None, admin_chat_id=Non
         return False
 
     user_id = int(tx['user_id'])
-    user_email = tx['service_email'] or f"speedping_{user_id}_{tx_id}"
+    from .db import get_brand_slug
+    user_email = tx['service_email'] or f"{get_brand_slug()}_{user_id}_{tx_id}"
     kind = tx['kind'] or 'NEW'
     sub_id = None
     config_links = []
@@ -4740,7 +4786,7 @@ def _send_service_event(meta, email, event_types, client):
     else:
         return
 
-    kind_text = "تست رایگان" if is_trial else "سرویس SpeedPing"
+    kind_text = "تست رایگان" if is_trial else f"سرویس {get_brand_name()}"
     text = (
         f"{title}\n\n"
         f"🔹 نوع: **{kind_text}**\n"
@@ -4873,7 +4919,7 @@ def _service_monitor_loop():
             try:
                 maybe_automatic_backup()
             except Exception as backup_error:
-                notify_admins(f"⚠️ بکاپ خودکار SpeedPing خطا داد: {str(backup_error)[:500]}")
+                notify_admins(f"⚠️ بکاپ خودکار {get_brand_name()} خطا داد: {str(backup_error)[:500]}")
             if service_notifications_enabled():
                 result = check_service_notifications()
                 consecutive_errors = 0 if result.get('errors', 0) == 0 else consecutive_errors + 1
@@ -4960,7 +5006,7 @@ def generate_xui_config(user_id, plan_id, tx_id):
     return finalize_service_transaction(tx_id)
 
 if __name__ == '__main__':
-    print("SpeedPing Bot is running perfectly...")
+    print(f"{get_brand_name()} Bot is running perfectly...")
     bot.remove_webhook()
     recover_processing_transactions()
     reconcile_missing_referral_commissions()

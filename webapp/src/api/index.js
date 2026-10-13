@@ -44,14 +44,14 @@ export const getGuides = () => client.get('/guides')
  * The bot will send a payment instruction message in the user's Telegram chat.
  * The user then sends their receipt photo there (not in the Mini App).
  */
-export const initCardOrder = (planId, discountCode = null) =>
-  client.post('/orders/init-card', { plan_id: planId, discount_code: discountCode })
+export const initCardOrder = (planId, discountCode = null, customName = null) =>
+  client.post('/orders/init-card', { plan_id: planId, discount_code: discountCode, custom_name: customName })
 
 /**
  * Pay immediately from wallet balance.
  */
-export const initWalletOrder = (planId, discountCode = null) =>
-  client.post('/orders/init-wallet', { plan_id: planId, discount_code: discountCode })
+export const initWalletOrder = (planId, discountCode = null, customName = null) =>
+  client.post('/orders/init-wallet', { plan_id: planId, discount_code: discountCode, custom_name: customName })
 
 // ─── Custom Plan Builder ─────────────────────────────────────────────────────
 export const getBuilderConfig = () => client.get('/builder/config')
@@ -64,20 +64,22 @@ export const calculateBuilderPlan = (months, volumeGb, ipLimit, discountCode = n
     discount_code: discountCode,
   })
 
-export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null) =>
+export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
   client.post('/orders/init-custom-card', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
+    custom_name: customName,
   })
 
-export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null) =>
+export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
   client.post('/orders/init-custom-wallet', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
+    custom_name: customName,
   })
 
 // ─── Payment Gateways & Stars ────────────────────────────────────────────────

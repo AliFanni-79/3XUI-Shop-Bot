@@ -109,7 +109,8 @@ class TestMiniAppApi(unittest.TestCase):
             payload = {
                 "months": 1,
                 "volume_gb": 20,
-                "ip_limit": 1
+                "ip_limit": 1,
+                "custom_name": "my_work_laptop"
             }
             with patch("speedybot.core._start_card_checkout") as mock_checkout:
                 response = self.client.post("/api/orders/init-custom-card", json=payload, headers={"X-Telegram-Init-Data": init_data})
@@ -117,6 +118,7 @@ class TestMiniAppApi(unittest.TestCase):
                 data = response.json()
                 self.assertEqual(data["status"], "awaiting_receipt")
                 self.assertTrue(mock_checkout.called)
+                self.assertEqual(mock_checkout.call_args[1].get("custom_name"), "my_work_laptop")
 
 
     def test_get_active_gateways(self):

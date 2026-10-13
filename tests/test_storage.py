@@ -27,7 +27,7 @@ class FakeCore:
     bot = FakeBot()
 
     def get_db_setting(self, key, default=""):
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         try:
             row = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return row[0] if row else default
@@ -35,7 +35,7 @@ class FakeCore:
             con.close()
 
     def update_db_setting(self, key, value):
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         con.execute(
             "INSERT INTO settings(key,value) VALUES (?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -53,7 +53,7 @@ class StorageTests(unittest.TestCase):
         self.old = os.getcwd()
         self.tmp = tempfile.TemporaryDirectory()
         os.chdir(self.tmp.name)
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT)")
         con.execute(
             "CREATE TABLE plans(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,price INTEGER,"
@@ -65,8 +65,8 @@ class StorageTests(unittest.TestCase):
             "VALUES ('Plan A',100,0,30,1,1,10,1,1)"
         )
         con.execute("CREATE TABLE users(id INTEGER PRIMARY KEY,is_active INTEGER,balance INTEGER)")
-        con.execute("CREATE TABLE transactions(id INTEGER PRIMARY KEY,user_id INTEGER,plan_id INTEGER,status TEXT,kind TEXT)")
-        con.execute("CREATE TABLE trial_services(user_id INTEGER,status TEXT)")
+        con.execute("CREATE TABLE transactions(id INTEGER PRIMARY KEY,user_id INTEGER,plan_id INTEGER,status TEXT,kind TEXT,service_email TEXT)")
+        con.execute("CREATE TABLE trial_services(user_id INTEGER,status TEXT,email TEXT)")
         con.execute(
             "CREATE TABLE linked_services(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,email TEXT NOT NULL UNIQUE,linked_at INTEGER NOT NULL,source TEXT,approved_by INTEGER)"
         )
@@ -81,10 +81,13 @@ class StorageTests(unittest.TestCase):
 
     def tearDown(self):
         os.chdir(self.old)
-        self.tmp.cleanup()
+        try:
+            self.tmp.cleanup()
+        except Exception:
+            pass
 
     def test_migration_and_category_backfill(self):
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         con.row_factory = sqlite3.Row
         category = con.execute("SELECT id,name FROM plan_categories").fetchone()
         plan = con.execute("SELECT category_id FROM plans WHERE id=1").fetchone()
@@ -127,7 +130,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(C.setting("welcome_text", ""), custom)
 
     def test_blacklist_lookup(self):
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         con.execute(
             "INSERT INTO user_blocks(user_id,reason,active,created_at,created_by,updated_at) "
             "VALUES (20,'abuse',1,1,1,1)"
@@ -189,6 +192,95 @@ class StorageTests(unittest.TestCase):
         self.assertTrue(selected)
         self.assertEqual(stored, [2])
 
+    def test_resolve_unique_service_email_sanitization_and_increment(self):
+        from speedybot.db import resolve_unique_service_email
+        con = sqlite3.connect("app.db")
+        con.execute("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, service_email TEXT)")
+        con.execute("CREATE TABLE IF NOT EXISTS trial_services (service_email TEXT)")
+        con.execute("CREATE TABLE IF NOT EXISTS linked_services (email TEXT)")
+
+        # Case 1: Desired name is free
+        name1 = resolve_unique_service_email("my-vpn", user_id=123, tx_id=1, conn=con)
+        self.assertEqual(name1, "my-vpn")
+
+        # Reserve it
+        con.execute("INSERT INTO transactions (id, service_email) VALUES (101, 'my-vpn')")
+
+        # Case 2: Desired name collision increments to _2
+        name2 = resolve_unique_service_email("my-vpn", user_id=123, tx_id=2, conn=con)
+        self.assertEqual(name2, "my-vpn_2")
+
+        # Reserve _2
+        con.execute("INSERT INTO transactions (id, service_email) VALUES (102, 'my-vpn_2')")
+
+        # Case 3: Next collision increments to _3
+        name3 = resolve_unique_service_email("my-vpn", user_id=123, tx_id=3, conn=con)
+        self.assertEqual(name3, "my-vpn_3")
+
+        # Case 4: No desired name provided falls back to brand_user_tx
+        name4 = resolve_unique_service_email(None, user_id=123, tx_id=4, conn=con)
+        self.assertTrue(name4.endswith("_123_4"))
+
+        # Case 5: Special characters sanitized
+        name5 = resolve_unique_service_email("special @#$ name!", user_id=123, tx_id=5, conn=con)
+        self.assertEqual(name5, "special_____name")
+
+        con.close()
+
+    def test_brand_name_and_slug_resolution(self):
+        from speedybot.db import get_brand_name, get_brand_slug
+        con = sqlite3.connect("app.db")
+        # Reset brand settings
+        con.execute("DELETE FROM settings WHERE key IN ('webapp_title', 'brand_name')")
+        con.commit()
+        self.assertEqual(get_brand_name(conn=con), "SpeedyBot")
+
+        # Brand name set
+        con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_name', 'VizzPN')")
+        con.commit()
+        self.assertEqual(get_brand_name(conn=con), "VizzPN")
+        self.assertEqual(get_brand_slug(conn=con), "vizzpn")
+
+        # Webapp title set
+        con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webapp_title', 'SuperVPN')")
+        con.commit()
+        self.assertEqual(get_brand_name(conn=con), "SuperVPN")
+        self.assertEqual(get_brand_slug(conn=con), "supervpn")
+
+        con.close()
+
+    def test_legacy_speedping_db_migration(self):
+        from speedybot.db import get_db_path
+        with tempfile.TemporaryDirectory() as td:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(td)
+                # Create a legacy speedping.db with -wal and -shm
+                legacy_file = os.path.join(td, "speedping.db")
+                with open(legacy_file, "w") as f:
+                    f.write("legacy_db_content")
+                with open(f"{legacy_file}-wal", "w") as f:
+                    f.write("wal_content")
+                with open(f"{legacy_file}-shm", "w") as f:
+                    f.write("shm_content")
+
+                # Resolving path should automatically migrate to app.db
+                resolved = get_db_path()
+                self.assertTrue(resolved.endswith("app.db"))
+                self.assertTrue(os.path.exists("app.db"))
+                self.assertTrue(os.path.exists("app.db-wal"))
+                self.assertTrue(os.path.exists("app.db-shm"))
+                self.assertFalse(os.path.exists("speedping.db"))
+                self.assertFalse(os.path.exists("speedping.db-wal"))
+                self.assertFalse(os.path.exists("speedping.db-shm"))
+
+                # Verify content preserved
+                with open("app.db", "r") as f:
+                    self.assertEqual(f.read(), "legacy_db_content")
+            finally:
+                os.chdir(old_cwd)
+
 
 if __name__ == "__main__":
     unittest.main()
+

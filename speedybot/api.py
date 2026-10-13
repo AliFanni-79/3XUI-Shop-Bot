@@ -130,19 +130,12 @@ def _verify_init_data(init_data_raw: str) -> Dict[str, Any]:
     return result
 
 
-_DB_PATH = os.path.abspath("speedping.db")
+from .db import get_connection, get_db_path
+_DB_PATH = get_db_path()
 
 
 def _db():
-    import sqlite3
-    conn = sqlite3.connect(_DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout=5000;")
-    except Exception:
-        pass
-    return conn
+    return get_connection(timeout=30)
 
 
 def _setting(key: str, default: str = "") -> str:
@@ -223,11 +216,13 @@ async def get_admin_user(user: Dict[str, Any] = Depends(get_current_user)) -> Di
 class InitCardOrderRequest(BaseModel):
     plan_id: int
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class InitWalletOrderRequest(BaseModel):
     plan_id: int
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class BroadcastRequest(BaseModel):
@@ -251,6 +246,7 @@ class InitCustomCardOrderRequest(BaseModel):
     volume_gb: int
     ip_limit: int
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class InitCustomWalletOrderRequest(BaseModel):
@@ -258,6 +254,7 @@ class InitCustomWalletOrderRequest(BaseModel):
     volume_gb: int
     ip_limit: int
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class InitGatewayOrderRequest(BaseModel):
@@ -267,6 +264,7 @@ class InitGatewayOrderRequest(BaseModel):
     volume_gb: Optional[int] = None
     ip_limit: Optional[int] = None
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class AdminGatewaySettingsRequest(BaseModel):
@@ -286,6 +284,7 @@ class InitStarsOrderRequest(BaseModel):
     plan_id: Optional[int] = None
     custom_spec: Optional[dict] = None
     discount_code: Optional[str] = None
+    custom_name: Optional[str] = None
 
 
 class AdminPlanCreateRequest(BaseModel):
@@ -599,11 +598,14 @@ async def calculate_builder_price(
 # Services
 # ---------------------------------------------------------------------------
 
-def _format_service(row, sub_url_base: str, sub_path: str) -> Dict[str, Any]:
+def _format_service(row) -> Dict[str, Any]:
+    from . import core as _core
     email = row["email"] if "email" in row.keys() else row.get("service_email", "")
-    sub_url = f"{sub_url_base.rstrip('/')}{sub_path.rstrip('/')}/{email}" if email else None
+    sub_id = row.get("sub_id")
+    sub_url = _core.get_client_sub_url(email, sub_id)
     return {
         "email": email,
+        "custom_name": row.get("custom_name") or email,
         "sub_url": sub_url,
         "kind": row.get("kind", "PAID"),
         "status": row.get("status", ""),
@@ -619,13 +621,12 @@ def _format_service(row, sub_url_base: str, sub_path: str) -> Dict[str, Any]:
 @app.get("/api/services")
 async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
     """Return all user's VPN services: paid, trial, and linked."""
+    from . import core as _core
     uid = user["id"]
-    sub_url = _setting("xui_sub_server_url", "")
-    sub_path = _setting("xui_sub_path", "/sub/")
     conn = _db()
 
     paid = conn.execute(
-        """SELECT id, service_email AS email, kind, status, plan_name_snapshot,
+        """SELECT id, service_email AS email, sub_id, custom_name, kind, status, plan_name_snapshot,
                   plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at
            FROM transactions
            WHERE user_id = ? AND status = 'APPROVED' AND kind = 'NEW'
@@ -634,7 +635,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
     ).fetchall()
 
     trial = conn.execute(
-        "SELECT user_id, email, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
+        "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
         (uid,),
     ).fetchone()
 
@@ -647,7 +648,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
 
     services = []
     for row in paid:
-        svc = _format_service(dict(row), sub_url, sub_path)
+        svc = _format_service(dict(row))
         svc["kind"] = "PAID"
         services.append(svc)
 
@@ -656,7 +657,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
         if status_val in ("ACTIVE", "CREATING", "EXPIRED"):
             svc = {
                 "email": trial["email"],
-                "sub_url": f"{sub_url.rstrip('/')}{sub_path.rstrip('/')}/{trial['email']}" if trial["email"] else None,
+                "sub_url": _core.get_client_sub_url(trial["email"], trial["sub_id"]),
                 "kind": "TRIAL",
                 "status": status_val,
                 "plan_name": "تست رایگان",
@@ -671,7 +672,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
     for row in linked:
         services.append({
             "email": row["email"],
-            "sub_url": f"{sub_url.rstrip('/')}{sub_path.rstrip('/')}/{row['email']}" if row["email"] else None,
+            "sub_url": _core.get_client_sub_url(row["email"], None),
             "kind": "LINKED",
             "status": "ACTIVE",
             "plan_name": "سرویس لینک‌شده",
@@ -850,7 +851,7 @@ async def init_card_order(
     # Use existing core function to create the transaction and trigger the bot message
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, plan)
+        _core._start_card_checkout(uid, uid, plan, custom_name=body.custom_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -894,7 +895,7 @@ async def init_wallet_order(
         _core.set_pending_discount(uid, body.discount_code)
 
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, "WALLET")
+    result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی ناکافی")
 
@@ -942,7 +943,7 @@ async def init_custom_card_order(
 
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, custom_plan)
+        _core._start_card_checkout(uid, uid, custom_plan, custom_name=body.custom_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -986,7 +987,7 @@ async def init_custom_wallet_order(
         _core.set_pending_discount(uid, body.discount_code)
 
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET")
+    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی کیف پول ناکافی است")
 
@@ -1075,14 +1076,16 @@ async def init_stars_order(
 
     conn = _db()
     try:
+        from .db import resolve_unique_service_email, get_brand_name
+        service_email = resolve_unique_service_email(body.custom_name, user_id=uid, tx_id=0, conn=conn)
         c = conn.cursor()
         c.execute(
             """
             INSERT INTO transactions (
                 user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
-                service_email, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
+                service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
                 plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb
-            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 0)
+            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 uid,
@@ -1090,6 +1093,8 @@ async def init_stars_order(
                 price,
                 price,
                 now,
+                service_email,
+                body.custom_name or service_email,
                 "CUSTOM" if custom_spec else "NEW",
                 plan_name,
                 int(custom_spec.get("days", 30)) if custom_spec else 30,
@@ -1110,7 +1115,7 @@ async def init_stars_order(
     try:
         invoice_link = _core.bot.create_invoice_link(
             title=f"خرید {plan_name}",
-            description=f"سفارش شماره #{tx_id} در SpeedyBot - فعال‌سازی آنی",
+            description=f"سفارش شماره #{tx_id} در {get_brand_name()} - فعال‌سازی آنی",
             payload=f"stars_order_{tx_id}",
             provider_token="",  # ALWAYS empty for Telegram Stars (XTR)
             currency="XTR",
@@ -1193,7 +1198,7 @@ async def init_gateway_order(
 
     # 2. Create pending transaction
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper())
+    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper(), custom_name=body.custom_name)
     if not result:
         raise HTTPException(status_code=400, detail=error or "خطا در ایجاد تراکنش درگاه")
 

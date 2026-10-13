@@ -68,7 +68,7 @@ class XuiAndCardTests(unittest.TestCase):
         os.chdir(self.tmp.name)
         
         # Setup temporary sqlite database
-        con = sqlite3.connect("speedping.db")
+        con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)")
         con.execute(
             "CREATE TABLE users(id INTEGER PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0, created_at INTEGER, "
@@ -80,7 +80,7 @@ class XuiAndCardTests(unittest.TestCase):
             "plan_id INTEGER, status TEXT, price INTEGER, payment_method TEXT, wallet_used INTEGER, cash_amount INTEGER, "
             "created_at INTEGER, approved_at INTEGER, service_email TEXT, last_error TEXT, kind TEXT, "
             "plan_name_snapshot TEXT, plan_days_snapshot INTEGER, plan_volume_gb_snapshot REAL, plan_ip_limit_snapshot INTEGER, "
-            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL)"
+            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL, sub_id TEXT, custom_name TEXT)"
         )
         con.execute(
             "CREATE TABLE plans(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, volume_gb REAL, "
@@ -111,7 +111,10 @@ class XuiAndCardTests(unittest.TestCase):
 
     def tearDown(self):
         os.chdir(self.old_cwd)
-        self.tmp.cleanup()
+        try:
+            self.tmp.cleanup()
+        except Exception:
+            pass
 
     def test_env_manager_load_and_update(self):
         loaded = env_manager.load_env_file(self.env_path)

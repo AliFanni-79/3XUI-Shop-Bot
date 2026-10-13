@@ -27,9 +27,8 @@ def configure(core):
     CORE, BOT = core, core.bot
 
 def db():
-    c = sqlite3.connect("speedping.db", timeout=15)
-    c.row_factory = sqlite3.Row
-    return c
+    from .db import get_connection
+    return get_connection()
 
 def setting(key: str, default: str = "") -> str:
     return str(CORE.get_db_setting(key, default))
@@ -38,8 +37,11 @@ def set_setting(key: str, value: Any):
     CORE.update_db_setting(key, str(value))
 
 def brand_name() -> str:
-    value = setting("brand_name", "فروشگاه").strip()
-    return (value or "فروشگاه")[:64]
+    value = setting("brand_name", "").strip()
+    if value:
+        return value[:64]
+    from .db import get_brand_name
+    return get_brand_name(default="فروشگاه")[:64]
 
 def menu_visible(key: str, default: str = "1") -> bool:
     return setting(f"menu_{key}_visible", default).strip() == "1"

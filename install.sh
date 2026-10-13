@@ -175,6 +175,7 @@ write_runner(){
   cat > "$RUNNER_FILE" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
+cd "$APP_DIR"
 source "$ENV_FILE"
 exec "$APP_DIR/.venv/bin/python3" "$APP_DIR/main.py"
 EOF
@@ -383,6 +384,9 @@ if [[ "$SOURCE_DIR" != "$APP_DIR" ]]; then
     --exclude '.git/' \
     --exclude '.env' \
     --exclude '.venv/' \
+    --exclude 'app.db' \
+    --exclude 'app.db-wal' \
+    --exclude 'app.db-shm' \
     --exclude 'speedping.db' \
     --exclude 'speedping.db-wal' \
     --exclude 'speedping.db-shm' \
@@ -396,6 +400,13 @@ else
   info "Source is already $APP_DIR; using the repository in place."
 fi
 cd "$APP_DIR"
+if [[ -f "$APP_DIR/speedping.db" && ! -f "$APP_DIR/app.db" ]]; then
+  info "Migrating legacy database speedping.db to app.db..."
+  mv "$APP_DIR/speedping.db" "$APP_DIR/app.db"
+  [[ ! -f "$APP_DIR/speedping.db-wal" ]] || mv "$APP_DIR/speedping.db-wal" "$APP_DIR/app.db-wal"
+  [[ ! -f "$APP_DIR/speedping.db-shm" ]] || mv "$APP_DIR/speedping.db-shm" "$APP_DIR/app.db-shm"
+fi
+chmod +x install.sh update.sh upgrade.sh restore.sh 2>/dev/null || true
 
 python3 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel >/dev/null
@@ -407,6 +418,7 @@ fi
 ./.venv/bin/python -m py_compile main.py speedybot/*.py
 bash -n install.sh
 [[ ! -f update.sh ]] || bash -n update.sh
+[[ ! -f upgrade.sh ]] || bash -n upgrade.sh
 
 # --- Configure Internet Tunnel / Reverse Proxy ---
 if [[ "$CF_TUNNEL_MODE" == "token" ]]; then
@@ -467,11 +479,10 @@ import os
 import sqlite3
 
 try:
-    from speedybot import storage
+    from speedybot import storage, db
     storage.init_db()
 
-    app_dir = os.environ.get("SET_APP_DIR", "/root/SpeedyBot")
-    conn = sqlite3.connect(os.path.join(app_dir, "speedping.db"), timeout=15)
+    conn = db.get_connection(timeout=15)
     cur = conn.cursor()
     cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
 
@@ -556,9 +567,10 @@ if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
     WEBAPP_URL="$CF_URL"
     sed -i -E "s|^export WEBAPP_URL=.*|export WEBAPP_URL=$(printf '%q' "$WEBAPP_URL")|" "$ENV_FILE"
     TARGET_URL="$WEBAPP_URL" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os, sqlite3
+import os
 try:
-    conn = sqlite3.connect('/root/SpeedyBot/speedping.db')
+    from speedybot import db
+    conn = db.get_connection(timeout=15)
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
     c.execute('INSERT INTO settings(key, value) VALUES("webapp_url", ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (os.environ.get("TARGET_URL", ""),))

@@ -83,7 +83,7 @@ def validate_database_file(db_path: str) -> Tuple[bool, str, Dict[str, Any]]:
                 pass
 
 
-def get_database_stats(db_path: str = "speedping.db") -> Dict[str, Any]:
+def get_database_stats(db_path: str = "app.db") -> Dict[str, Any]:
     """Retrieve statistical summary of an existing SQLite database."""
     valid, _, stats = validate_database_file(db_path)
     if valid:
@@ -92,7 +92,7 @@ def get_database_stats(db_path: str = "speedping.db") -> Dict[str, Any]:
 
 
 def create_safety_snapshot(
-    source_db: str = "speedping.db",
+    source_db: str = "app.db",
     prefix: str = "pre-restore",
     dest_dir: Optional[str] = None
 ) -> Optional[str]:
@@ -107,7 +107,7 @@ def create_safety_snapshot(
     target_root = Path(dest_dir) if dest_dir else Path("backups") / prefix
     target_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    target_file = target_root / f"speedping-{prefix}-{stamp}.db"
+    target_file = target_root / f"backup-{prefix}-{stamp}.db"
 
     src_conn = sqlite3.connect(str(src_path), timeout=30)
     dst_conn = sqlite3.connect(str(target_file))
@@ -122,14 +122,14 @@ def create_safety_snapshot(
 
 def restore_database_from_file(
     backup_path: str,
-    target_db: str = "speedping.db",
+    target_db: str = "app.db",
     pre_restore_backup: bool = True
 ) -> Tuple[bool, str, Dict[str, Any], Optional[str]]:
     """Atomically restore the target database from a verified backup file.
 
     Parameters:
         backup_path: Path to the validated backup SQLite file.
-        target_db: Destination SQLite database file (default: speedping.db).
+        target_db: Destination SQLite database file (default: app.db).
         pre_restore_backup: Whether to create an emergency safety snapshot before restoring.
 
     Returns:

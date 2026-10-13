@@ -64,10 +64,11 @@ def main():
     parser.add_argument("backup_file", nargs="?", default=None, help="Path to SQLite backup (.db) file")
     parser.add_argument("--latest", action="store_true", help="Restore the latest available backup automatically")
     parser.add_argument("-y", "--yes", action="store_true", help="Confirm restoration without interactive prompt")
-    parser.add_argument("--target", default="speedping.db", help="Target SQLite database file (default: speedping.db)")
+    parser.add_argument("--target", default=None, help="Target SQLite database file (default: app.db)")
     args = parser.parse_args()
 
-    target_db = args.target
+    from speedybot.db import get_db_path
+    target_db = args.target or get_db_path()
     backup_file_path = args.backup_file
 
     print("==================================================")

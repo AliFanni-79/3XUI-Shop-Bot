@@ -315,6 +315,18 @@
           </div>
         </div>
 
+        <!-- Custom Config/Service Name Input -->
+        <div>
+          <label class="block text-xs text-tg-hint mb-1">نام دلخواه کانفیگ (اختیاری):</label>
+          <input
+            v-model="customServiceName"
+            type="text"
+            dir="ltr"
+            placeholder="مثلاً: phone, laptop (اختیاری)"
+            class="w-full bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center tracking-wider focus:outline-none focus:border-tg-button"
+          />
+        </div>
+
         <!-- Discount Code Input -->
         <div>
           <label class="block text-xs text-tg-hint mb-1">کد تخفیف (اختیاری):</label>
@@ -472,6 +484,7 @@ const builderConfig = ref({
 // Checkout Modal state
 const activePlan = ref(null)
 const isCustomPlan = ref(false)
+const customServiceName = ref('')
 const discountCode = ref('')
 const submitting = ref(false)
 const message = ref('')
@@ -620,21 +633,25 @@ const openCustomCheckoutModal = () => {
 const closeModal = () => {
   activePlan.value = null
   submitting.value = false
+  customServiceName.value = ''
+  discountCode.value = ''
 }
 
 const payCard = async () => {
   submitting.value = true
   message.value = ''
   try {
+    const sName = customServiceName.value.trim() || null
     if (isCustomPlan.value) {
       await initCustomCardOrder(
         selectedMonths.value,
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
-        discountCode.value || null
+        discountCode.value || null,
+        sName
       )
     } else {
-      await initCardOrder(activePlan.value.id, discountCode.value || null)
+      await initCardOrder(activePlan.value.id, discountCode.value || null, sName)
     }
     isSuccess.value = true
     message.value = '✅ پیام پرداخت و شماره کارت در چت تلگرام شما ارسال شد. لطفاً تصویر فیش را در چت ارسال فرمایید.'
@@ -655,15 +672,17 @@ const payWallet = async () => {
   submitting.value = true
   message.value = ''
   try {
+    const sName = customServiceName.value.trim() || null
     if (isCustomPlan.value) {
       await initCustomWalletOrder(
         selectedMonths.value,
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
-        discountCode.value || null
+        discountCode.value || null,
+        sName
       )
     } else {
-      await initWalletOrder(activePlan.value.id, discountCode.value || null)
+      await initWalletOrder(activePlan.value.id, discountCode.value || null, sName)
     }
     isSuccess.value = true
     message.value = '🎉 پرداخت با کیف پول موفق بود و سرویس شما ثبت شد.'
@@ -684,6 +703,7 @@ const payGateway = async (gatewayName) => {
   message.value = 'در حال ارتباط با درگاه بانکی...'
   isSuccess.value = true
   try {
+    const sName = customServiceName.value.trim() || null
     let payload
     if (isCustomPlan.value) {
       payload = {
@@ -691,13 +711,15 @@ const payGateway = async (gatewayName) => {
         months: selectedMonths.value,
         volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
         ip_limit: selectedUsers.value,
-        discount_code: discountCode.value || null
+        discount_code: discountCode.value || null,
+        custom_name: sName
       }
     } else {
       payload = {
         gateway: gatewayName,
         plan_id: activePlan.value.id,
-        discount_code: discountCode.value || null
+        discount_code: discountCode.value || null,
+        custom_name: sName
       }
     }
     const res = await initGatewayOrder(payload)
@@ -723,6 +745,7 @@ const payStars = async () => {
   message.value = 'در حال ایجاد فاکتور تلگرام استارز...'
   isSuccess.value = true
   try {
+    const sName = customServiceName.value.trim() || null
     let payload
     if (isCustomPlan.value) {
       payload = {
@@ -731,12 +754,14 @@ const payStars = async () => {
           volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
           ip_limit: selectedUsers.value,
         },
-        discount_code: discountCode.value || null
+        discount_code: discountCode.value || null,
+        custom_name: sName
       }
     } else {
       payload = {
         plan_id: activePlan.value.id,
-        discount_code: discountCode.value || null
+        discount_code: discountCode.value || null,
+        custom_name: sName
       }
     }
     const res = await initStarsOrder(payload)
