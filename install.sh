@@ -41,7 +41,7 @@ normalize_webapp_url(){
   local v; v="$(trim "$1")"
   [[ -z "$v" ]] && { printf ''; return; }
   if [[ "$v" =~ ^http:// ]]; then
-    warn "Telegram Mini Apps require HTTPS! Converting http:// to https://" >&2
+    warn "Telegram Mini Apps require HTTPS. Converting http:// to https://" >&2
     v="https://${v#http://}"
   elif [[ ! "$v" =~ ^https:// ]]; then
     v="https://$v"
@@ -60,6 +60,111 @@ check_port_in_use(){
     lsof -i ":$p" >/dev/null 2>&1 && return 0
   fi
   return 1
+}
+
+install_cloudflared(){
+  if command -v cloudflared >/dev/null 2>&1; then
+    ok "cloudflared is already installed."
+    return 0
+  fi
+  info "Downloading cloudflared binary..."
+  local arch; arch="$(uname -m)"
+  local cf_arch="amd64"
+  case "$arch" in
+    x86_64) cf_arch="amd64" ;;
+    aarch64|arm64) cf_arch="arm64" ;;
+    armv7l|armhf) cf_arch="arm" ;;
+    i386|i686) cf_arch="386" ;;
+    *) cf_arch="amd64" ;;
+  esac
+
+  if curl -fsSL -m 35 "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${cf_arch}" -o /usr/local/bin/cloudflared; then
+    chmod +x /usr/local/bin/cloudflared
+    ok "cloudflared installed successfully."
+    return 0
+  else
+    warn "Direct cloudflared download failed. Trying apt repository..."
+    mkdir -p --mode=0755 /etc/apt/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg 2>/dev/null | tee /etc/apt/keyrings/cloudflare-main.gpg >/dev/null || true
+    echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" | tee /etc/apt/sources.list.d/cloudflared.list >/dev/null || true
+    apt-get update -qq && apt-get install -y -qq cloudflared || { warn "Could not install cloudflared automatically."; return 1; }
+    return 0
+  fi
+}
+
+setup_cf_quick_tunnel(){
+  local port="$1"
+  install_cloudflared || return 1
+  info "Setting up Cloudflare Quick Tunnel service..."
+  cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
+[Unit]
+Description=SpeedyBot Cloudflare Tunnel (No Nginx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:${port} --no-autoupdate
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable speedybot-tunnel.service
+  systemctl restart speedybot-tunnel.service
+  info "Waiting for Cloudflare Quick Tunnel to allocate HTTPS URL..."
+  sleep 4
+  local cf_url=""
+  for i in {1..8}; do
+    cf_url="$(journalctl -u speedybot-tunnel.service -n 60 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
+    if [[ -n "$cf_url" ]]; then
+      break
+    fi
+    sleep 2
+  done
+  if [[ -n "$cf_url" ]]; then
+    ok "Cloudflare Quick Tunnel online: $cf_url"
+    printf '%s' "$cf_url"
+    return 0
+  else
+    warn "Tunnel started, but could not read URL immediately. Check: journalctl -u speedybot-tunnel.service"
+    return 1
+  fi
+}
+
+setup_cf_token_tunnel(){
+  local token="$1"
+  install_cloudflared || return 1
+  info "Configuring Cloudflare Tunnel service with token..."
+  cloudflared service install "$token" 2>/dev/null || true
+  systemctl daemon-reload || true
+  systemctl restart cloudflared 2>/dev/null || true
+  ok "Cloudflare Tunnel service is active."
+}
+
+setup_caddy_proxy(){
+  local domain="$1"
+  local port="$2"
+  info "Installing Caddy web server (automatic SSL without Nginx)..."
+  apt-get update -qq
+  apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' 2>/dev/null | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null || true
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' 2>/dev/null | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null || true
+  apt-get update -qq
+  apt-get install -y -qq caddy
+
+  info "Configuring Caddy for $domain -> 127.0.0.1:$port..."
+  cat > /etc/caddy/Caddyfile <<EOF
+$domain {
+    reverse_proxy 127.0.0.1:$port
+}
+EOF
+  systemctl daemon-reload
+  systemctl restart caddy
+  ok "Caddy web server configured. Let's Encrypt SSL will be provisioned automatically."
 }
 
 write_runner(){
@@ -139,8 +244,8 @@ XUI_SUB_SERVER_URL="${XUI_SUB_SERVER_URL%/}"
 XUI_SUB_PATH="$(normalize_sub_path "$(prompt "Subscription URI path" "/sub/")")"
 printf '\n'
 
-# --- 3. Telegram Mini App Configuration ---
-info "3. Telegram Mini App (TMA) Configuration"
+# --- 3. Telegram Mini App & Internet Exposure ---
+info "3. Telegram Mini App (TMA) & Internet Access"
 while true; do
   WEBAPP_PORT="$(prompt "Mini App internal HTTP port" "8080")"
   if [[ "$WEBAPP_PORT" =~ ^[0-9]+$ ]] && [[ "$WEBAPP_PORT" -ge 1 ]] && [[ "$WEBAPP_PORT" -le 65535 ]]; then
@@ -156,9 +261,49 @@ while true; do
   fi
 done
 
-printf "\nTelegram Mini App requires a public HTTPS URL (e.g. https://shop.example.com or Cloudflare Tunnel).\nLeave blank if you plan to configure reverse-proxy/domain later.\n"
-RAW_WEBAPP_URL="$(prompt_optional "Mini App Public HTTPS URL (domain or tunnel, optional)" "")"
-WEBAPP_URL="$(normalize_webapp_url "$RAW_WEBAPP_URL")"
+printf "\nHow would you like to run the Web App through the Internet (HTTPS)?\n"
+printf "  1) Cloudflare Tunnel (No Nginx, No Open Ports, Automatic Free SSL)\n"
+printf "  2) Custom Domain / Existing Reverse Proxy (Nginx, Caddy, Traefik, Apache)\n"
+printf "  3) Caddy Web Server (Zero-config Let's Encrypt SSL, No Nginx)\n"
+printf "  4) Skip / Local only for now (Configure later)\n"
+EXPOSE_METHOD="$(prompt "Select option (1-4)" "1")"
+
+WEBAPP_URL=""
+CF_TUNNEL_MODE=""
+CF_TUNNEL_TOKEN=""
+CADDY_DOMAIN=""
+
+case "$EXPOSE_METHOD" in
+  1)
+    info "Cloudflare Tunnel Setup (No Nginx needed)"
+    if confirm "Do you have a Cloudflare Tunnel Token (from Zero Trust dashboard)"; then
+      CF_TUNNEL_MODE="token"
+      CF_TUNNEL_TOKEN="$(prompt "Cloudflare Tunnel Token (starts with eyJh...)")"
+      RAW_URL="$(prompt "Public HTTPS hostname you routed in Cloudflare (e.g. https://shop.example.com)")"
+      WEBAPP_URL="$(normalize_webapp_url "$RAW_URL")"
+    else
+      CF_TUNNEL_MODE="quick"
+      info "A free Cloudflare Quick Tunnel will be launched automatically during installation."
+      info "It provides a public https://*.trycloudflare.com URL without needing a domain or Nginx."
+    fi
+    ;;
+  2)
+    info "Custom Domain / Existing Reverse Proxy"
+    printf "Enter your public HTTPS URL (e.g. https://shop.example.com):\n"
+    RAW_URL="$(prompt_optional "Public HTTPS URL" "")"
+    WEBAPP_URL="$(normalize_webapp_url "$RAW_URL")"
+    ;;
+  3)
+    info "Caddy Web Server Setup (Automatic SSL, No Nginx)"
+    CADDY_DOMAIN="$(prompt "Your domain name pointing to this server IP (e.g. shop.example.com)")"
+    CADDY_DOMAIN="$(printf '%s' "$CADDY_DOMAIN" | sed -E 's#^https?://##; s#/.*$##')"
+    WEBAPP_URL="https://$CADDY_DOMAIN"
+    ;;
+  *)
+    info "Skipping internet tunnel configuration. Mini App will run on port $WEBAPP_PORT locally."
+    WEBAPP_URL=""
+    ;;
+esac
 printf '\n'
 
 # --- 4. Store Branding & Support ---
@@ -205,7 +350,15 @@ printf '  X-UI API URL:        %s\n' "$XUI_API_URL"
 printf '  X-UI Base Path:      %s\n' "$XUI_BASE_PATH"
 printf '  Subscription:        %s%s\n' "$XUI_SUB_SERVER_URL" "$XUI_SUB_PATH"
 printf '  Mini App Port:       %s\n' "$WEBAPP_PORT"
-printf '  Mini App Public URL: %s\n' "${WEBAPP_URL:-not set (can be configured later)}"
+if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
+  printf '  Internet Exposure:   Cloudflare Quick Tunnel (auto-allocated)\n'
+elif [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+  printf '  Internet Exposure:   Cloudflare Tunnel Token -> %s\n' "$WEBAPP_URL"
+elif [[ "$EXPOSE_METHOD" == "3" ]]; then
+  printf '  Internet Exposure:   Caddy Web Server -> https://%s\n' "$CADDY_DOMAIN"
+else
+  printf '  Mini App Public URL: %s\n' "${WEBAPP_URL:-not set (local only)}"
+fi
 printf '  Brand Name:          %s\n' "$BRAND_NAME"
 [[ -z "$SUPPORT_CONTACT" ]] || printf '  Support Contact:     %s\n' "$SUPPORT_CONTACT"
 [[ -z "$CARD_NUMBER" ]] || printf '  Card Number:         %s (%s)\n' "$CARD_NUMBER" "${CARD_HOLDER:-N/A}"
@@ -250,6 +403,21 @@ fi
 ./.venv/bin/python -m py_compile main.py speedybot/*.py
 bash -n install.sh
 [[ ! -f update.sh ]] || bash -n update.sh
+
+# --- Configure Internet Tunnel / Reverse Proxy ---
+if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
+  info "Launching Cloudflare Quick Tunnel..."
+  CF_URL="$(setup_cf_quick_tunnel "$WEBAPP_PORT" || true)"
+  if [[ -n "$CF_URL" ]]; then
+    WEBAPP_URL="$CF_URL"
+  fi
+elif [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+  info "Configuring Cloudflare Tunnel service..."
+  setup_cf_token_tunnel "$CF_TUNNEL_TOKEN" || true
+elif [[ "$EXPOSE_METHOD" == "3" && -n "$CADDY_DOMAIN" ]]; then
+  info "Configuring Caddy web server..."
+  setup_caddy_proxy "$CADDY_DOMAIN" "$WEBAPP_PORT" || true
+fi
 
 cat > "$ENV_FILE" <<EOF
 export BOT_TOKEN=$(printf '%q' "$BOT_TOKEN")
@@ -303,6 +471,7 @@ try:
         set_kv("webapp_url", "$WEBAPP_URL")
     if "$BRAND_NAME":
         set_kv("brand_name", "$BRAND_NAME")
+        set_kv("webapp_title", "$BRAND_NAME")
     if "$CARD_NUMBER":
         set_kv("card_number", "$CARD_NUMBER")
     if "$CARD_HOLDER":
@@ -360,34 +529,31 @@ printf ' ✅ SpeedyBot v5.0.0 is running!\n'
 printf '============================================================\n'
 
 if [[ -n "$WEBAPP_URL" ]]; then
-  DOMAIN="$(printf '%s' "$WEBAPP_URL" | sed -E 's#^https?://##; s#/.*$##')"
-  printf '\n📱 Telegram Mini App Setup Instructions:\n\n'
-  printf '1. Configure an Nginx reverse proxy for %s:\n' "$DOMAIN"
-  cat <<NGX
-------------------------------------------------------------
-server {
-    server_name $DOMAIN;
+  printf '\n🌐 Telegram Mini App is accessible at:\n'
+  printf '   %s\n' "$WEBAPP_URL"
 
-    location / {
-        proxy_pass http://127.0.0.1:$WEBAPP_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-------------------------------------------------------------
-NGX
-  printf '   Enable SSL: certbot --nginx -d %s\n\n' "$DOMAIN"
-  printf '2. Configure Telegram Menu Button in @BotFather:\n'
-  printf '   • Send /setmenubutton to @BotFather and pick your bot\n'
-  printf '   • Enter WebApp URL: %s\n' "$WEBAPP_URL"
-  printf '   • Button Title: 🚀 ورود به اپلیکیشن\n\n'
+  if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
+    printf '\n   [Cloudflare Quick Tunnel Active]\n'
+    printf '   • Service: speedybot-tunnel.service\n'
+    printf '   • No Nginx or open ports needed!\n'
+  elif [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+    printf '\n   [Cloudflare Tunnel Active]\n'
+    printf '   • Service: cloudflared.service\n'
+  elif [[ "$EXPOSE_METHOD" == "3" ]]; then
+    printf '\n   [Caddy Web Server Active]\n'
+    printf '   • Service: caddy.service (Auto Let'\''s Encrypt SSL active)\n'
+  fi
+
+  printf '\n📱 Configure Telegram Menu Button in @BotFather:\n'
+  printf '   1. Open @BotFather in Telegram\n'
+  printf '   2. Send /setmenubutton -> pick your bot\n'
+  printf '   3. Enter URL: %s\n' "$WEBAPP_URL"
+  printf '   4. Button Title: 🚀 ورود به اپلیکیشن\n\n'
 else
-  printf '\n💡 To enable Telegram Mini App later:\n'
-  printf '   1. Point an HTTPS reverse proxy (or Cloudflare Tunnel) to http://127.0.0.1:%s\n' "$WEBAPP_PORT"
-  printf '   2. Add WEBAPP_URL="https://yourdomain.com" in %s/.env\n' "$APP_DIR"
-  printf '   3. Restart service: systemctl restart %s\n\n' "$SERVICE_NAME"
+  printf '\n💡 To run the Mini App through the Internet without Nginx:\n'
+  printf '   • Free Cloudflare Quick Tunnel: Run "cloudflared tunnel --url http://localhost:%s"\n' "$WEBAPP_PORT"
+  printf '   • Zero-install Pinggy tunnel:   Run "ssh -p 443 -R0:localhost:%s a.pinggy.io"\n' "$WEBAPP_PORT"
+  printf '   • Or add WEBAPP_URL="https://your-url" to %s/.env and restart.\n\n' "$APP_DIR"
 fi
 
 printf 'Useful commands:\n'

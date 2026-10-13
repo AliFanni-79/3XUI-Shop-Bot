@@ -30,8 +30,8 @@ Thumbs.db
 
 # Frontend dependencies
 node_modules/
-/webapp/dist/
 /webapp/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+

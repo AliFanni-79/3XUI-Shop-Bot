@@ -207,6 +207,12 @@ class TestMiniAppApi(unittest.TestCase):
                     headers={"X-Telegram-Init-Data": init_data}
                 )
 
+    def test_spa_root_serves_html(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        # Should return html content with <!DOCTYPE html>
+        self.assertIn("<!DOCTYPE html>", response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

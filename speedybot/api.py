@@ -1591,27 +1591,30 @@ _WEBAPP_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webapp"
 
 
 def _mount_static():
-    """Mount the built Vue SPA if the dist directory exists."""
-    if os.path.isdir(_WEBAPP_DIST):
-        app.mount("/assets", StaticFiles(directory=os.path.join(_WEBAPP_DIST, "assets")), name="assets")
+    """Mount static assets and handle SPA client-side routing."""
+    assets_dir = os.path.join(_WEBAPP_DIST, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-        @app.get("/", include_in_schema=False)
-        async def spa_root():
-            return FileResponse(os.path.join(_WEBAPP_DIST, "index.html"))
+    @app.get("/", include_in_schema=False)
+    async def spa_root():
+        index_file = os.path.join(_WEBAPP_DIST, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        return JSONResponse({"message": "SpeedyBot API is running. Build the webapp to serve the Mini App."})
 
-        @app.get("/{full_path:path}", include_in_schema=False)
-        async def spa_fallback(full_path: str):
-            # API routes are handled above; everything else → index.html for SPA routing
-            if full_path.startswith("api/"):
-                raise HTTPException(status_code=404)
-            fp = os.path.join(_WEBAPP_DIST, full_path)
-            if os.path.isfile(fp):
-                return FileResponse(fp)
-            return FileResponse(os.path.join(_WEBAPP_DIST, "index.html"))
-    else:
-        @app.get("/", include_in_schema=False)
-        async def no_spa_root():
-            return JSONResponse({"message": "SpeedyBot API is running. Build the webapp to serve the Mini App."})
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        # API routes are handled by FastAPI routers above
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        fp = os.path.join(_WEBAPP_DIST, full_path)
+        if os.path.isfile(fp):
+            return FileResponse(fp)
+        index_file = os.path.join(_WEBAPP_DIST, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        return JSONResponse({"message": "SpeedyBot API is running. Build the webapp to serve the Mini App."})
 
 
 _mount_static()

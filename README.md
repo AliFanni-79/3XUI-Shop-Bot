@@ -170,16 +170,41 @@ export WEBAPP_HOST='0.0.0.0'
 export WEBAPP_URL='https://bot.yourdomain.com'
 ```
 
-1. **Reverse Proxy (Nginx / Caddy / Cloudflare Tunnel)**:
-   Point an HTTPS reverse proxy to `http://127.0.0.1:8080`.
-   Telegram Mini Apps require a valid **HTTPS** certificate.
+### Internet Exposure (No Nginx Required)
 
-2. **Configure `@BotFather`**:
-   - Send `/setmenubutton` to `@BotFather`.
-   - Select your bot.
-   - Enter your public Mini App URL (`https://bot.yourdomain.com`).
-   - Set the button title to `🚀 باز کردن فروشگاه` or your preference.
-   - Now the Menu button next to the chat bar will open your Mini App directly.
+Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports multiple zero-Nginx options out of the box during both `install.sh` and `update.sh`:
+
+1. **Option 1: Cloudflare Quick Tunnel (Recommended — No Nginx, No Domain, No Open Ports)**
+   - Automatically installs `cloudflared` and runs a background systemd service (`speedybot-tunnel.service`).
+   - Instantly provisions a free, public `https://*.trycloudflare.com` URL with valid Cloudflare SSL.
+   - Zero open firewall ports, zero DNS setup, and zero web server configuration needed.
+
+2. **Option 2: Cloudflare Zero Trust Named Tunnel (Custom Domain, No Open Ports)**
+   - Connects to your Cloudflare Zero Trust account via tunnel token (`eyJh...`).
+   - Routes your custom domain (e.g., `https://shop.yourdomain.com`) directly to `127.0.0.1:8080`.
+   - High security with complete end-to-end encryption and zero inbound open ports.
+
+3. **Option 3: Caddy Web Server (Zero-Config Automatic Let's Encrypt SSL, No Nginx)**
+   - Automatically installs Caddy and provisions `/etc/caddy/Caddyfile`.
+   - Obtains and automatically renews free Let's Encrypt SSL certificates for your domain in a single command.
+
+4. **Option 4: Traditional Reverse Proxy (Nginx, Traefik, HAProxy, etc.)**
+   - Point your existing reverse proxy to `http://127.0.0.1:8080`.
+   - Example Nginx block:
+     ```nginx
+     location / {
+         proxy_pass http://127.0.0.1:8080;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+     }
+     ```
+
+### Configure `@BotFather`
+- Send `/setmenubutton` to `@BotFather`.
+- Select your bot.
+- Enter your public Mini App URL (e.g., `https://xxxx.trycloudflare.com` or `https://shop.yourdomain.com`).
+- Set the button title to `🚀 باز کردن فروشگاه` or your preference.
+- The Menu button next to the chat bar in Telegram will now open your Mini App directly.
 
 ### Authentication & Security
 - The Mini App uses Telegram's `initData` passed automatically by Telegram WebApp client.
@@ -336,7 +361,7 @@ The Installer asks for:
 6. Subscription server base URL.
 7. Subscription URI path.
 8. Telegram Mini App port (default: 8080).
-9. Telegram Mini App public HTTPS URL (domain or tunnel, optional).
+9. Telegram Mini App Internet exposure method (Cloudflare Quick/Named Tunnel, Caddy, Custom Domain, or Local).
 
 Before systemd is enabled, Installer performs a **read-only 3x-ui API preflight**. Authentication/base-path mistakes are caught before the bot is considered installed.
 
