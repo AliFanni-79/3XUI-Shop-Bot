@@ -12,7 +12,7 @@ fi
 
 SERVICE_NAME="${SPEEDYBOT_SERVICE_NAME:-xui-bot.service}"
 APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
-REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/roseshayan/SpeedyBot.git}"
+REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/SpeedyBot.git}"
 BRANCH="${SPEEDYBOT_BRANCH:-main}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$APP_DIR/backups/deploy-$STAMP"
