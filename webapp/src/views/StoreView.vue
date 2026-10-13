@@ -394,6 +394,25 @@
             </div>
             <span>←</span>
           </button>
+
+          <!-- Telegram Stars Payment -->
+          <button
+            v-if="activeGateways.stars"
+            @click="payStars"
+            :disabled="submitting"
+            class="w-full bg-tg hover:bg-gray-700/40 border border-yellow-500/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-base">⭐</span>
+              <div class="text-right">
+                <span class="font-bold text-yellow-300 block">پرداخت با تلگرام استارز (Telegram Stars)</span>
+                <span class="text-[10px] text-tg-hint">
+                  پرداخت مستقیم درون تلگرام (تقریباً {{ Math.max(1, Math.ceil(modalPrice / (activeGateways.stars_rate || 1500))).toLocaleString('fa-IR') }} استارز)
+                </span>
+              </div>
+            </div>
+            <span>←</span>
+          </button>
         </div>
 
         <!-- Status / Alert message -->
@@ -407,6 +426,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   getPlans,
   getBuilderConfig,
@@ -415,17 +435,19 @@ import {
   initCustomCardOrder,
   initCustomWalletOrder,
   getActiveGateways,
-  initGatewayOrder
+  initGatewayOrder,
+  initStarsOrder
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
 const auth = useAuthStore()
 
 // State
 const activeMode = ref('catalog') // 'catalog' | 'builder'
 const categories = ref([])
 const selectedCategoryId = ref(null)
-const activeGateways = ref({ card: true, wallet: true, zibal: false, zarinpal: false })
+const activeGateways = ref({ card: true, wallet: true, zibal: false, zarinpal: false, stars: false, stars_rate: 1500 })
 
 // Builder state
 const selectedMonths = ref(1) // 1, 3, 6, 12
@@ -692,6 +714,61 @@ const payGateway = async (gatewayName) => {
   } catch (err) {
     isSuccess.value = false
     message.value = err.response?.data?.detail || 'خطا در اتصال به درگاه بانکی'
+    submitting.value = false
+  }
+}
+
+const payStars = async () => {
+  submitting.value = true
+  message.value = 'در حال ایجاد فاکتور تلگرام استارز...'
+  isSuccess.value = true
+  try {
+    let payload
+    if (isCustomPlan.value) {
+      payload = {
+        custom_spec: {
+          months: selectedMonths.value,
+          volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
+          ip_limit: selectedUsers.value,
+        },
+        discount_code: discountCode.value || null
+      }
+    } else {
+      payload = {
+        plan_id: activePlan.value.id,
+        discount_code: discountCode.value || null
+      }
+    }
+    const res = await initStarsOrder(payload)
+    if (res.data?.invoice_link) {
+      if (window.Telegram?.WebApp?.openInvoice) {
+        window.Telegram.WebApp.openInvoice(res.data.invoice_link, (status) => {
+          if (status === 'paid') {
+            isSuccess.value = true
+            message.value = 'پرداخت استارز با موفقیت انجام شد! سرویس شما فعال گردید.'
+            setTimeout(() => {
+              activePlan.value = null
+              router.push('/services')
+            }, 1500)
+          } else if (status === 'cancelled') {
+            message.value = 'پرداخت استارز لغو شد.'
+            submitting.value = false
+          } else if (status === 'failed') {
+            isSuccess.value = false
+            message.value = 'پرداخت استارز با خطا مواجه شد.'
+            submitting.value = false
+          }
+        })
+      } else {
+        window.open(res.data.invoice_link, '_blank')
+        message.value = 'فاکتور استارز باز شد. پس از پرداخت، سرویس فعال خواهد شد.'
+      }
+    } else {
+      throw new Error('لینک فاکتور دریافت نشد.')
+    }
+  } catch (err) {
+    isSuccess.value = false
+    message.value = err.response?.data?.detail || 'خطا در ایجاد فاکتور استارز'
     submitting.value = false
   }
 }

@@ -132,19 +132,23 @@ install_cloudflared(){
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
-  info "Setting up Cloudflare Quick Tunnel service..."
+  local cf_bin
+  cf_bin="$(command -v cloudflared || echo '/usr/local/bin/cloudflared')"
+  info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
 Description=SpeedyBot Cloudflare Tunnel (No Nginx)
-After=network-online.target
+After=network-online.target xui-bot.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:${port} --no-autoupdate
+ExecStart=${cf_bin} tunnel --url http://127.0.0.1:${port} --protocol http2 --no-autoupdate
 Restart=always
-RestartSec=5
+RestartSec=3
+LimitNOFILE=65535
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
@@ -155,8 +159,8 @@ EOF
   info "Waiting for Cloudflare Quick Tunnel to allocate HTTPS URL..."
   sleep 4
   local cf_url=""
-  for i in {1..8}; do
-    cf_url="$(journalctl -u speedybot-tunnel.service -n 60 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
+  for i in {1..12}; do
+    cf_url="$(journalctl -u speedybot-tunnel.service -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
     if [[ -n "$cf_url" ]]; then
       break
     fi

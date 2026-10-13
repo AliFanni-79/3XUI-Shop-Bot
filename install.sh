@@ -95,19 +95,23 @@ install_cloudflared(){
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
-  info "Setting up Cloudflare Quick Tunnel service..."
+  local cf_bin
+  cf_bin="$(command -v cloudflared || echo '/usr/local/bin/cloudflared')"
+  info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
 Description=SpeedyBot Cloudflare Tunnel (No Nginx)
-After=network-online.target
+After=network-online.target xui-bot.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:${port} --no-autoupdate
+ExecStart=${cf_bin} tunnel --url http://127.0.0.1:${port} --protocol http2 --no-autoupdate
 Restart=always
-RestartSec=5
+RestartSec=3
+LimitNOFILE=65535
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
@@ -118,8 +122,8 @@ EOF
   info "Waiting for Cloudflare Quick Tunnel to allocate HTTPS URL..."
   sleep 4
   local cf_url=""
-  for i in {1..8}; do
-    cf_url="$(journalctl -u speedybot-tunnel.service -n 60 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
+  for i in {1..12}; do
+    cf_url="$(journalctl -u speedybot-tunnel.service -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
     if [[ -n "$cf_url" ]]; then
       break
     fi
@@ -405,14 +409,7 @@ bash -n install.sh
 [[ ! -f update.sh ]] || bash -n update.sh
 
 # --- Configure Internet Tunnel / Reverse Proxy ---
-if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
-  info "Launching Cloudflare Quick Tunnel..."
-  CF_URL="$(setup_cf_quick_tunnel "$WEBAPP_PORT" || true)"
-  CF_URL="$(printf '%s\n' "$CF_URL" | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
-  if [[ -n "$CF_URL" ]]; then
-    WEBAPP_URL="$CF_URL"
-  fi
-elif [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+if [[ "$CF_TUNNEL_MODE" == "token" ]]; then
   info "Configuring Cloudflare Tunnel service..."
   setup_cf_token_tunnel "$CF_TUNNEL_TOKEN" || true
 elif [[ "$EXPOSE_METHOD" == "3" && -n "$CADDY_DOMAIN" ]]; then
@@ -549,6 +546,28 @@ if systemctl is-active --quiet "$SERVICE_NAME"; then
 else
   journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
   fail "Service failed to start."
+fi
+
+if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
+  info "Launching persistent Cloudflare Quick Tunnel against running bot..."
+  CF_URL="$(setup_cf_quick_tunnel "$WEBAPP_PORT" || true)"
+  CF_URL="$(printf '%s\n' "$CF_URL" | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
+  if [[ -n "$CF_URL" ]]; then
+    WEBAPP_URL="$CF_URL"
+    sed -i -E "s|^export WEBAPP_URL=.*|export WEBAPP_URL=$(printf '%q' "$WEBAPP_URL")|" "$ENV_FILE"
+    TARGET_URL="$WEBAPP_URL" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import os, sqlite3
+try:
+    conn = sqlite3.connect('/root/SpeedyBot/speedping.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
+    c.execute('INSERT INTO settings(key, value) VALUES("webapp_url", ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (os.environ.get("TARGET_URL", ""),))
+    conn.commit()
+    conn.close()
+except Exception:
+    pass
+PY
+  fi
 fi
 
 printf '\n============================================================\n'

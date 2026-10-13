@@ -130,14 +130,18 @@ def _verify_init_data(init_data_raw: str) -> Dict[str, Any]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Dependency helpers
-# ---------------------------------------------------------------------------
+_DB_PATH = os.path.abspath("speedping.db")
+
 
 def _db():
     import sqlite3
-    conn = sqlite3.connect("speedping.db", timeout=15)
+    conn = sqlite3.connect(_DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+    except Exception:
+        pass
     return conn
 
 
@@ -276,6 +280,84 @@ class AdminGatewaySettingsRequest(BaseModel):
 
 class BrandingRequest(BaseModel):
     webapp_title: str
+
+
+class InitStarsOrderRequest(BaseModel):
+    plan_id: Optional[int] = None
+    custom_spec: Optional[dict] = None
+    discount_code: Optional[str] = None
+
+
+class AdminPlanCreateRequest(BaseModel):
+    name: str
+    price: int
+    volume_gb: float = 0
+    days: int = 30
+    ip_limit: int = 1
+    active: int = 1
+    sort_order: int = 100
+
+
+class AdminPlanUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    price: Optional[int] = None
+    volume_gb: Optional[float] = None
+    days: Optional[int] = None
+    ip_limit: Optional[int] = None
+    active: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class AdminBuilderDefaultsRequest(BaseModel):
+    month_price: Optional[int] = None
+    gb_price: Optional[int] = None
+    discount_3m: Optional[int] = None
+    discount_6m: Optional[int] = None
+    discount_12m: Optional[int] = None
+    traffic_discount_50: Optional[int] = None
+    traffic_discount_100: Optional[int] = None
+    traffic_discount_300: Optional[int] = None
+    traffic_unlimited_price: Optional[int] = None
+    traffic_unlimited_cap_gb: Optional[int] = None
+    user_cost_1: Optional[int] = None
+    user_cost_2: Optional[int] = None
+    user_cost_3: Optional[int] = None
+    user_cost_4: Optional[int] = None
+    user_cost_5: Optional[int] = None
+    user_cost_unlimited: Optional[int] = None
+
+
+class AdminAdjustBalanceRequest(BaseModel):
+    amount: int
+    reason: Optional[str] = "Admin manual adjustment"
+
+
+class AdminBlacklistAddRequest(BaseModel):
+    user_id: int
+    reason: Optional[str] = "Blocked by admin"
+
+
+class AdminAddRequest(BaseModel):
+    user_id: int
+    role: Optional[str] = "ADMIN"
+
+
+class AdminOperatingModeRequest(BaseModel):
+    mode: str  # NORMAL, SALES_PAUSED, MAINTENANCE
+
+
+class AdminPaymentsSettingsRequest(BaseModel):
+    card_number: Optional[str] = None
+    card_holder: Optional[str] = None
+    bank_name: Optional[str] = None
+    zibal_enabled: Optional[bool] = None
+    zibal_merchant: Optional[str] = None
+    zibal_sandbox: Optional[bool] = None
+    zarinpal_enabled: Optional[bool] = None
+    zarinpal_merchant: Optional[str] = None
+    zarinpal_sandbox: Optional[bool] = None
+    stars_enabled: Optional[bool] = None
+    stars_rate: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -927,11 +1009,125 @@ async def init_custom_wallet_order(
 @app.get("/api/gateways/active")
 async def get_active_gateways(_user: Dict[str, Any] = Depends(get_current_user)):
     """Return enabled payment methods available for checkout."""
+    stars_enabled = _setting("gateway_stars_enabled", "1") == "1"
+    stars_rate = int(_setting("gateway_stars_rate", "1500") or 1500)
     return {
         "card": True,
         "wallet": True,
         "zibal": _setting("gateway_zibal_enabled", "0") == "1",
         "zarinpal": _setting("gateway_zarinpal_enabled", "0") == "1",
+        "stars": stars_enabled,
+        "stars_rate": stars_rate,
+    }
+
+
+@app.post("/api/orders/init-stars")
+async def init_stars_order(
+    body: InitStarsOrderRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Initiate payment via Telegram Stars (XTR). Generates native invoice link."""
+    uid = user["id"]
+    stars_enabled = _setting("gateway_stars_enabled", "1") == "1"
+    if not stars_enabled:
+        raise HTTPException(status_code=400, detail="پرداخت با تلگرام استارز در حال حاضر غیرفعال است.")
+
+    stars_rate = int(_setting("gateway_stars_rate", "1500") or 1500)
+    if stars_rate <= 0:
+        stars_rate = 1500
+
+    import math  # noqa: PLC0415
+    plan_name = "سرویس"
+    price = 0
+    plan_id = None
+    custom_spec = None
+
+    if body.plan_id:
+        conn = _db()
+        p = conn.execute("SELECT * FROM plans WHERE id = ? AND active = 1", (body.plan_id,)).fetchone()
+        conn.close()
+        if not p:
+            raise HTTPException(status_code=404, detail="پلن انتخابی یافت نشد.")
+        plan_id = int(p["id"])
+        plan_name = p["name"]
+        price = int(p["price"])
+    elif body.custom_spec:
+        calc = _calculate_builder_plan(
+            months=int(body.custom_spec.get("months", 1)),
+            volume_gb=int(body.custom_spec.get("volume_gb", 0)),
+            ip_limit=int(body.custom_spec.get("ip_limit", 1)),
+        )
+        plan_name = calc["plan_name"]
+        price = calc.get("total_price", calc.get("final_price", 0))
+        custom_spec = calc
+    else:
+        raise HTTPException(status_code=400, detail="مشخصات پلن یا پلن انتخابی الزامی است.")
+
+    discount_amount = 0
+    if body.discount_code:
+        d = _calc_discount(body.discount_code.strip(), price, uid)
+        if d > 0:
+            discount_amount = d
+            price = max(1000, price - discount_amount)
+
+    stars_amount = max(1, math.ceil(price / stars_rate))
+    now = int(time.time())
+
+    conn = _db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            """
+            INSERT INTO transactions (
+                user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
+                service_email, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
+                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb
+            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                uid,
+                plan_id or 0,
+                price,
+                price,
+                now,
+                "CUSTOM" if custom_spec else "NEW",
+                plan_name,
+                int(custom_spec.get("days", 30)) if custom_spec else 30,
+                float(custom_spec.get("volume_gb", 0)) if custom_spec else 0.0,
+                int(custom_spec.get("ip_limit", 1)) if custom_spec else 1,
+                body.discount_code,
+                discount_amount,
+            ),
+        )
+        tx_id = c.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    from . import core as _core  # noqa: PLC0415
+    from telebot import types as _tele_types  # noqa: PLC0415
+
+    try:
+        invoice_link = _core.bot.create_invoice_link(
+            title=f"خرید {plan_name}",
+            description=f"سفارش شماره #{tx_id} در SpeedyBot - فعال‌سازی آنی",
+            payload=f"stars_order_{tx_id}",
+            provider_token="",  # ALWAYS empty for Telegram Stars (XTR)
+            currency="XTR",
+            prices=[_tele_types.LabeledPrice(label=plan_name, amount=stars_amount)],
+        )
+    except Exception as e:
+        logger.error("Failed to generate Telegram Stars invoice: %s", e)
+        raise HTTPException(status_code=500, detail=f"خطا در ایجاد فاکتور تلگرام استارز: {e}")
+
+    return {
+        "status": "invoice_created",
+        "order_id": tx_id,
+        "invoice_link": invoice_link,
+        "stars": stars_amount,
+        "stars_amount": stars_amount,
+        "price_tomans": price,
+        "currency": "XTR",
     }
 
 
@@ -1492,21 +1688,248 @@ async def admin_reject_order(
 
 
 # ---------------------------------------------------------------------------
-# Admin — User list
+# Admin — Server Status
+# ---------------------------------------------------------------------------
+
+def _get_server_status() -> Dict[str, Any]:
+    import shutil
+    import sys
+
+    # Disk
+    try:
+        du = shutil.disk_usage("/")
+        disk_total = du.total
+        disk_used = du.used
+        disk_percent = round((du.used / du.total) * 100, 1)
+    except Exception:
+        disk_total = disk_used = disk_percent = 0
+
+    # RAM
+    ram_total = ram_used = ram_percent = 0
+    try:
+        with open("/proc/meminfo", "r") as f:
+            lines = f.readlines()
+        mem = {}
+        for line in lines:
+            parts = line.split(":")
+            if len(parts) == 2:
+                mem[parts[0].strip()] = int(parts[1].split()[0])
+        total_kb = mem.get("MemTotal", 0)
+        avail_kb = mem.get("MemAvailable", mem.get("MemFree", 0))
+        used_kb = total_kb - avail_kb
+        ram_total = total_kb * 1024
+        ram_used = used_kb * 1024
+        ram_percent = round((used_kb / total_kb) * 100, 1) if total_kb else 0
+    except Exception:
+        pass
+
+    # CPU load
+    load_1 = 0.0
+    try:
+        load_1, _, _ = os.getloadavg()
+    except Exception:
+        pass
+
+    # Uptime
+    uptime_seconds = 0
+    try:
+        with open("/proc/uptime", "r") as f:
+            uptime_seconds = int(float(f.readline().split()[0]))
+    except Exception:
+        pass
+
+    # 3x-ui connection status
+    xui_ok = False
+    xui_latency_ms = None
+    try:
+        from . import core as _core  # noqa: PLC0415
+        import requests  # noqa: PLC0415
+        t0 = time.time()
+        url = _core._xui_url("panel/api/inbounds/list")
+        r = requests.get(url, headers=_core._xui_headers(), proxies=_core._xui_proxies(), timeout=5)
+        xui_latency_ms = round((time.time() - t0) * 1000)
+        xui_ok = r.status_code == 200 and bool(r.json().get("success"))
+    except Exception:
+        xui_ok = False
+
+    return {
+        "cpu_load": f"{load_1:.2f}",
+        "ram": {
+            "used_mb": round(ram_used / (1024 * 1024)),
+            "total_mb": round(ram_total / (1024 * 1024)),
+            "percent": ram_percent,
+        },
+        "disk": {
+            "used_gb": round(disk_used / (1024 * 1024 * 1024), 1),
+            "total_gb": round(disk_total / (1024 * 1024 * 1024), 1),
+            "percent": disk_percent,
+        },
+        "uptime_hours": round(uptime_seconds / 3600, 1),
+        "python_version": sys.version.split()[0],
+        "xui": {
+            "connected": xui_ok,
+            "latency_ms": xui_latency_ms,
+        },
+    }
+
+
+@app.get("/api/admin/server-status")
+async def admin_server_status_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    return _get_server_status()
+
+
+# ---------------------------------------------------------------------------
+# Admin — Custom Plan Builder Defaults
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/builder/defaults")
+async def admin_builder_defaults_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    return {
+        "month_price": int(_setting("builder_month_price", "120000") or 120000),
+        "gb_price": int(_setting("builder_gb_price", "1000") or 1000),
+        "discount_3m": int(_setting("builder_dur_discount_3m", "5") or 5),
+        "discount_6m": int(_setting("builder_dur_discount_6m", "10") or 10),
+        "discount_12m": int(_setting("builder_dur_discount_12m", "20") or 20),
+        "traffic_discount_50": int(_setting("builder_traffic_discount_50", "5") or 5),
+        "traffic_discount_100": int(_setting("builder_traffic_discount_100", "15") or 15),
+        "traffic_discount_300": int(_setting("builder_traffic_discount_300", "30") or 30),
+        "traffic_unlimited_price": int(_setting("builder_traffic_unlimited_price", "500000") or 500000),
+        "traffic_unlimited_cap_gb": int(_setting("builder_traffic_unlimited_cap_gb", "1000") or 1000),
+        "user_cost_1": int(_setting("builder_user_cost_1", "0") or 0),
+        "user_cost_2": int(_setting("builder_user_cost_2", "20000") or 20000),
+        "user_cost_3": int(_setting("builder_user_cost_3", "35000") or 35000),
+        "user_cost_4": int(_setting("builder_user_cost_4", "45000") or 45000),
+        "user_cost_5": int(_setting("builder_user_cost_5", "50000") or 50000),
+        "user_cost_unlimited": int(_setting("builder_user_cost_unlimited", "65000") or 65000),
+    }
+
+
+@app.post("/api/admin/builder/defaults")
+async def admin_builder_defaults_post(
+    body: AdminBuilderDefaultsRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    mapping = {
+        "month_price": "builder_month_price",
+        "gb_price": "builder_gb_price",
+        "discount_3m": "builder_dur_discount_3m",
+        "discount_6m": "builder_dur_discount_6m",
+        "discount_12m": "builder_dur_discount_12m",
+        "traffic_discount_50": "builder_traffic_discount_50",
+        "traffic_discount_100": "builder_traffic_discount_100",
+        "traffic_discount_300": "builder_traffic_discount_300",
+        "traffic_unlimited_price": "builder_traffic_unlimited_price",
+        "traffic_unlimited_cap_gb": "builder_traffic_unlimited_cap_gb",
+        "user_cost_1": "builder_user_cost_1",
+        "user_cost_2": "builder_user_cost_2",
+        "user_cost_3": "builder_user_cost_3",
+        "user_cost_4": "builder_user_cost_4",
+        "user_cost_5": "builder_user_cost_5",
+        "user_cost_unlimited": "builder_user_cost_unlimited",
+    }
+    for attr, key in mapping.items():
+        val = getattr(body, attr, None)
+        if val is not None:
+            _update_setting(key, str(val))
+    return {"status": "saved", "message": "پیش‌فرض‌های پلن‌ساز با موفقیت ذخیره شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Payments & Gateways (Card, Zibal, Zarinpal, Stars)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/payments")
+async def admin_get_payments(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    return {
+        "card": {
+            "card_number": _setting("card_number", ""),
+            "card_holder": _setting("card_holder", ""),
+            "bank_name": _setting("bank_name", ""),
+        },
+        "zibal": {
+            "enabled": _setting("gateway_zibal_enabled", "0") == "1",
+            "merchant": _setting("gateway_zibal_merchant", ""),
+            "sandbox": _setting("gateway_zibal_sandbox", "0") == "1",
+        },
+        "zarinpal": {
+            "enabled": _setting("gateway_zarinpal_enabled", "0") == "1",
+            "merchant": _setting("gateway_zarinpal_merchant", ""),
+            "sandbox": _setting("gateway_zarinpal_sandbox", "0") == "1",
+        },
+        "stars": {
+            "enabled": _setting("gateway_stars_enabled", "1") == "1",
+            "rate": int(_setting("gateway_stars_rate", "1500") or 1500),
+        },
+    }
+
+
+@app.post("/api/admin/payments")
+async def admin_save_payments(
+    body: AdminPaymentsSettingsRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    if body.card_number is not None:
+        _update_setting("card_number", body.card_number.strip())
+    if body.card_holder is not None:
+        _update_setting("card_holder", body.card_holder.strip())
+    if body.bank_name is not None:
+        _update_setting("bank_name", body.bank_name.strip())
+
+    if body.zibal_enabled is not None:
+        _update_setting("gateway_zibal_enabled", "1" if body.zibal_enabled else "0")
+    if body.zibal_merchant is not None:
+        _update_setting("gateway_zibal_merchant", body.zibal_merchant.strip())
+    if body.zibal_sandbox is not None:
+        _update_setting("gateway_zibal_sandbox", "1" if body.zibal_sandbox else "0")
+
+    if body.zarinpal_enabled is not None:
+        _update_setting("gateway_zarinpal_enabled", "1" if body.zarinpal_enabled else "0")
+    if body.zarinpal_merchant is not None:
+        _update_setting("gateway_zarinpal_merchant", body.zarinpal_merchant.strip())
+    if body.zarinpal_sandbox is not None:
+        _update_setting("gateway_zarinpal_sandbox", "1" if body.zarinpal_sandbox else "0")
+
+    if body.stars_enabled is not None:
+        _update_setting("gateway_stars_enabled", "1" if body.stars_enabled else "0")
+    if body.stars_rate is not None and body.stars_rate > 0:
+        _update_setting("gateway_stars_rate", str(body.stars_rate))
+
+    return {"status": "saved", "message": "تنظیمات روش‌های پرداخت با موفقیت ذخیره شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — User list & Management
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin/users")
 async def admin_users(
     limit: int = 100,
     offset: int = 0,
+    q: Optional[str] = None,
     _admin: Dict[str, Any] = Depends(get_admin_user),
 ):
     conn = _db()
-    rows = conn.execute(
-        "SELECT id, balance, created_at, last_seen_at, is_active FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
-        (limit, offset),
-    ).fetchall()
-    total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if q and q.strip():
+        search = f"%{q.strip()}%"
+        rows = conn.execute(
+            """
+            SELECT id, balance, created_at, last_seen_at, is_active
+            FROM users
+            WHERE CAST(id AS TEXT) LIKE ?
+            ORDER BY id DESC LIMIT ? OFFSET ?
+            """,
+            (search, limit, offset),
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE CAST(id AS TEXT) LIKE ?",
+            (search,),
+        ).fetchone()[0]
+    else:
+        rows = conn.execute(
+            "SELECT id, balance, created_at, last_seen_at, is_active FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     conn.close()
     return {
         "total": total,
@@ -1523,8 +1946,126 @@ async def admin_users(
     }
 
 
+@app.get("/api/admin/users/{user_id}")
+async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد.")
+
+    transactions = conn.execute(
+        """
+        SELECT id, plan_name_snapshot, price, status, payment_method, created_at, approved_at
+        FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 20
+        """,
+        (user_id,),
+    ).fetchall()
+
+    services = conn.execute(
+        """
+        SELECT id, sub_id, plan_id, status, created_at, expires_at
+        FROM linked_services WHERE user_id = ? ORDER BY id DESC LIMIT 10
+        """,
+        (user_id,),
+    ).fetchall()
+    conn.close()
+
+    return {
+        "user": {
+            "id": user["id"],
+            "balance": int(user["balance"] or 0),
+            "created_at": user["created_at"],
+            "last_seen_at": user["last_seen_at"],
+            "is_active": bool(user["is_active"]),
+        },
+        "transactions": [
+            {
+                "id": t["id"],
+                "plan": t["plan_name_snapshot"] or "سرویس",
+                "price": int(t["price"] or 0),
+                "status": t["status"],
+                "method": t["payment_method"],
+                "created_at": t["created_at"],
+                "approved_at": t["approved_at"],
+            }
+            for t in transactions
+        ],
+        "services": [
+            {
+                "id": s["id"],
+                "sub_id": s["sub_id"],
+                "plan_id": s["plan_id"],
+                "status": s["status"],
+                "created_at": s["created_at"],
+                "expires_at": s["expires_at"],
+            }
+            for s in services
+        ],
+    }
+
+
+@app.post("/api/admin/users/{user_id}/balance")
+async def admin_adjust_user_balance(
+    user_id: int,
+    body: AdminAdjustBalanceRequest,
+    admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    conn = _db()
+    try:
+        user = conn.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="کاربر یافت نشد.")
+
+        current_balance = int(user["balance"] or 0)
+        new_balance = max(0, current_balance + body.amount)
+        now = int(time.time())
+
+        conn.execute("UPDATE users SET balance = ? WHERE id = ?", (new_balance, user_id))
+        conn.execute(
+            """
+            INSERT INTO wallet_transactions (user_id, amount, balance_after, type, description, created_at)
+            VALUES (?, ?, ?, 'MANUAL_ADMIN', ?, ?)
+            """,
+            (user_id, body.amount, new_balance, body.reason or "تغییر موجودی توسط مدیریت", now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    try:
+        from . import core as _core  # noqa: PLC0415
+        diff_str = f"+{body.amount:,}" if body.amount > 0 else f"{body.amount:,}"
+        _core.bot.send_message(
+            user_id,
+            f"💼 <b>موجودی کیف پول شما توسط مدیریت تغییر یافت:</b>\n"
+            f"تغییر: <code>{diff_str}</code> تومان\n"
+            f"موجودی جدید: <b>{new_balance:,}</b> تومان\n"
+            f"توضیحات: {body.reason}",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    return {"status": "updated", "new_balance": new_balance}
+
+
+@app.post("/api/admin/users/{user_id}/toggle-status")
+async def admin_toggle_user_status(user_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    user = conn.execute("SELECT is_active FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد.")
+    new_status = 0 if user["is_active"] else 1
+    conn.execute("UPDATE users SET is_active = ? WHERE id = ?", (new_status, user_id))
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "is_active": bool(new_status)}
+
+
 # ---------------------------------------------------------------------------
-# Admin — Plans management
+# Admin — Plans CRUD
 # ---------------------------------------------------------------------------
 
 @app.get("/api/admin/plans")
@@ -1549,6 +2090,275 @@ async def admin_plans(_admin: Dict[str, Any] = Depends(get_admin_user)):
             for r in rows
         ]
     }
+
+
+@app.post("/api/admin/plans")
+async def admin_create_plan(body: AdminPlanCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    conn = _db()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, now, now),
+    )
+    plan_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return {"status": "created", "plan_id": plan_id, "message": "پلن جدید با موفقیت اضافه شد."}
+
+
+@app.put("/api/admin/plans/{plan_id}")
+async def admin_update_plan(plan_id: int, body: AdminPlanUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        raise HTTPException(status_code=404, detail="پلن یافت نشد.")
+
+    now = int(time.time())
+    name = body.name.strip() if body.name is not None else plan["name"]
+    price = body.price if body.price is not None else plan["price"]
+    volume_gb = body.volume_gb if body.volume_gb is not None else plan["volume_gb"]
+    days = body.days if body.days is not None else plan["days"]
+    ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
+    active = body.active if body.active is not None else plan["active"]
+    sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
+
+    conn.execute(
+        """
+        UPDATE plans
+        SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (name, price, volume_gb, days, ip_limit, active, sort_order, now, plan_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "message": "پلن با موفقیت ویرایش شد."}
+
+
+@app.delete("/api/admin/plans/{plan_id}")
+async def admin_delete_plan(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "message": "پلن با موفقیت حذف شد."}
+
+
+@app.post("/api/admin/plans/{plan_id}/toggle")
+async def admin_toggle_plan(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    plan = conn.execute("SELECT active FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        raise HTTPException(status_code=404, detail="پلن یافت نشد.")
+    new_state = 0 if plan["active"] else 1
+    conn.execute("UPDATE plans SET active = ?, updated_at = ? WHERE id = ?", (new_state, int(time.time()), plan_id))
+    conn.commit()
+    conn.close()
+    return {"status": "toggled", "active": bool(new_state)}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Blacklist Management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/blacklist")
+async def admin_blacklist_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute(
+        """
+        SELECT user_id, reason, created_at, created_by
+        FROM user_blocks
+        WHERE active = 1
+        ORDER BY created_at DESC
+        """
+    ).fetchall()
+    conn.close()
+    return {
+        "blacklist": [
+            {
+                "user_id": r["user_id"],
+                "reason": r["reason"] or "مسدود توسط ادمین",
+                "created_at": r["created_at"],
+                "created_by": r["created_by"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/admin/blacklist/add")
+async def admin_blacklist_add(
+    body: AdminBlacklistAddRequest,
+    admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    now = int(time.time())
+    admin_id = admin["id"]
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO user_blocks (user_id, reason, active, created_at, created_by, updated_at)
+        VALUES (?, ?, 1, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET active = 1, reason = excluded.reason, updated_at = excluded.updated_at
+        """,
+        (body.user_id, body.reason, now, admin_id, now),
+    )
+    conn.execute("UPDATE users SET is_active = 0 WHERE id = ?", (body.user_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "blocked", "user_id": body.user_id, "message": "کاربر با موفقیت مسدود شد."}
+
+
+@app.post("/api/admin/blacklist/remove")
+async def admin_blacklist_remove(
+    body: AdminBlacklistAddRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    conn = _db()
+    conn.execute("UPDATE user_blocks SET active = 0 WHERE user_id = ?", (body.user_id,))
+    conn.execute("UPDATE users SET is_active = 1 WHERE id = ?", (body.user_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "unblocked", "user_id": body.user_id, "message": "مسدودیت کاربر لغو شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Other Admins Management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/admins")
+async def admin_admins_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    owner_id = int(os.environ.get("ADMIN_ID", "0") or 0)
+    conn = _db()
+    rows = conn.execute("SELECT user_id, role, added_by, created_at FROM admins ORDER BY created_at DESC").fetchall()
+    conn.close()
+    admins_list = [
+        {
+            "user_id": owner_id,
+            "role": "OWNER",
+            "is_owner": True,
+            "created_at": 0,
+        }
+    ]
+    for r in rows:
+        if r["user_id"] != owner_id:
+            admins_list.append({
+                "user_id": r["user_id"],
+                "role": r["role"],
+                "is_owner": False,
+                "added_by": r["added_by"],
+                "created_at": r["created_at"],
+            })
+    return {"admins": admins_list, "owner_id": owner_id}
+
+
+@app.post("/api/admin/admins/add")
+async def admin_admins_add(
+    body: AdminAddRequest,
+    admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    owner_id = int(os.environ.get("ADMIN_ID", "0") or 0)
+    if body.user_id == owner_id:
+        return {"status": "exists", "message": "این کاربر مالک اصلی سیستم است."}
+
+    now = int(time.time())
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO admins (user_id, role, added_by, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET role = excluded.role
+        """,
+        (body.user_id, body.role or "ADMIN", admin["id"], now),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "added", "user_id": body.user_id, "message": "مدیر جدید با موفقیت اضافه شد."}
+
+
+@app.post("/api/admin/admins/remove")
+async def admin_admins_remove(
+    body: AdminAddRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    owner_id = int(os.environ.get("ADMIN_ID", "0") or 0)
+    if body.user_id == owner_id:
+        raise HTTPException(status_code=400, detail="مالک اصلی سیستم قابل حذف نیست.")
+
+    conn = _db()
+    conn.execute("DELETE FROM admins WHERE user_id = ?", (body.user_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "removed", "user_id": body.user_id, "message": "دسترسی مدیریت کاربر حذف شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Backups & Operating Mode
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/backups")
+async def admin_backups_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    backup_dir = os.path.join(os.path.dirname(_DB_PATH), "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    backups = []
+    try:
+        for entry in os.scandir(backup_dir):
+            if entry.is_file() and entry.name.endswith(".db"):
+                st = entry.stat()
+                backups.append({
+                    "name": entry.name,
+                    "size_kb": round(st.st_size / 1024, 1),
+                    "created_at": int(st.st_mtime),
+                })
+    except Exception:
+        pass
+    backups.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"backups": backups}
+
+
+@app.post("/api/admin/backups/create")
+async def admin_backups_create(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    import sqlite3
+    backup_dir = os.path.join(os.path.dirname(_DB_PATH), "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    from datetime import datetime
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_filename = f"manual_{stamp}.db"
+    dest_path = os.path.join(backup_dir, backup_filename)
+
+    src_conn = sqlite3.connect(_DB_PATH)
+    dest_conn = sqlite3.connect(dest_path)
+    src_conn.backup(dest_conn)
+    dest_conn.close()
+    src_conn.close()
+
+    return {"status": "ok", "filename": backup_filename, "message": f"بکاپ {backup_filename} با موفقیت ایجاد شد."}
+
+
+@app.get("/api/admin/ops/mode")
+async def admin_ops_mode_get(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    return {
+        "mode": _setting("operating_mode", "NORMAL"),
+        "sales_paused_message": _setting("sales_paused_message", ""),
+        "maintenance_message": _setting("maintenance_message", ""),
+    }
+
+
+@app.post("/api/admin/ops/mode")
+async def admin_ops_mode_post(
+    body: AdminOperatingModeRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    valid_modes = {"NORMAL", "SALES_PAUSED", "MAINTENANCE"}
+    if body.mode not in valid_modes:
+        raise HTTPException(status_code=400, detail="حالت کاری نامعتبر است.")
+    _update_setting("operating_mode", body.mode)
+    return {"status": "saved", "mode": body.mode, "message": f"حالت کاری به {body.mode} تغییر یافت."}
 
 
 # ---------------------------------------------------------------------------

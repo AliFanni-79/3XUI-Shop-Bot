@@ -4925,6 +4925,36 @@ def notification_diag_command(message):
     bot.send_message(message.chat.id, _format_monitor_result(result), parse_mode="Markdown")
 
 
+# --- Telegram Stars Handlers ---
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def process_pre_checkout_stars(pre_checkout_query):
+    try:
+        bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+    except Exception as e:
+        logger.error("Failed to answer pre_checkout_query: %s", e)
+
+
+@bot.message_handler(content_types=['successful_payment'])
+def process_successful_payment_stars(message):
+    payment = message.successful_payment
+    payload = str(payment.invoice_payload or "").strip()
+    if payload.startswith("stars_order_"):
+        try:
+            order_id = int(payload.split("_")[-1])
+            finalize_service_transaction(order_id)
+            bot.send_message(
+                message.chat.id,
+                f"🎉 <b>پرداخت تلگرام استارز با موفقیت تایید شد!</b>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"⭐ مبلغ پرداختی: <b>{payment.total_amount} XTR (استارز)</b>\n"
+                f"🆔 شناسه سفارش: <code>#{order_id}</code>\n\n"
+                f"⚡️ سرویس شما فعال شد و اطلاعات اشتراک در چت برای شما ارسال گردید.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error("Error finalizing stars payment for order %s: %s", payload, e)
+
+
 def generate_xui_config(user_id, plan_id, tx_id):
     """Compatibility wrapper for older callers."""
     return finalize_service_transaction(tx_id)

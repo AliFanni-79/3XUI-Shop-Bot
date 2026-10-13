@@ -213,23 +213,50 @@ Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports m
 
 ---
 
-## Online Payment Gateways
+## Online Payment Gateways & Telegram Stars
 
-SpeedyBot v5.0.0 natively supports automated online payment gateways alongside manual card-to-card receipts and wallet payments:
+SpeedyBot natively supports automated online payment gateways, Telegram Stars, manual card-to-card receipts, and internal wallet payments:
 
-1. **Zibal (`zibal.ir`)**
-   - Instant payment gateway with callback verification.
+1. **Telegram Stars (`XTR`)**
+   - Native in-app payment directly inside Telegram using Stars.
+   - **No external merchant setup required**: All Stars paid by users are directly credited to the bot owner's balance in Telegram / `@BotFather`.
+   - Configurable exchange rate (Tomans per Star, default: 1,500 Tomans/Star).
+   - Native invoice checkout modal via `window.Telegram.WebApp.openInvoice`.
+   - Automated instant service provisioning upon successful payment.
+
+2. **Zibal (`zibal.ir`)**
+   - Instant Iranian payment gateway with callback verification.
    - Admin config: Merchant ID, Sandbox Mode (on/off), Active (on/off).
 
-2. **Zarinpal (`zarinpal.com`)**
+3. **Zarinpal (`zarinpal.com`)**
    - Standard merchant payment gateway.
    - Admin config: Merchant ID, Sandbox Mode (on/off), Active (on/off).
 
-### Enabling Gateways
-- By default, all payment gateways are disabled until explicitly configured.
-- Open the Mini App as Admin (or navigate to `/sudoadmin`) → **تنظیمات درگاه‌های پرداخت**.
-- Enable Zibal or Zarinpal, enter your Merchant ID, and choose whether to enable Sandbox mode for testing.
-- When enabled, customers in the Mini App checkout modal can choose their preferred gateway for instant payment and automated service provisioning.
+4. **Card-to-Card Transfer**
+   - Manual bank card transfer with receipt upload and admin review.
+
+### Enabling Gateways & Stars
+- Open the Mini App as Admin (or navigate to `/sudoadmin`) → **روش‌های پرداخت**.
+- Enable Telegram Stars, set your desired Tomans-per-Star exchange rate, or configure Zibal/Zarinpal credentials.
+- Customers in the Mini App checkout modal can choose their preferred payment method for instant automated activation.
+
+---
+
+## Mini App Admin Control Center
+
+The Mini App Admin Panel provides a comprehensive, touch-friendly operations dashboard matching all `/sudoadmin` bot commands:
+
+- **🖥️ Server Hardware & Panel Status**: Live monitoring of CPU load averages, RAM memory usage, Disk storage, OS uptime, Python runtime, and 3x-ui API connection health with real-time latency ping.
+- **💳 Payment Methods & Stars**: Configure card-to-card details, Zibal & Zarinpal credentials, and Telegram Stars toggles with custom exchange rates.
+- **🛠️ Custom Plan Builder Defaults**: Fine-tune base monthly pricing, duration tier discounts (3m, 6m, 12m), GB traffic pricing, traffic volume discounts, and multi-user device limits.
+- **📦 Preset Plans Management (CRUD)**: Create new preset plans, edit pricing, days, traffic GB, or device limits, toggle active/inactive status, and reorder catalog display order.
+- **👥 User Directory & Balance Control**: Search users by Telegram ID, view profiles and creation dates, adjust wallet balance with automated user notification and audit notes, or toggle account access.
+- **🚫 Blacklist Management**: Inspect blocked users, add blocks with detailed administrative reasons, or unblock accounts.
+- **👮 Admin Permissions**: Manage co-admins with strict Owner protection (Owner cannot be removed).
+- **💾 Hot SQLite Database Backups**: Create instantaneous, zero-downtime hot SQLite database snapshots stored safely in `backups/`.
+- **⚙️ Operating Modes**: Switch between `NORMAL`, `SALES_PAUSED` (with customizable pause notice), and `MAINTENANCE`.
+- **📢 Targeted Broadcasts**: Dispatch announcements to users directly from the web interface.
+- **🎨 Custom Branding**: Customize web app header and browser tab titles on the fly.
 
 ---
 
