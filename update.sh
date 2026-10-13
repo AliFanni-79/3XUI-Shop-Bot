@@ -21,8 +21,8 @@ TMP_DIR=""
 CHECK_ONLY=0
 FORCE=0
 
-info(){ printf '[INFO] %s\n' "$*"; }
-ok(){ printf '[OK] %s\n' "$*"; }
+info(){ printf '[INFO] %s\n' "$*" >&2; }
+ok(){ printf '[OK] %s\n' "$*" >&2; }
 warn(){ printf '[WARN] %s\n' "$*" >&2; }
 fail(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
@@ -257,6 +257,7 @@ configure_mini_app_exposure(){
       1)
         info "Setting up Cloudflare Quick Tunnel..."
         local q_url; q_url="$(setup_cf_quick_tunnel "$port" || true)"
+        q_url="$(printf '%s\n' "$q_url" | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
         if [[ -n "$q_url" ]]; then
           new_url="$q_url"
         fi
@@ -286,18 +287,21 @@ configure_mini_app_exposure(){
       set_env_var "WEBAPP_URL" "$new_url" "$APP_DIR/.env"
       ok "Updated WEBAPP_URL in .env: $new_url"
       if [[ -f "$APP_DIR/speedping.db" ]]; then
-        "$APP_DIR/.venv/bin/python3" -c "
+        TARGET_URL="$new_url" TARGET_DB="$APP_DIR/speedping.db" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import os
 import sqlite3
 try:
-    conn = sqlite3.connect('$APP_DIR/speedping.db')
+    db_path = os.environ.get("TARGET_DB", "/root/SpeedyBot/speedping.db")
+    target_url = os.environ.get("TARGET_URL", "").strip()
+    conn = sqlite3.connect(db_path, timeout=15)
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
-    c.execute('INSERT INTO settings(key, value) VALUES(\"webapp_url\", ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('$new_url',))
+    c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+    c.execute("INSERT INTO settings(key, value) VALUES('webapp_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (target_url,))
     conn.commit()
     conn.close()
 except Exception:
     pass
-" 2>/dev/null || true
+PY
       fi
     fi
   fi

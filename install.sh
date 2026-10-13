@@ -9,8 +9,8 @@ SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"; BLUE="\033[0;34m"; NC="\033[0m"
-info(){ printf "${BLUE}[INFO]${NC} %s\n" "$*"; }
-ok(){ printf "${GREEN}[OK]${NC} %s\n" "$*"; }
+info(){ printf "${BLUE}[INFO]${NC} %s\n" "$*" >&2; }
+ok(){ printf "${GREEN}[OK]${NC} %s\n" "$*" >&2; }
 warn(){ printf "${YELLOW}[WARN]${NC} %s\n" "$*" >&2; }
 fail(){ printf "${RED}[ERROR]${NC} %s\n" "$*" >&2; exit 1; }
 trap 'printf "${RED}[ERROR]${NC} Installation failed at line %s.\n" "$LINENO" >&2' ERR
@@ -408,6 +408,7 @@ bash -n install.sh
 if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
   info "Launching Cloudflare Quick Tunnel..."
   CF_URL="$(setup_cf_quick_tunnel "$WEBAPP_PORT" || true)"
+  CF_URL="$(printf '%s\n' "$CF_URL" | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
   if [[ -n "$CF_URL" ]]; then
     WEBAPP_URL="$CF_URL"
   fi
@@ -453,40 +454,67 @@ PY
 ok "3x-ui API preflight passed."
 
 info "Initializing database and saving configuration..."
-set +e
-"$APP_DIR/.venv/bin/python3" - <<PY
+SET_APP_DIR="$APP_DIR" \
+SET_WEBAPP_URL="$WEBAPP_URL" \
+SET_BRAND_NAME="$BRAND_NAME" \
+SET_CARD_NUMBER="$CARD_NUMBER" \
+SET_CARD_HOLDER="$CARD_HOLDER" \
+SET_SUPPORT_CONTACT="$SUPPORT_CONTACT" \
+SET_GATEWAY_CHOICE="$GATEWAY_CHOICE" \
+SET_ZIBAL_MERCHANT="$ZIBAL_MERCHANT" \
+SET_ZIBAL_SANDBOX="$ZIBAL_SANDBOX" \
+SET_ZARINPAL_MERCHANT="$ZARINPAL_MERCHANT" \
+SET_ZARINPAL_SANDBOX="$ZARINPAL_SANDBOX" \
+"$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import os
 import sqlite3
 
 try:
     from speedybot import storage
     storage.init_db()
 
-    conn = sqlite3.connect("$APP_DIR/speedping.db", timeout=15)
+    app_dir = os.environ.get("SET_APP_DIR", "/root/SpeedyBot")
+    conn = sqlite3.connect(os.path.join(app_dir, "speedping.db"), timeout=15)
     cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
 
     def set_kv(key, val):
-        cur.execute("INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(val)))
+        if val is not None and str(val).strip() != "":
+            cur.execute("INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(val).strip()))
 
-    if "$WEBAPP_URL":
-        set_kv("webapp_url", "$WEBAPP_URL")
-    if "$BRAND_NAME":
-        set_kv("brand_name", "$BRAND_NAME")
-        set_kv("webapp_title", "$BRAND_NAME")
-    if "$CARD_NUMBER":
-        set_kv("card_number", "$CARD_NUMBER")
-    if "$CARD_HOLDER":
-        set_kv("card_holder", "$CARD_HOLDER")
-    if "$SUPPORT_CONTACT":
-        set_kv("support_contact", "$SUPPORT_CONTACT")
+    webapp_url = os.environ.get("SET_WEBAPP_URL", "").strip()
+    if webapp_url:
+        set_kv("webapp_url", webapp_url)
 
-    if "$GATEWAY_CHOICE" == "2" and "$ZIBAL_MERCHANT":
+    brand_name = os.environ.get("SET_BRAND_NAME", "").strip()
+    if brand_name:
+        set_kv("brand_name", brand_name)
+        set_kv("webapp_title", brand_name)
+
+    card_number = os.environ.get("SET_CARD_NUMBER", "").strip()
+    if card_number:
+        set_kv("card_number", card_number)
+
+    card_holder = os.environ.get("SET_CARD_HOLDER", "").strip()
+    if card_holder:
+        set_kv("card_holder", card_holder)
+
+    support_contact = os.environ.get("SET_SUPPORT_CONTACT", "").strip()
+    if support_contact:
+        set_kv("support_contact", support_contact)
+
+    gw_choice = os.environ.get("SET_GATEWAY_CHOICE", "").strip()
+    zibal_merchant = os.environ.get("SET_ZIBAL_MERCHANT", "").strip()
+    zarinpal_merchant = os.environ.get("SET_ZARINPAL_MERCHANT", "").strip()
+
+    if gw_choice == "2" and zibal_merchant:
         set_kv("gateway_zibal_enabled", "1")
-        set_kv("gateway_zibal_merchant", "$ZIBAL_MERCHANT")
-        set_kv("gateway_zibal_sandbox", "$ZIBAL_SANDBOX")
-    elif "$GATEWAY_CHOICE" == "3" and "$ZARINPAL_MERCHANT":
+        set_kv("gateway_zibal_merchant", zibal_merchant)
+        set_kv("gateway_zibal_sandbox", os.environ.get("SET_ZIBAL_SANDBOX", "0").strip())
+    elif gw_choice == "3" and zarinpal_merchant:
         set_kv("gateway_zarinpal_enabled", "1")
-        set_kv("gateway_zarinpal_merchant", "$ZARINPAL_MERCHANT")
-        set_kv("gateway_zarinpal_sandbox", "$ZARINPAL_SANDBOX")
+        set_kv("gateway_zarinpal_merchant", zarinpal_merchant)
+        set_kv("gateway_zarinpal_sandbox", os.environ.get("SET_ZARINPAL_SANDBOX", "0").strip())
 
     conn.commit()
     conn.close()
@@ -494,7 +522,6 @@ try:
 except Exception as e:
     print(f"Notice during db configuration: {e}")
 PY
-set -e
 
 write_runner
 cat > "$SERVICE_FILE" <<EOF
