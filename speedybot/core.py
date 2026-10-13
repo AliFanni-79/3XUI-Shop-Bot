@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
 from html import escape
+from typing import Optional, Any, Dict, List, Tuple, Union
 
 try:
     import qrcode
