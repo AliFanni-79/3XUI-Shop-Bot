@@ -153,18 +153,18 @@ TimeoutStartSec=0
 [Install]
 WantedBy=multi-user.target
 EOF
+  local start_time; start_time="$(date +'%Y-%m-%d %H:%M:%S')"
   systemctl daemon-reload
   systemctl enable speedybot-tunnel.service
   systemctl restart speedybot-tunnel.service
   info "Waiting for Cloudflare Quick Tunnel to allocate HTTPS URL..."
-  sleep 4
   local cf_url=""
-  for i in {1..12}; do
-    cf_url="$(journalctl -u speedybot-tunnel.service -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
+  for i in {1..15}; do
+    sleep 2
+    cf_url="$(journalctl -u speedybot-tunnel.service --since "$start_time" -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
     if [[ -n "$cf_url" ]]; then
       break
     fi
-    sleep 2
   done
   if [[ -n "$cf_url" ]]; then
     ok "Cloudflare Quick Tunnel online: $cf_url"
@@ -461,8 +461,6 @@ chmod +x "$APP_DIR/install.sh" "$APP_DIR/update.sh" 2>/dev/null || true
 printf '%s\n' "$CLONED_COMMIT" > "$CURRENT_COMMIT_FILE"
 write_runner
 
-configure_mini_app_exposure
-
 info "Validating deployed application..."
 "$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/speedybot/*.py || rollback
 bash -n "$APP_DIR/update.sh" || rollback
@@ -473,13 +471,6 @@ systemctl restart "$SERVICE_NAME" || rollback
 sleep 5
 systemctl is-active --quiet "$SERVICE_NAME" || rollback
 
-if systemctl list-unit-files speedybot-tunnel.service 2>/dev/null | grep -q 'speedybot-tunnel.service'; then
-  systemctl restart speedybot-tunnel.service 2>/dev/null || true
-fi
-if systemctl is-active --quiet caddy 2>/dev/null; then
-  systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
-fi
-
 # Catch immediate crash loops, not just a single successful start.
 sleep 3
 systemctl is-active --quiet "$SERVICE_NAME" || rollback
@@ -487,6 +478,12 @@ RESTARTS="$(systemctl show "$SERVICE_NAME" -p NRestarts --value 2>/dev/null || e
 if [[ "$RESTARTS" =~ ^[0-9]+$ && "$RESTARTS" -ge 3 ]]; then
   warn "Service restarted $RESTARTS times immediately after deployment."
   rollback
+fi
+
+configure_mini_app_exposure
+
+if systemctl is-active --quiet caddy 2>/dev/null; then
+  systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
 fi
 
 ok "SpeedyBot complete-project update finished successfully."

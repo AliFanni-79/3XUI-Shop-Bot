@@ -116,18 +116,18 @@ TimeoutStartSec=0
 [Install]
 WantedBy=multi-user.target
 EOF
+  local start_time; start_time="$(date +'%Y-%m-%d %H:%M:%S')"
   systemctl daemon-reload
   systemctl enable speedybot-tunnel.service
   systemctl restart speedybot-tunnel.service
   info "Waiting for Cloudflare Quick Tunnel to allocate HTTPS URL..."
-  sleep 4
   local cf_url=""
-  for i in {1..12}; do
-    cf_url="$(journalctl -u speedybot-tunnel.service -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
+  for i in {1..15}; do
+    sleep 2
+    cf_url="$(journalctl -u speedybot-tunnel.service --since "$start_time" -n 80 --no-pager 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | tail -n1 || true)"
     if [[ -n "$cf_url" ]]; then
       break
     fi
-    sleep 2
   done
   if [[ -n "$cf_url" ]]; then
     ok "Cloudflare Quick Tunnel online: $cf_url"
