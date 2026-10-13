@@ -342,7 +342,7 @@ Log in as `root`:
 apt update
 apt install -y git
 
-git clone https://github.com/roseshayan/SpeedyBot.git /root/SpeedyBot
+git clone https://github.com/AliFanni-79/SpeedyBot.git /root/SpeedyBot
 cd /root/SpeedyBot
 chmod +x install.sh update.sh
 ./install.sh
