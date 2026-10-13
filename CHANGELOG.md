@@ -1,6 +1,48 @@
 # Changelog
 
-## 4.0.2 — Admin Interaction & Guidance Patch
+## 5.0.0 — Telegram Mini App, Custom Plan Builder & Online Payment Gateways
+
+### Added
+- **Telegram Mini App (TMA)**:
+  - Responsive SPA web application built with **Vue 3, Tailwind CSS, and Pinia** located in `webapp/`.
+  - Cryptographic authentication with HMAC-SHA256 signature verification of Telegram `initData`.
+  - High-performance **FastAPI** ASGI backend running concurrently in a daemon thread inside `main.py` on `WEBAPP_PORT` (default 8080).
+  - Embedded customer views: Active Services (traffic usage, expiry, copyable links, QR code viewer), Platform Connection Guides (iOS, Android, Windows, macOS), Wallet management with deposit & transaction logs, and Referral partner link.
+  - Web-based Admin Dashboard: live server stats, plan builder pricing configurations, and payment gateway controls.
+- **Interactive Custom Plan Builder**:
+  - Dynamic plan building directly within the Mini App storefront.
+  - Duration picker: 1, 3, 6, or 12 months with duration discounts (3 months: 5%, 6 months: 10%, 12 months: 20%).
+  - Traffic slider: customizable GB range (default 1,000 Tomans/GB with volume discounts for >50GB, >100GB, >300GB) or Unlimited traffic option (fair-use capped at 1,000 GB).
+  - Device limits: 1 to 5 devices (with price tiers) or Unlimited devices.
+  - Strict **Fair-Use Protection**: automatic validation preventing simultaneous unlimited traffic + unlimited users.
+  - Real-time price breakdown displaying original strikethrough price and discounted final price.
+  - Automated 3x-ui provisioning for custom plan purchases (`plan_id = 0`).
+- **Online Payment Gateways (Zibal & Zarinpal)**:
+  - Built-in integration for Iranian payment gateways **Zibal** and **Zarinpal** in `speedybot/gateways.py`.
+  - Webhook callback handlers (`/api/payment/callback/zibal` and `/api/payment/callback/zarinpal`).
+  - Automated client provisioning upon verified payment without manual admin receipt review.
+  - Sandbox/testing mode toggles for development and testing.
+  - Disabled by default out of the box; easily enabled with Merchant ID in Admin Dashboard.
+- **Simplified Telegram Chat UI**:
+  - Integrated Telegram Menu Button (`MenuButtonWebApp`) opening the Mini App directly.
+  - Streamlined chat keyboard reduced to 3 primary actions: `📡 سرویس‌های فعال من` (My Active Services), `📚 راهنما و سوالات` (Guides & FAQ), and `📞 پشتیبانی` (Support).
+- **Deployment & Script Updates**:
+  - `install.sh`: Interactive prompts for `WEBAPP_PORT` (default: 8080) and `WEBAPP_URL`.
+  - `update.sh`: Automatic `.env` migration appending webapp variables if missing; `node_modules` exclusions.
+  - `.env.example`: Updated with Mini App environment variables.
+
+### Removed
+- Pruned deprecated legacy features to maximize performance and maintainability:
+  - Doprax cloud deployment workflow.
+  - Customer feedback star surveys and ratings dashboard.
+  - Mandatory phone number verification and channel membership gating.
+  - Telegram custom emoji styling and `/emojiid` helper.
+
+### Fixed & Improved
+- Fixed TeleBot initialization when `BOT_TOKEN` is unset or invalid in development/testing.
+- Handled SQLite schema migrations automatically in `storage.init_db()`.
+- Synchronized version reporting to 5.0.0 across `VERSION.txt`, `speedybot/__init__.py`, and CI workflows.
+
 
 ### Fixed
 - Admin inline navigation now clears any stale `register_next_step_handler` state before starting another management action. This prevents an unfinished previous wizard (for example Plan Edit) from consuming the next admin input or making repeated button use feel stuck.

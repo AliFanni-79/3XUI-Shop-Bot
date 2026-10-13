@@ -24,7 +24,7 @@ from . import ui
 LEGACY_WIZARDS = {
     "plan_add", "plan_edit", "plan_toggle", "volume_add", "volume_toggle",
     "followup_delay", "cashback_percent", "discount_add", "gift_add",
-    "discount_toggle", "gift_toggle", "channel_set", "admin_add",
+    "discount_toggle", "gift_toggle", "admin_add",
     "admin_remove", "welcome_edit", "faq_edit", "affiliate_percent",
     "affiliate_wallet", "broadcast", "edit_card", "edit_holder", "edit_bank",
     "edit_card_image", "delete_user", "delete_sub", "guideadd", "guidedeleteask", "guideorderask",
@@ -35,7 +35,7 @@ LEGACY_WIZARDS = {
 
 PLUS_WIZARDS = {
     "blockadd", "blockremove", "catadd", "catrename", "catassign", "cattoggle",
-    "trialset", "trialdel", "bcaud", "auditchat", "emojiset",
+    "trialset", "trialdel", "bcaud", "auditchat",
 }
 
 FIX_WIZARDS = {"trial_defaults", "plan_delete", "category_delete"}
@@ -43,7 +43,7 @@ FIX_WIZARDS = {"trial_defaults", "plan_delete", "category_delete"}
 # These legacy menu callbacks never answered their CallbackQuery, which leaves
 # Telegram's spinner active and makes repeated clicks feel broken.
 LEGACY_MENU_NEEDS_ACK = {
-    "stats", "plans", "username_mode", "rewards", "security", "admins",
+    "stats", "plans", "username_mode", "rewards", "admins",
     "ops", "content", "affiliate", "affiliate_top", "notifications",
     "bank_config", "xui_config", "backup_now", "backup_toggle", "backup_telegram_toggle",
 }
@@ -232,16 +232,6 @@ def _legacy_spec(call):
             (),
         )
 
-    if action == "channel_set":
-        return (
-            "تنظیم کانال عضویت اجباری",
-            "برای کانال عمومی فقط Username را بفرستید:\n<code>@SpeedPing</code>\n\n"
-            "برای کانال خصوصی، Chat ID و لینک دعوت را با <code>|</code> جدا کنید:\n"
-            "<code>-1001234567890 | https://t.me/+InviteLink</code>\n\n"
-            "ربات باید بتواند وضعیت عضویت کاربر را در آن کانال بررسی کند.",
-            core.process_admin_channel_set,
-            (),
-        )
 
     if action in ("admin_add", "admin_remove"):
         if int(call.from_user.id) != int(core.ADMIN_ID):
@@ -503,17 +493,6 @@ def _plus_spec(call):
             "<b>مثال:</b> <code>-1001234567890</code>\nبرای غیرفعال کردن ارسال تلگرامی: <code>0</code>",
             A._audit_chat,
             (actor,),
-        )
-    if action == "emojiset" and len(parts) >= 3:
-        key = parts[2]
-        label = C.EMOJI_KEYS.get(key, key)
-        return (
-            f"Custom Emoji برای {label}",
-            "یک <b>Custom Emoji واقعی تلگرام</b> را در پیام بعدی ارسال کنید.\n"
-            "اگر فقط Emoji معمولی بفرستید ID قابل استخراج نیست.\n"
-            "برای پاک کردن تنظیم فعلی فقط <code>0</code> بفرستید.",
-            A._emoji_set,
-            (key, actor),
         )
     return None
 

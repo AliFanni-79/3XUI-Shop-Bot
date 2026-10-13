@@ -1,14 +1,13 @@
-# SpeedyBot v4.0.0
+# SpeedyBot v5.0.0
 
 <p align="center">
-  <strong>Open-source Telegram sales, subscription and CRM bot for 3x-ui / Sanaei</strong><br>
-  Provisioning • Free Trial • Renewals • Wallet • Affiliate • Inbound routing • CRM • Connection guides • Control Center
+  <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
+  Vue 3 Mini App • Custom Plan Builder • Zibal & Zarinpal Gateways • Automated Provisioning • Free Trial • Wallet • Control Center
 </p>
 
 <p align="center">
   <a href="README_FA.md">🇮🇷 راهنمای فارسی</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="MIGRATION_NOTES.md">Migration Guide</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -17,33 +16,30 @@
 > Telegram: **@SudoShayanNA** · Email: **namayandeshayan@gmail.com**  
 > Official repository: **https://github.com/roseshayan/SpeedyBot**
 
-SpeedyBot turns Telegram into a practical storefront, self-service area and operations console for a **3x-ui / Sanaei** panel. It can provision clients after payment approval, issue free trials, renew services, deliver Subscription/direct links and QR codes, manage wallet/referral rewards, warn users about expiry, provide platform-specific connection guides, and give administrators a Telegram-first control center.
+SpeedyBot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
 
-## Important: v4 is one integrated application
+## Architecture
 
-The final v4 release is **not** an add-on folder layered over an older release.
-
-There is one production entrypoint:
+SpeedyBot runs as a unified single-process application:
 
 ```text
-/root/SpeedyBot/main.py
+main.py
+  ├── TeleBot Polling (Telegram user & admin command handlers)
+  └── Uvicorn Daemon Thread (FastAPI REST API + static Vue 3 Mini App on port 8080)
 ```
 
-The permanent Python package is:
-
-```text
-/root/SpeedyBot/speedybot/
-```
-
-The old development-only paths `app.py` and `speedybot_v4/` are not part of the final integrated layout. Installer, updater, systemd and manual runs all execute the same `main.py` entrypoint.
+The application package is located in `speedybot/` and the compiled single-page frontend is served from `webapp/dist/`.
 
 ---
 
 ## Table of contents
 
 - [Features](#features)
-- [What v4 adds](#what-v4-adds)
+- [What's New in v5.0.0](#whats-new-in-v500)
 - [Default plans](#default-plans)
+- [Telegram Mini App Setup](#telegram-mini-app-setup)
+- [Online Payment Gateways](#online-payment-gateways)
+- [Custom Plan Builder](#custom-plan-builder)
 - [Requirements](#requirements)
 - [Before installation](#before-installation)
 - [Step-by-step installation](#step-by-step-installation)
@@ -54,20 +50,14 @@ The old development-only paths `app.py` and `speedybot_v4/` are not part of the 
 - [Free Trial and inbound routing](#free-trial-and-inbound-routing)
 - [Per-user Trial overrides](#per-user-trial-overrides)
 - [Connection guides](#connection-guides)
-- [CRM and Trial follow-up](#crm-and-trial-follow-up)
 - [Existing services and custom names](#existing-services-and-custom-names)
 - [Payments, wallet and marketing](#payments-wallet-and-marketing)
 - [Renewals](#renewals)
-- [Groups](#groups)
-- [Customer feedback](#customer-feedback)
 - [Targeted broadcasts](#targeted-broadcasts)
 - [Audit log](#audit-log)
-- [Panel snapshot](#panel-snapshot)
-- [Button styles and Custom Emoji](#button-styles-and-custom-emoji)
 - [Notifications](#notifications)
 - [Diagnostics](#diagnostics)
 - [Updating](#updating)
-- [Migrating from v3.x](#migrating-from-v3x)
 - [Backups and rollback](#backups-and-rollback)
 - [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
@@ -80,151 +70,77 @@ The old development-only paths `app.py` and `speedybot_v4/` are not part of the 
 
 ### Sales and provisioning
 
-- Automatic 3x-ui Client creation after payment approval.
-- Free Trial by default: **1 GB / 1 day / 1 IP**.
-- Dynamic SQLite-backed plans.
-- Independent IP limit per plan.
-- Manual card-transfer / receipt approval flow.
-- Wallet checkout.
-- Safe retry and idempotent provisioning behavior.
-- Subscription URL delivery.
-- Direct protocol-link delivery.
-- Subscription QR code.
-- Service renewal while preserving Client identity.
-- Optional extra-volume packs for metered plans.
+- **Telegram Mini App (TMA)**: Clean, reactive Vue 3 web interface embedded right inside Telegram.
+- **Interactive Custom Plan Builder**: Build tailor-made plans (custom durations, GB slider, device limits) with volume & duration discounts.
+- **Fair-Use Protection**: Enforces security policies to prevent multi-user reselling abuse.
+- **Online Payment Gateways**: Built-in support for **Zibal** and **Zarinpal** with automated instant callbacks and auto-provisioning.
+- **Manual Card Transfer**: Receipt upload with admin approval flow.
+- **Wallet Checkout**: Instant zero-click purchase using internal wallet balance.
+- **Automatic 3x-ui Client Creation**: Instant client generation upon payment verification.
+- **Free Trial**: Default 1 GB / 1 day / 1 IP test service.
+- **Subscription & Direct Config Delivery**: Immediate delivery of sub links, raw configs, and QR codes.
+- **Service Renewal**: Seamless renewal keeping existing client credentials and UUID.
 
-### Customer account
+### Customer portal (Mini App + Bot)
 
-- Live service status.
-- Remaining traffic / expiry visibility.
-- Subscription and direct links.
-- QR code.
-- Renewal.
-- Extra-volume purchase where supported.
-- Purchase history.
-- Wallet history.
-- Gift and discount codes.
-- Referral / affiliate link.
-- Platform-specific connection guides.
-- Secure linking of previously purchased 3x-ui services.
-- Optional custom Client name.
-- Customer rating / feedback.
-- Optional phone verification.
-- Optional mandatory Telegram-channel membership.
-
-### Sales / CRM
-
-- One-level referral program.
-- Configurable cashback.
-- Percentage or fixed discount codes.
-- Gift-wallet codes.
-- Acquisition survey after the first successful paid purchase.
-- Automated follow-up after Trial expiry.
-- Structured reasons for not purchasing.
-- Purchase/support CTA after follow-up.
-- Targeted broadcast audiences.
-- Customer feedback analytics.
+- Live traffic remaining and expiry monitoring.
+- One-tap copying of subscription URLs and direct proxy links.
+- Interactive QR code viewer.
+- Full wallet balance management and transaction history.
+- Referral / affiliate program with reward links and cashback.
+- Discount codes and gift card redemption.
+- Step-by-step connection guides for iOS, Android, Windows, and macOS.
+- Streamlined Telegram chat keyboard (Active Services, Guides, Support).
 
 ### Administration
 
-From `/sudoadmin` you can manage:
+From `/sudoadmin` or the Mini App Admin Dashboard:
 
-- Plans and prices.
-- Plan categories.
-- Volume packs.
-- Trial enable/disable.
-- Trial and per-plan inbounds.
-- Per-user Trial overrides.
-- Sanaei Client Groups.
-- CRM and Trial follow-up.
-- Wallet and referrals.
-- Cashback, gift and discount codes.
-- Payment/card information.
-- Welcome and FAQ text.
-- Phone verification and channel membership.
-- Multiple admins.
-- Notifications.
-- Backups.
-- User restrictions / blacklist.
-- Operating mode.
-- Customer feedback.
-- Targeted broadcasts.
-- Audit Log.
-- Read-only panel snapshot.
-- Telegram button styles and Custom Emoji IDs.
+- Plan catalog and interactive builder pricing rules.
+- Plan categories and volume packs.
+- Payment gateway credentials and toggle switches (Zibal, Zarinpal).
+- Free Trial configuration and per-user overrides.
+- Inbound selection and routing.
+- Operating mode (`NORMAL`, `SALES_PAUSED`, `MAINTENANCE`).
+- Targeted user broadcasts.
+- Comprehensive audit log.
+- Automated backup creation and safe restoration.
 
 ---
 
-## What v4 adds
+## What's New in v5.0.0
 
-### Cleaner Control Center
+### 1. Telegram Mini App (TMA)
+- Modern SPA built with **Vue 3, Tailwind CSS, and Pinia**.
+- Deep integration via Telegram WebApp SDK (`window.Telegram.WebApp`).
+- Automatically authenticated via HMAC-SHA256 signature validation of Telegram `initData`.
+- Embedded FastAPI server running asynchronously in a background thread inside `main.py`.
 
-The admin UI is reorganized into clearer sections with shorter, more readable messages and less crowded menus.
+### 2. Interactive Custom Plan Builder
+- Users are no longer limited to fixed plans; they can customize:
+  1. **Duration**: 1, 3, 6, or 12 months with duration tier discounts (e.g., 5%, 10%, 20%).
+  2. **Traffic**: Custom GB slider (default 1,000 Tomans/GB, volume discounts for >50GB, >100GB, >300GB) or Unlimited traffic (capped at 1,000 GB for fair use).
+  3. **User Limit**: 1 to 5 devices or Unlimited.
+  4. **Fair-Use Safeguard**: Prohibits simultaneous unlimited traffic + unlimited users to prevent reselling abuse.
+  5. **Instant Price Calculation**: Transparent breakdown showing original vs discounted price.
 
-### Operating modes
+### 3. Online Payment Gateways (Zibal & Zarinpal)
+- Native integration with Iranian payment gateways (Zibal and Zarinpal).
+- Support for sandbox/testing mode and live merchant IDs.
+- Automated web callback handlers (`/api/payment/callback/zibal` and `zarinpal`).
+- Instant automated provisioning upon verified payment without requiring admin manual receipt checks.
+- Disabled by default out of the box; easily enabled in the Admin Dashboard.
 
-- `NORMAL` — normal operation.
-- `SALES_PAUSED` — new purchases, renewals and volume add-ons are blocked; account, guides and support remain available.
-- `MAINTENANCE` — purchases and new Trials are blocked; account, guides and support remain available.
+### 4. Simplified Chat Interface
+- Added persistent **Telegram Menu Button** (`MenuButtonWebApp`) launching the Mini App.
+- Streamlined chat reply keyboard to 3 primary actions:
+  - `📡 سرویس‌های فعال من` (My Active Services)
+  - `📚 راهنما و سوالات` (Guides & FAQ)
+  - `📞 پشتیبانی` (Support)
+  - WebApp launch button if `WEBAPP_URL` is set.
 
-### Blacklist / purchase restriction
-
-Admins can restrict a Telegram user from purchase/Trial actions and store a reason. Support and account visibility remain available so the user is not silently locked out of help.
-
-### Plan categories
-
-Plans can be grouped into categories such as:
-
-```text
-Germany
-Gaming
-Anti-Sanction
-Static IP
-Business
-```
-
-Existing uncategorized plans are migrated into a default `عمومی` category.
-
-### Per-user Trial override
-
-Before the first Trial, an admin can define custom Trial traffic, days and IP limit for a specific Telegram ID.
-
-### Feedback
-
-Users can submit 1–5 stars plus an optional comment. Admin analytics show total responses, average rating, distribution and recent comments.
-
-### Targeted broadcast
-
-Broadcast can target:
-
-- All active users.
-- Paying customers.
-- Trial users who did not purchase.
-- Expired-Trial users who did not purchase.
-- Users who never purchased.
-
-### Audit Log
-
-Important admin events are stored in SQLite and can optionally be mirrored to a private Telegram group/channel.
-
-### Panel Snapshot
-
-Admin can export a read-only JSON snapshot of 3x-ui clients for investigation/disaster-recovery preparation. Automatic destructive restore is intentionally not included.
-
-### Telegram button styles / Custom Emoji
-
-SpeedyBot supports Telegram's official button styles:
-
-```text
-default
-primary
-success
-danger
-```
-
-Telegram does not expose arbitrary HEX/RGB button colors to bots.
-
-Custom/Premium Emoji IDs are optional and fall back safely when Telegram does not allow them.
+### 5. Architectural Pruning
+- Pruned deprecated legacy features (Doprax deployments, feedback rating surveys, phone/channel gating, and custom emoji formatting) to maximize performance and reliability.
 
 ---
 
@@ -238,7 +154,69 @@ Fresh databases receive these seed plans:
 | Unlimited - 2 users | 30 days | Unlimited | 2 | 300,000 Toman |
 | Unlimited - 3 users | 30 days | Unlimited | 3 | 350,000 Toman |
 
-These are examples/default seeds. Review them from `/sudoadmin` before production sales.
+In addition to preset plans, users can build custom plans dynamically through the Telegram Mini App.
+
+---
+
+## Telegram Mini App Setup
+
+SpeedyBot embeds a high-performance Vue 3 Single Page Application directly inside Telegram.
+
+### Configuration
+In `/root/SpeedyBot/.env`:
+```bash
+export WEBAPP_PORT='8080'
+export WEBAPP_HOST='0.0.0.0'
+export WEBAPP_URL='https://bot.yourdomain.com'
+```
+
+1. **Reverse Proxy (Nginx / Caddy / Cloudflare Tunnel)**:
+   Point an HTTPS reverse proxy to `http://127.0.0.1:8080`.
+   Telegram Mini Apps require a valid **HTTPS** certificate.
+
+2. **Configure `@BotFather`**:
+   - Send `/setmenubutton` to `@BotFather`.
+   - Select your bot.
+   - Enter your public Mini App URL (`https://bot.yourdomain.com`).
+   - Set the button title to `🚀 باز کردن فروشگاه` or your preference.
+   - Now the Menu button next to the chat bar will open your Mini App directly.
+
+### Authentication & Security
+- The Mini App uses Telegram's `initData` passed automatically by Telegram WebApp client.
+- The backend verifies HMAC-SHA256 signatures against `BOT_TOKEN` so no passwords or tokens are stored in local storage.
+- Administrative tabs in the Mini App are accessible exclusively to authenticated `ADMIN_ID` accounts.
+
+---
+
+## Online Payment Gateways
+
+SpeedyBot v5.0.0 natively supports automated online payment gateways alongside manual card-to-card receipts and wallet payments:
+
+1. **Zibal (`zibal.ir`)**
+   - Instant payment gateway with callback verification.
+   - Admin config: Merchant ID, Sandbox Mode (on/off), Active (on/off).
+
+2. **Zarinpal (`zarinpal.com`)**
+   - Standard merchant payment gateway.
+   - Admin config: Merchant ID, Sandbox Mode (on/off), Active (on/off).
+
+### Enabling Gateways
+- By default, all payment gateways are disabled until explicitly configured.
+- Open the Mini App as Admin (or navigate to `/sudoadmin`) → **تنظیمات درگاه‌های پرداخت**.
+- Enable Zibal or Zarinpal, enter your Merchant ID, and choose whether to enable Sandbox mode for testing.
+- When enabled, customers in the Mini App checkout modal can choose their preferred gateway for instant payment and automated service provisioning.
+
+---
+
+## Custom Plan Builder
+
+Customers can build their own custom subscriptions inside the Mini App:
+
+1. **Duration**: 1, 3, 6, or 12 months with duration discounts (3 months: 5%, 6 months: 10%, 12 months: 20%).
+2. **Traffic**: Custom GB slider (default 1,000 Tomans/GB, volume discounts for >50GB: 5%, >100GB: 15%, >300GB: 30%) or Unlimited (capped at 1,000 GB for fair use).
+3. **User Limit**: 1 to 5 devices (defaults: 1 device free, 2: 20k, 3: 35k, 4: 45k, 5: 50k) or Unlimited (65k).
+4. **Anti-Abuse Fair Use**: Prohibits choosing Unlimited Traffic and Unlimited Users simultaneously to protect server resources and prevent unauthorized resale.
+5. **Real-time Price Preview**: Shows full pricing calculations and applied discounts dynamically before purchase.
 
 ---
 
@@ -357,6 +335,8 @@ The Installer asks for:
 5. Panel Bearer API Token.
 6. Subscription server base URL.
 7. Subscription URI path.
+8. Telegram Mini App port (default: 8080).
+9. Telegram Mini App public HTTPS URL (domain or tunnel, optional).
 
 Before systemd is enabled, Installer performs a **read-only 3x-ui API preflight**. Authentication/base-path mistakes are caught before the bot is considered installed.
 
@@ -656,12 +636,6 @@ Live check:
 
 ---
 
-## Customer feedback
-
-Users can submit 1–5 stars plus an optional comment. Admin sees total feedback, average rating, distribution and recent comments. The feature can be disabled.
-
----
-
 ## Targeted broadcasts
 
 Available audiences include all active users, paying customers, Trial leads, expired-Trial leads and never-purchased users.
@@ -679,21 +653,6 @@ Important operations are stored in SQLite. An optional private Telegram Chat ID 
 ## Panel snapshot
 
 A read-only JSON export can be generated from the connected 3x-ui panel. Snapshot files contain sensitive service data and must not be posted publicly.
-
----
-
-## Button styles and Custom Emoji
-
-Supported styles:
-
-```text
-default
-primary
-success
-danger
-```
-
-For Custom Emoji, use `/emojiid` to obtain the ID, configure it from Admin, then run the built-in eligibility test before enabling it broadly.
 
 ---
 

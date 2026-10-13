@@ -1,0 +1,25 @@
+/* Tailwind base layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Apply Telegram theme CSS vars as the page background */
+body {
+  background-color: var(--tg-theme-bg-color, #17212b);
+  color: var(--tg-theme-text-color, #f5f5f5);
+  font-family: 'Vazirmatn', system-ui, sans-serif;
+  min-height: 100vh;
+  direction: rtl;
+}
+
+/* Utility classes that map to Telegram theme vars */
+.bg-tg         { background-color: var(--tg-theme-bg-color, #17212b); }
+.bg-tg-sec     { background-color: var(--tg-theme-secondary-bg-color, #232e3c); }
+.text-tg       { color: var(--tg-theme-text-color, #f5f5f5); }
+.text-tg-hint  { color: var(--tg-theme-hint-color, #708499); }
+.text-tg-link  { color: var(--tg-theme-link-color, #62bcf9); }
+.btn-tg {
+  background-color: var(--tg-theme-button-color, #2481cc);
+  color: var(--tg-theme-button-text-color, #ffffff);
+}
+.btn-tg:active { opacity: 0.85; }

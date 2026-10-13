@@ -101,8 +101,8 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(C.brand_name(), "فروشگاه")
         for key in C.CUSTOMER_MENU_KEYS:
             self.assertTrue(C.menu_visible(key), key)
-        C.set_setting("menu_feedback_visible", "0")
-        self.assertFalse(C.menu_visible("feedback"))
+        C.set_setting("menu_guide_visible", "0")
+        self.assertFalse(C.menu_visible("guide"))
 
     def test_monitor_and_update_defaults_are_seeded(self):
         self.assertEqual(C.setting("monitor_alert_after_failures", ""), "3")
@@ -142,25 +142,10 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(storage.audiences("expired_trial"), [20])
         self.assertEqual(set(storage.audiences("never_bought")), {20, 30})
 
-    def test_style_and_custom_emoji_payload(self):
+    def test_style_payload(self):
         C.set_setting("ui_style_buy", "success")
-        C.set_setting("ui_premium_emoji_enabled", "1")
-        C.set_setting("ui_emoji_buy", "12345")
         button = C.inline("Buy", callback_data="x", emoji_key="buy")
         self.assertEqual(button.kwargs["style"], "success")
-        self.assertEqual(button.kwargs["icon_custom_emoji_id"], "12345")
-
-    def test_feedback_summary(self):
-        con = sqlite3.connect("speedping.db")
-        con.execute(
-            "INSERT INTO customer_feedback(user_id,rating,comment,created_at) VALUES (10,5,?,1)",
-            ("great",),
-        )
-        con.commit()
-        con.close()
-        text = storage.feedback_text()
-        self.assertIn("5.00/5", text)
-        self.assertIn("great", text)
 
     def test_linked_service_ownership_lookup(self):
         row = linked_services._owned_linked_service(10, 1)

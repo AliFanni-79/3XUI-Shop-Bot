@@ -21,21 +21,15 @@ def admin_home(message):
 
 
 def _ui_panel(chat):
-    names={'default':'پیش‌فرض','primary':'آبی','success':'سبز','danger':'قرمز'}; lines=['🎨 <b>ظاهر و دکمه‌ها</b>','━━━━━━━━━━━━━━━━','Telegram رنگ دلخواه RGB نمی‌دهد؛ از Styleهای رسمی استفاده می‌کنیم.','']; m=C.CORE.types.InlineKeyboardMarkup(row_width=2)
+    names={'default':'پیش‌فرض','primary':'آبی','success':'سبز','danger':'قرمز'}
+    lines=['🎨 <b>ظاهر و دکمه‌ها</b>','━━━━━━━━━━━━━━━━','Telegram رنگ دلخواه RGB نمی‌دهد؛ از Styleهای رسمی استفاده می‌کنیم.','']
+    m=C.CORE.types.InlineKeyboardMarkup(row_width=2)
     for key in C.EMOJI_KEYS:
-        cur=C.setting('ui_style_'+key,'default'); lines.append(f"• {C.EMOJI_KEYS[key]}: <b>{names.get(cur,cur)}</b>"); m.add(C.inline(f"🎨 {C.EMOJI_KEYS[key]}",callback_data=f'plus:uistyle:{key}',style_name=C.style(key) or None))
-    lines += ['',f"✨ Custom Emoji: <b>{'فعال' if C.setting('ui_premium_emoji_enabled','0')=='1' else 'غیرفعال'}</b>"]; m.row(C.inline('✨ Premium Emoji ON/OFF',callback_data='plus:premiumtoggle',style_name='primary'),C.inline('🎯 Preset حرفه‌ای',callback_data='plus:uipreset',style_name='success'))
-    for key in C.EMOJI_KEYS: m.add(C.inline(f"✨ ایموجی {C.EMOJI_KEYS[key]}",callback_data=f'plus:emojiset:{key}'))
+        cur=C.setting('ui_style_'+key,'default')
+        lines.append(f"• {C.EMOJI_KEYS[key]}: <b>{names.get(cur,cur)}</b>")
+        m.add(C.inline(f"🎨 {C.EMOJI_KEYS[key]}",callback_data=f'plus:uistyle:{key}',style_name=C.style(key) or None))
+    m.row(C.inline('🎯 Preset حرفه‌ای',callback_data='plus:uipreset',style_name='success'))
     _send(chat,'\n'.join(lines),m)
-
-
-def _emoji_help(message):
-    if not C.is_admin(message.from_user.id): return
-    msg=C.BOT.send_message(message.chat.id,'✨ یک Custom Emoji تلگرام را در پیام بعدی ارسال کنید تا ID آن را استخراج کنم.',reply_markup=C.CORE.back_menu()); C.BOT.register_next_step_handler(msg,_emoji_extract)
-def _emoji_extract(message):
-    if _back(message): return
-    entities=list(message.entities or [])+list(message.caption_entities or []); ids=[str(e.custom_emoji_id) for e in entities if getattr(e,'type',None)=='custom_emoji' and getattr(e,'custom_emoji_id',None)]
-    C.BOT.send_message(message.chat.id,('✅ ID:\n'+'\n'.join(f'<code>{escape(x)}</code>' for x in ids)) if ids else '❌ Custom Emoji ID پیدا نشد.',parse_mode='HTML',reply_markup=ui.main_menu())
 
 
 def callback(call):
@@ -62,10 +56,6 @@ def callback(call):
         C.BOT.answer_callback_query(call.id); c=C.db(); rows=c.execute('SELECT * FROM trial_overrides ORDER BY updated_at DESC LIMIT 15').fetchall(); c.close(); text=['🎯 <b>تست اختصاصی کاربر</b>','━━━━━━━━━━━━━━━━','برای کاربر خاص می‌توان حجم/روز/IP را قبل از اولین تست تغییر داد.']+[f"• <code>{r['user_id']}</code> — {r['volume_gb']:g}GB / {r['days']} روز / IP {r['ip_limit']}" for r in rows]; m=C.CORE.types.InlineKeyboardMarkup(row_width=2); m.row(C.inline('➕ ثبت/ویرایش',callback_data='plus:trialset',style_name='success'),C.inline('🗑 حذف Override',callback_data='plus:trialdel',style_name='danger')); _send(chat,'\n'.join(text),m); return
     if action=='trialset': C.BOT.answer_callback_query(call.id); msg=C.BOT.send_message(chat,'🎯 فرمت: <code>TelegramID | حجمGB | روز | IP | یادداشت اختیاری</code>',parse_mode='HTML',reply_markup=C.CORE.back_menu()); C.BOT.register_next_step_handler(msg,_trial_set,uid); return
     if action=='trialdel': C.BOT.answer_callback_query(call.id); msg=C.BOT.send_message(chat,'🗑 Telegram ID را بفرستید.',reply_markup=C.CORE.back_menu()); C.BOT.register_next_step_handler(msg,_trial_del,uid); return
-    if action=='feedback':
-        C.BOT.answer_callback_query(call.id); m=C.CORE.types.InlineKeyboardMarkup(row_width=1); m.add(C.inline(f"{'🟢' if C.setting('feedback_enabled','1')=='1' else '🔴'} روشن/خاموش بازخورد",callback_data='plus:feedbacktoggle',style_name='primary')); _send(chat,storage.feedback_text(),m); return
-    if action=='feedbacktoggle':
-        new='0' if C.setting('feedback_enabled','1')=='1' else '1'; C.set_setting('feedback_enabled',new); C.audit('FEEDBACK_TOGGLE',uid,new); C.BOT.answer_callback_query(call.id,'ذخیره شد ✅'); _send(chat,storage.feedback_text()); return
     if action=='broadcast':
         C.BOT.answer_callback_query(call.id); m=C.CORE.types.InlineKeyboardMarkup(row_width=1)
         for code,title in [('all','👥 همه کاربران فعال'),('customers','💳 مشتریان خریدار'),('trial','🎁 تست‌گرفته و نخریده'),('expired_trial','⌛ تست منقضی و نخریده'),('never_bought','🧲 هنوز خرید نکرده')]: m.add(C.inline(title,callback_data=f'plus:bcaud:{code}',style_name='primary'))
@@ -80,14 +70,6 @@ def callback(call):
     if action=='ui': C.BOT.answer_callback_query(call.id); _ui_panel(chat); return
     if action=='uistyle':
         key=parts[2]; cur=C.setting('ui_style_'+key,'default'); seq=['default','primary','success','danger']; nxt=seq[(seq.index(cur)+1)%len(seq)] if cur in seq else 'primary'; C.set_setting('ui_style_'+key,nxt); C.audit('UI_STYLE_CHANGED',uid,key,nxt,send=False); C.BOT.answer_callback_query(call.id,f'{key}: {nxt}'); _ui_panel(chat); return
-    if action=='premiumtoggle':
-        new='0' if C.setting('ui_premium_emoji_enabled','0')=='1' else '1'; configured=[C.setting('ui_emoji_'+k,'').strip() for k in C.EMOJI_KEYS if C.setting('ui_emoji_'+k,'').strip()]
-        if new=='1' and configured:
-            try:
-                test=C.CORE.types.InlineKeyboardMarkup(); test.add(C.CORE.types.InlineKeyboardButton('✨ تست Custom Emoji',callback_data='plus:noop',style='primary',icon_custom_emoji_id=configured[0])); C.BOT.send_message(chat,'✨ تست Custom Emoji',reply_markup=test)
-            except Exception as e: C.BOT.answer_callback_query(call.id,'تلگرام اجازه این Custom Emoji را نداد.',show_alert=True); _send(chat,f'❌ قابلیت فعال نشد.\n<code>{escape(str(e)[:300])}</code>'); return
-        C.set_setting('ui_premium_emoji_enabled',new); C.BOT.answer_callback_query(call.id,'ذخیره شد ✅'); _ui_panel(chat); return
-    if action=='emojiset': key=parts[2]; C.BOT.answer_callback_query(call.id); msg=C.BOT.send_message(chat,f'✨ یک Custom Emoji برای <b>{escape(C.EMOJI_KEYS.get(key,key))}</b> ارسال کنید. برای پاک‌کردن: <code>0</code>',parse_mode='HTML',reply_markup=C.CORE.back_menu()); C.BOT.register_next_step_handler(msg,_emoji_set,key,uid); return
     if action=='uipreset':
         for k,v in {'buy':'success','account':'primary','trial':'success','guide':'primary','support':'primary','admin':'primary'}.items(): C.set_setting('ui_style_'+k,v)
         C.audit('UI_PRESET_APPLIED',uid,'professional',send=False); C.BOT.answer_callback_query(call.id,'Preset اعمال شد ✅'); _ui_panel(chat); return
@@ -142,15 +124,8 @@ def _audit_chat(message,actor):
     if raw=='0': C.set_setting('audit_chat_id',''); C.BOT.send_message(message.chat.id,'✅ ارسال تلگرامی Audit غیرفعال شد.',reply_markup=ui.admin_menu()); return
     try: cid=int(raw); C.BOT.send_message(cid,'🧾 SpeedyBot Audit Channel test ✅'); C.set_setting('audit_chat_id',str(cid)); C.audit('AUDIT_CHAT_CHANGED',actor,cid,send=False); C.BOT.send_message(message.chat.id,'✅ Chat ID ذخیره و تست شد.',reply_markup=ui.admin_menu())
     except Exception as e: C.BOT.send_message(message.chat.id,f'❌ امکان ارسال به این Chat ID نبود: {str(e)[:180]}',reply_markup=ui.admin_menu())
-def _emoji_set(message,key,actor):
-    if _back(message): return
-    if (message.text or '').strip()=='0': C.set_setting('ui_emoji_'+key,''); C.BOT.send_message(message.chat.id,'✅ Custom Emoji پاک شد.',reply_markup=ui.admin_menu()); return
-    entities=list(message.entities or [])+list(message.caption_entities or []); eid=next((str(e.custom_emoji_id) for e in entities if getattr(e,'type',None)=='custom_emoji' and getattr(e,'custom_emoji_id',None)),None)
-    if not eid: C.BOT.send_message(message.chat.id,'❌ Custom Emoji تشخیص داده نشد. از /emojiid هم می‌توانید برای تست استفاده کنید.',reply_markup=ui.admin_menu()); return
-    C.set_setting('ui_emoji_'+key,eid); C.audit('UI_EMOJI_CHANGED',actor,key,eid,send=False); C.BOT.send_message(message.chat.id,f'✅ Custom Emoji برای {C.EMOJI_KEYS.get(key,key)} ذخیره شد.\nID: <code>{escape(eid)}</code>',parse_mode='HTML',reply_markup=ui.admin_menu())
 
 
 def register():
     C.BOT.message_handler(commands=['sudoadmin'])(admin_home); C.promote_message()
-    C.BOT.message_handler(commands=['emojiid'])(_emoji_help); C.promote_message()
     C.BOT.callback_query_handler(func=lambda call:(call.data or '').startswith('plus:'))(callback); C.promote_callback()

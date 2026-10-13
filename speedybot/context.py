@@ -19,7 +19,6 @@ CUSTOMER_MENU_KEYS = {
     "guide": "📲 راهنمای اتصال",
     "faq": "📚 راهنما و سوالات",
     "rewards": "🎟 کد هدیه / تخفیف",
-    "feedback": "⭐ نظر و امتیاز",
     "support": "📞 پشتیبانی",
 }
 
@@ -62,26 +61,22 @@ def style(key: str, fallback="default") -> Optional[str]:
     return None if v=="default" else (v if v in STYLE_VALUES else None)
 
 def emoji(key: str) -> Optional[str]:
-    if setting("ui_premium_emoji_enabled","0")!="1": return None
-    return setting("ui_emoji_"+key,"").strip() or None
+    return None
 
 def inline(text: str, callback_data=None, url=None, style_name=None, emoji_key=None):
     kw={"text":text}
     if callback_data is not None: kw["callback_data"]=callback_data
     if url is not None: kw["url"]=url
     st=style_name or (style(emoji_key) if emoji_key else None)
-    em=emoji(emoji_key) if emoji_key else None
     if st: kw["style"]=st
-    if em: kw["icon_custom_emoji_id"]=em
     try: return CORE.types.InlineKeyboardButton(**kw)
     except TypeError:
-        kw.pop("style",None); kw.pop("icon_custom_emoji_id",None)
+        kw.pop("style",None)
         return CORE.types.InlineKeyboardButton(**kw)
 
 def reply(text: str, key: str, style_name=None):
-    kw={"text":text}; st=style_name or style(key); em=emoji(key)
+    kw={"text":text}; st=style_name or style(key)
     if st: kw["style"]=st
-    if em: kw["icon_custom_emoji_id"]=em
     try: return CORE.types.KeyboardButton(**kw)
     except TypeError: return text
 

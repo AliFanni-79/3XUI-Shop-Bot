@@ -7,28 +7,24 @@ from .storage import backfill_categories
 def main_menu():
     t = C.CORE.types
     m = t.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
-    buttons = []
-    if C.menu_visible("buy"):
-        buttons.append(C.reply("🛍 مشاهده و خرید پلان‌ها", "buy"))
-    if C.menu_visible("account"):
-        buttons.append(C.reply("👤 حساب کاربری", "account"))
-    if C.menu_visible("trial") and C.CORE.trial_enabled():
-        buttons.append(C.reply("🎁 دریافت تست رایگان", "trial"))
-    if C.menu_visible("affiliate"):
-        buttons.append(t.KeyboardButton("🤝 همکاری در فروش"))
-    if C.menu_visible("guide"):
-        buttons.append(C.reply("📲 راهنمای اتصال", "guide"))
-    if C.menu_visible("faq"):
-        buttons.append(t.KeyboardButton("📚 راهنما و سوالات"))
-    if C.menu_visible("rewards"):
-        buttons.append(t.KeyboardButton("🎟 کد هدیه / تخفیف"))
-    if C.menu_visible("feedback") and C.setting("feedback_enabled", "1") == "1":
-        buttons.append(t.KeyboardButton("⭐ نظر و امتیاز"))
-    if C.menu_visible("support"):
-        buttons.append(C.reply("📞 پشتیبانی", "support"))
 
-    for i in range(0, len(buttons), 2):
-        m.row(*buttons[i : i + 2])
+    webapp_url = C.setting("webapp_url", "").strip()
+    if not webapp_url and hasattr(C.CORE, "os"):
+        webapp_url = C.CORE.os.getenv("WEBAPP_URL", "").strip()
+
+    if webapp_url and hasattr(t, "WebAppInfo"):
+        try:
+            m.row(t.KeyboardButton("🚀 ورود به اپلیکیشن و خرید", web_app=t.WebAppInfo(url=webapp_url)))
+        except Exception:
+            pass
+
+    m.row(
+        C.reply("📡 سرویس‌های فعال من", "account"),
+        t.KeyboardButton("📚 راهنما و سوالات")
+    )
+    m.row(
+        C.reply("📞 پشتیبانی", "support")
+    )
     return m
 
 
@@ -53,20 +49,16 @@ def admin_menu():
             C.inline("📈 CRM", callback_data="admin:crm", style_name="primary"),
         ),
         (
-            C.inline("⭐ بازخورد مشتری", callback_data="plus:feedback", style_name="primary"),
             C.inline("📣 پیام هدفمند", callback_data="plus:broadcast", style_name="primary"),
-        ),
-        (
             C.inline("🎟 کد و پاداش", callback_data="admin:rewards"),
+        ),
+        (
             C.inline("🤝 همکاری در فروش", callback_data="admin:affiliate"),
-        ),
-        (
             C.inline("📲 راهنمای اتصال", callback_data="admin:guides"),
-            C.inline("🟢 وضعیت فروش", callback_data="plus:mode", style_name="success"),
         ),
         (
+            C.inline("🟢 وضعیت فروش", callback_data="plus:mode", style_name="success"),
             C.inline("🚫 لیست سیاه", callback_data="plus:blacklist", style_name="danger"),
-            C.inline("🔐 احراز و عضویت", callback_data="admin:security"),
         ),
         (
             C.inline("👑 مدیران", callback_data="admin:admins"),
@@ -82,21 +74,18 @@ def admin_menu():
         ),
         (
             C.inline("🏷 برند و منوی مشتری", callback_data="custom:panel", style_name="primary"),
-            C.inline("☁️ سرور مجازی ساعتی", callback_data="custom:hosting", style_name="success"),
-        ),
-        (
             C.inline("🌐 پنل و دامنه (.env)", callback_data="admin:xui_config", style_name="primary"),
+        ),
+        (
             C.inline("💳 حساب واریز", callback_data="admin:bank_config"),
+            C.inline("🎨 ظاهر و دکمه‌ها", callback_data="plus:ui", style_name="primary"),
         ),
         (
-            C.inline("🎨 ظاهر و دکمه‌ها", callback_data="plus:ui", style_name="primary", emoji_key="admin"),
             C.inline("📝 متن‌ها و FAQ", callback_data="admin:content"),
-        ),
-        (
             C.inline("👤 غیرفعال‌کردن کاربر", callback_data="admin:delete_user", style_name="danger"),
-            C.inline("🔌 حذف از پنل", callback_data="admin:delete_sub", style_name="danger"),
         ),
         (
+            C.inline("🔌 حذف از پنل", callback_data="admin:delete_sub", style_name="danger"),
             C.inline("↩️ بروزرسانی منو", callback_data="plus:home"),
         ),
     ]
@@ -110,7 +99,6 @@ def admin_home():
     users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     pending = c.execute("SELECT COUNT(*) FROM transactions WHERE status IN ('PENDING','ISSUE')").fetchone()[0]
     blocks = c.execute("SELECT COUNT(*) FROM user_blocks WHERE active=1").fetchone()[0]
-    fb = c.execute("SELECT COUNT(*),COALESCE(AVG(rating),0) FROM customer_feedback").fetchone()
     c.close()
     mt = {"NORMAL": "🟢 عادی", "SALES_PAUSED": "🟠 فروش متوقف", "MAINTENANCE": "🔴 تعمیرات"}[C.mode()]
     return "\n".join(
@@ -122,7 +110,6 @@ def admin_home():
             f"👥 کاربران: <b>{int(users):,}</b>",
             f"⏳ نیازمند بررسی: <b>{int(pending)}</b>",
             f"🚫 مسدود: <b>{int(blocks)}</b>",
-            f"⭐ رضایت: <b>{float(fb[1]):.1f}/5 ({int(fb[0])})</b>",
             "━━━━━━━━━━━━━━━━",
             "یکی از بخش‌های زیر را انتخاب کنید.",
         ]

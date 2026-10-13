@@ -76,6 +76,8 @@ RSYNC_EXCLUDES=(
   --exclude 'backups/'
   --exclude 'run.sh'
   --exclude '.deployed_commit'
+  --exclude 'node_modules/'
+  --exclude 'webapp/node_modules/'
 )
 
 info "Checking GitHub repository: $REPO_URL ($BRANCH)"
@@ -172,6 +174,11 @@ rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE_DIR/" "$APP_DIR/" || rollback
 chmod +x "$APP_DIR/install.sh" "$APP_DIR/update.sh" 2>/dev/null || true
 printf '%s\n' "$CLONED_COMMIT" > "$CURRENT_COMMIT_FILE"
 write_runner
+
+if [[ -f "$APP_DIR/.env" ]] && ! grep -q 'WEBAPP_PORT' "$APP_DIR/.env"; then
+  info "Migrating .env configuration for Telegram Mini App..."
+  printf "\nexport WEBAPP_PORT='8080'\nexport WEBAPP_HOST='0.0.0.0'\nexport WEBAPP_URL=''\n" >> "$APP_DIR/.env"
+fi
 
 info "Validating deployed application..."
 "$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/speedybot/*.py || rollback

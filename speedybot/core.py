@@ -843,25 +843,6 @@ def _channel_membership_ok(user_id):
 
 
 def purchase_gate(user_id):
-    if get_db_setting('phone_verification_required', '0') == '1' and not user_phone_verified(user_id):
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        kb.add(types.KeyboardButton("📱 ارسال شماره من", request_contact=True))
-        kb.add(types.KeyboardButton("🔙 بازگشت به منوی اصلی"))
-        bot.send_message(int(user_id), "📱 برای ادامه خرید، شماره تلگرام خودتان را با دکمه زیر تأیید کنید.", reply_markup=kb)
-        return False
-    ok, error = _channel_membership_ok(user_id)
-    if not ok:
-        m = types.InlineKeyboardMarkup()
-        url = get_db_setting('required_channel_url', '').strip()
-        if not url:
-            channel = get_db_setting('required_channel', '').strip()
-            if channel.startswith('@'):
-                url = 'https://t.me/' + channel[1:]
-        if url:
-            m.add(types.InlineKeyboardButton("📢 عضویت در کانال", url=url))
-        m.add(types.InlineKeyboardButton("✅ بررسی مجدد عضویت", callback_data="membership:check"))
-        bot.send_message(int(user_id), f"⛔️ {error}", reply_markup=m)
-        return False
     return True
 
 
@@ -1448,26 +1429,6 @@ def go_to_main_menu(message):
     USER_STATES[message.chat.id] = None
     bot.send_message(message.chat.id, "شما به منوی اصلی بازگشتید.", reply_markup=main_menu())
 
-@bot.message_handler(content_types=['contact'])
-def handle_phone_contact(message):
-    contact = message.contact
-    if not contact or contact.user_id != message.from_user.id:
-        bot.send_message(message.chat.id, "❌ فقط شماره متعلق به حساب تلگرام خودتان قابل تأیید است.", reply_markup=main_menu())
-        return
-    conn = _db_connect()
-    conn.execute("UPDATE users SET phone = ?, phone_verified_at = ? WHERE id = ?", (contact.phone_number, int(time.time()), int(message.from_user.id)))
-    conn.commit(); conn.close()
-    bot.send_message(message.chat.id, "✅ شماره شما با موفقیت تأیید شد. حالا می‌توانید خرید را ادامه دهید.", reply_markup=main_menu())
-
-
-@bot.callback_query_handler(func=lambda call: call.data == 'membership:check')
-def membership_check_callback(call):
-    ok, error = _channel_membership_ok(call.from_user.id)
-    if ok:
-        bot.answer_callback_query(call.id, "عضویت شما تأیید شد ✅", show_alert=True)
-        bot.send_message(call.from_user.id, "✅ عضویت تأیید شد؛ حالا خرید را دوباره انتخاب کنید.", reply_markup=main_menu())
-    else:
-        bot.answer_callback_query(call.id, error or "عضویت هنوز تأیید نشده است.", show_alert=True)
 
 
 @bot.message_handler(func=lambda message: message.text == "🎟 کد هدیه / تخفیف")
@@ -2983,35 +2944,6 @@ def handle_admin_panel_callbacks(call):
     elif action == "gift_toggle":
         msg = bot.send_message(admin_chat, "🎁 کد هدیه‌ای که باید فعال/غیرفعال شود را بفرستید:")
         bot.register_next_step_handler(msg, process_admin_gift_toggle)
-
-    elif action == "security":
-        phone = get_db_setting('phone_verification_required','0') == '1'
-        member = get_db_setting('membership_required','0') == '1'
-        channel = get_db_setting('required_channel','') or 'تنظیم نشده'
-        text = f"🔐 **احراز و عضویت اجباری**\n\n📱 تأیید شماره: {'🟢 فعال' if phone else '🔴 غیرفعال'}\n📢 عضویت کانال: {'🟢 فعال' if member else '🔴 غیرفعال'}\nکانال: `{channel}`"
-        m = types.InlineKeyboardMarkup(row_width=2)
-        m.add(
-            types.InlineKeyboardButton("📱 روشن/خاموش شماره", callback_data="admin:phone_toggle"),
-            types.InlineKeyboardButton("📢 روشن/خاموش عضویت", callback_data="admin:membership_toggle"),
-            types.InlineKeyboardButton("⚙️ تنظیم کانال", callback_data="admin:channel_set")
-        )
-        bot.send_message(admin_chat, text, parse_mode="Markdown", reply_markup=m)
-
-    elif action == "phone_toggle":
-        new = '0' if get_db_setting('phone_verification_required','0') == '1' else '1'
-        update_db_setting('phone_verification_required', new)
-        bot.answer_callback_query(call.id, "تغییر کرد ✅")
-        bot.send_message(admin_chat, f"📱 تأیید شماره {'فعال شد' if new=='1' else 'غیرفعال شد'}.")
-
-    elif action == "membership_toggle":
-        new = '0' if get_db_setting('membership_required','0') == '1' else '1'
-        update_db_setting('membership_required', new)
-        bot.answer_callback_query(call.id, "تغییر کرد ✅")
-        bot.send_message(admin_chat, f"📢 عضویت اجباری {'فعال شد' if new=='1' else 'غیرفعال شد'}.")
-
-    elif action == "channel_set":
-        msg = bot.send_message(admin_chat, "کانال را بفرستید:\n`@channel | https://t.me/channel`\nبرای کانال خصوصی می‌توانید Chat ID عددی و لینک دعوت را بدهید.", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, process_admin_channel_set)
 
     elif action == "admins":
         conn = _db_connect(); rows = conn.execute("SELECT * FROM admins ORDER BY created_at").fetchall(); conn.close()
