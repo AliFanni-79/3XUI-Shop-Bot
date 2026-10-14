@@ -290,7 +290,7 @@ class TestMiniAppApi(unittest.TestCase):
         with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
             init_data = self._generate_valid_init_data({"id": 555666, "first_name": "TestUser"})
             with patch("speedybot.api._get_plan", return_value={"id": 1, "name": "Plan 1", "price": 50000, "days": 30, "volume_gb": 10, "ip_limit": 1}):
-                with patch("speedybot.core._create_checkout_transaction", return_value=({"tx_id": 101}, None)) as mock_wallet_checkout:
+                with patch("speedybot.core._create_checkout_transaction", return_value=({"tx_id": 101, "price": 50000}, None)) as mock_wallet_checkout:
                     with patch("speedybot.core.finalize_service_transaction", return_value=True):
                         res = self.client.post(
                             "/api/orders/init-wallet",

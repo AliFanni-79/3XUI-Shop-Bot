@@ -975,7 +975,7 @@ async def init_wallet_order(
     return {
         "status": "processing",
         "tx_id": tx_id,
-        "price": result["price"],
+        "price": result.get("price", plan.get("price", 0)),
         "message": "خرید از کیف پول ثبت شد",
     }
 

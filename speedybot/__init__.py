@@ -1,6 +1,6 @@
 """SpeedyBot application package."""
 
-VERSION = "5.1.2"
+VERSION = "5.1.3"
 
 
 def install(core):
