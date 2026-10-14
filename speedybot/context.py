@@ -37,9 +37,6 @@ def set_setting(key: str, value: Any):
     CORE.update_db_setting(key, str(value))
 
 def brand_name() -> str:
-    value = setting("brand_name", "").strip()
-    if value:
-        return value[:64]
     from .db import get_brand_name
     return get_brand_name(default="فروشگاه")[:64]
 

@@ -122,7 +122,7 @@ def _audit_chat(message,actor):
     if _back(message): return
     raw=(message.text or '').strip()
     if raw=='0': C.set_setting('audit_chat_id',''); C.BOT.send_message(message.chat.id,'✅ ارسال تلگرامی Audit غیرفعال شد.',reply_markup=ui.admin_menu()); return
-    try: cid=int(raw); C.BOT.send_message(cid,'🧾 SpeedyBot Audit Channel test ✅'); C.set_setting('audit_chat_id',str(cid)); C.audit('AUDIT_CHAT_CHANGED',actor,cid,send=False); C.BOT.send_message(message.chat.id,'✅ Chat ID ذخیره و تست شد.',reply_markup=ui.admin_menu())
+    try: cid=int(raw); C.BOT.send_message(cid,f'🧾 {C.brand_name()} Audit Channel test ✅'); C.set_setting('audit_chat_id',str(cid)); C.audit('AUDIT_CHAT_CHANGED',actor,cid,send=False); C.BOT.send_message(message.chat.id,'✅ Chat ID ذخیره و تست شد.',reply_markup=ui.admin_menu())
     except Exception as e: C.BOT.send_message(message.chat.id,f'❌ امکان ارسال به این Chat ID نبود: {str(e)[:180]}',reply_markup=ui.admin_menu())
 
 

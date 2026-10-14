@@ -6,7 +6,7 @@
         <router-link to="/" class="text-tg-hint hover:text-tg text-sm font-bold">
           ← بازگشت
         </router-link>
-        <h2 class="text-sm font-bold">⚙️ پنل مدیریت ارشد SpeedyBot</h2>
+        <h2 class="text-sm font-bold">⚙️ پنل مدیریت ارشد {{ uiTitle || auth.appTitle || 'فروشگاه' }}</h2>
       </div>
       <button @click="loadData" class="text-xs text-tg-button hover:underline flex items-center gap-1">
         🔄 <span>بروزرسانی</span>
@@ -1118,7 +1118,7 @@
         <input
           type="text"
           v-model="uiTitle"
-          placeholder="مثال: فروشگاه اسپیدی یا SpeedyBot"
+          placeholder="مثال: فروشگاه من"
           class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-tg-button font-medium"
         />
       </div>
@@ -1435,6 +1435,9 @@ import {
   getAdminContentSecurity,
   saveAdminContentSecurity
 } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 
 // Navigation Tabs
 const activeTab = ref('orders')
@@ -1618,6 +1621,7 @@ const loadData = async () => {
     backupsList.value = bkRes.data?.backups || []
     serverStatus.value = srvRes?.data || null
     uiTitle.value = brRes.data?.webapp_title || ''
+    if (uiTitle.value) auth.setAppTitle(uiTitle.value)
     xuiGroups.value = xuiRes.data?.groups || []
     if (rewRes?.data) rewardsData.value = { ...rewardsData.value, ...rewRes.data }
     if (affRes?.data) affiliateData.value = { ...affiliateData.value, ...affRes.data }
@@ -1901,6 +1905,7 @@ const handleSaveBranding = async () => {
   savingBranding.value = true
   try {
     await saveAdminBranding({ webapp_title: uiTitle.value.trim() })
+    auth.setAppTitle(uiTitle.value.trim())
     showNotify('عنوان وب‌اپ ذخیره شد.')
   } catch (err) {
     showNotify(err.response?.data?.detail || 'خطا در ذخیره عنوان', false)

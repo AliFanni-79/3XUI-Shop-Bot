@@ -8,7 +8,7 @@ import { getMe } from '@/api'
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,       // { id, first_name, username, balance, is_admin, app_title }
-    appTitle: 'SpeedyBot',
+    appTitle: 'فروشگاه',
     loading: true,
     error: null,
   }),

@@ -235,7 +235,7 @@ class StorageTests(unittest.TestCase):
         # Reset brand settings
         con.execute("DELETE FROM settings WHERE key IN ('webapp_title', 'brand_name')")
         con.commit()
-        self.assertEqual(get_brand_name(conn=con), "SpeedyBot")
+        self.assertEqual(get_brand_name(conn=con), "فروشگاه")
 
         # Brand name set
         con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_name', 'VizzPN')")

@@ -211,7 +211,7 @@ class TestMiniAppApi(unittest.TestCase):
                 # Reset to default
                 self.client.post(
                     "/api/admin/branding",
-                    json={"webapp_title": "SpeedyBot"},
+                    json={"webapp_title": "فروشگاه"},
                     headers={"X-Telegram-Init-Data": init_data}
                 )
 

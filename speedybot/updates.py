@@ -52,7 +52,7 @@ def check_once():
     markup = C.CORE.types.InlineKeyboardMarkup(row_width=1)
     markup.add(C.inline("🔗 مشاهده پروژه و تغییرات", url=REPOSITORY_URL, style_name="primary"))
     C.CORE.notify_admins(
-        "🚀 <b>آپدیت جدید SpeedyBot منتشر شد</b>\n"
+        f"🚀 <b>آپدیت جدید {C.brand_name()} منتشر شد</b>\n"
         "━━━━━━━━━━━━━━━━\n"
         f"📌 نسخه نصب‌شده: <code>{VERSION}</code>\n"
         f"✨ نسخه جدید: <code>{remote}</code>\n\n"

@@ -73,7 +73,7 @@ def get_connection(timeout: int = 20) -> sqlite3.Connection:
     return conn
 
 
-def get_brand_name(default: str = "SpeedyBot", conn: Optional[sqlite3.Connection] = None) -> str:
+def get_brand_name(default: str = "فروشگاه", conn: Optional[sqlite3.Connection] = None) -> str:
     """Return configured brand name by combining webapp_title, brand_name, and environment."""
     close_after = False
     if conn is None:
@@ -87,16 +87,16 @@ def get_brand_name(default: str = "SpeedyBot", conn: Optional[sqlite3.Connection
             # 1. webapp_title in settings
             r1 = conn.execute("SELECT value FROM settings WHERE key = 'webapp_title'").fetchone()
             t1 = str(r1[0]).strip() if r1 and r1[0] else ""
-            if t1 and t1 != "SpeedyBot":
+            if t1 and t1.lower() != "speedybot":
                 return t1
 
             # 2. brand_name in settings
             r2 = conn.execute("SELECT value FROM settings WHERE key = 'brand_name'").fetchone()
             t2 = str(r2[0]).strip() if r2 and r2[0] else ""
-            if t2:
+            if t2 and t2.lower() != "speedybot":
                 return t2
 
-            if t1:
+            if t1 and t1.lower() != "speedybot":
                 return t1
     except Exception:
         pass
@@ -106,7 +106,7 @@ def get_brand_name(default: str = "SpeedyBot", conn: Optional[sqlite3.Connection
 
     # 3. Environment variable BRAND_NAME
     env_brand = os.environ.get("BRAND_NAME", "").strip()
-    if env_brand:
+    if env_brand and env_brand.lower() != "speedybot":
         return env_brand
 
     return default

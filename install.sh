@@ -313,7 +313,7 @@ printf '\n'
 
 # --- 4. Store Branding & Support ---
 info "4. Store Branding & Support"
-BRAND_NAME="$(prompt "Store / Brand display name" "فروشگاه")"
+BRAND_NAME="$(prompt "Store / Brand display name (Bot & Web UI)" "فروشگاه")"
 SUPPORT_CONTACT="$(prompt_optional "Support Telegram username or link (optional, e.g. @MySupport)" "")"
 printf '\n'
 
@@ -351,6 +351,7 @@ fi
 # --- Summary ---
 printf '\n============================================================\n Configuration Summary:\n============================================================\n'
 printf '  Admin ID:            %s\n' "$ADMIN_ID"
+printf '  Store Brand Name:    %s (Bot & Web UI)\n' "$BRAND_NAME"
 printf '  X-UI API URL:        %s\n' "$XUI_API_URL"
 printf '  X-UI Base Path:      %s\n' "$XUI_BASE_PATH"
 printf '  Subscription:        %s%s\n' "$XUI_SUB_SERVER_URL" "$XUI_SUB_PATH"

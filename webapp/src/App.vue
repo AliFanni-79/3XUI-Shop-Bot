@@ -7,7 +7,7 @@
           🚀
         </div>
         <div>
-          <h1 class="text-sm font-bold leading-tight">{{ auth.appTitle || 'SpeedyBot' }}</h1>
+          <h1 class="text-sm font-bold leading-tight">{{ auth.appTitle || 'فروشگاه' }}</h1>
           <p class="text-xs text-tg-hint" v-if="auth.user">
             {{ auth.user.first_name }}
           </p>

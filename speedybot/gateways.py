@@ -31,7 +31,7 @@ class ZibalGateway:
         amount_tomans: int,
         callback_url: str,
         order_id: int,
-        description: str = "SpeedyBot VPN Subscription",
+        description: str = "خرید اشتراک VPN",
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Request payment token from Zibal.
 
@@ -107,7 +107,7 @@ class ZarinpalGateway:
         amount_tomans: int,
         callback_url: str,
         order_id: int,
-        description: str = "SpeedyBot VPN Subscription",
+        description: str = "خرید اشتراک VPN",
         sandbox: bool = False,
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Request payment authority from Zarinpal.

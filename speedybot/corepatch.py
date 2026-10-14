@@ -230,7 +230,7 @@ def apply():
             try:
                 C.BOT.send_message(
                     int(cid),
-                    "🧾 <b>SpeedyBot event</b>\n<pre>" + escape(str(text)[:3200]) + "</pre>",
+                    f"🧾 <b>{C.brand_name()} event</b>\n<pre>" + escape(str(text)[:3200]) + "</pre>",
                     parse_mode="HTML",
                 )
             except Exception:

@@ -185,6 +185,14 @@ def _setting(key: str, default: str = "") -> str:
     return str(row[0]) if row else default
 
 
+def _brand_name() -> str:
+    try:
+        from .db import get_brand_name  # noqa: PLC0415
+        return get_brand_name(default="فروشگاه")
+    except Exception:
+        return _setting("webapp_title", "").strip() or _setting("brand_name", "").strip() or "فروشگاه"
+
+
 def _update_setting(key: str, value: Any):
     conn = _db()
     conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
@@ -459,7 +467,7 @@ class AdminPaymentsSettingsRequest(BaseModel):
 @app.get("/api/app/config")
 async def get_app_config():
     """Public webapp configuration (title, branding)."""
-    app_title = _setting("webapp_title", "").strip() or _setting("brand_name", "SpeedyBot").strip() or "SpeedyBot"
+    app_title = _brand_name()
     return {
         "webapp_title": app_title,
     }
@@ -474,7 +482,7 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
         "SELECT balance, referred_by, created_at FROM users WHERE id = ?", (uid,)
     ).fetchone()
     conn.close()
-    app_title = _setting("webapp_title", "").strip() or _setting("brand_name", "SpeedyBot").strip() or "SpeedyBot"
+    app_title = _brand_name()
     return {
         "id": uid,
         "first_name": user.get("first_name", ""),
@@ -1646,7 +1654,7 @@ async def admin_save_gateways(
 @app.get("/api/admin/branding")
 async def get_admin_branding(_admin: Dict[str, Any] = Depends(get_admin_user)):
     """Return current webapp branding / title."""
-    app_title = _setting("webapp_title", "").strip() or _setting("brand_name", "SpeedyBot").strip() or "SpeedyBot"
+    app_title = _brand_name()
     return {
         "webapp_title": app_title,
     }
@@ -2817,7 +2825,7 @@ def _mount_static():
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
             return FileResponse(index_file)
-        return JSONResponse({"message": "SpeedyBot API is running. Build the webapp to serve the Mini App."})
+        return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
@@ -2830,7 +2838,7 @@ def _mount_static():
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
             return FileResponse(index_file)
-        return JSONResponse({"message": "SpeedyBot API is running. Build the webapp to serve the Mini App."})
+        return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
 
 _mount_static()

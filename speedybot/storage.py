@@ -87,10 +87,22 @@ def init_db():
         "gateway_zarinpal_merchant": "",
         "gateway_zarinpal_sandbox": "0",
         "webapp_url": "",
-        "webapp_title": "SpeedyBot",
+        "webapp_title": "فروشگاه",
     }
     for k, v in defaults.items():
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", (k, v))
+
+    # Synchronize brand_name and webapp_title into a single unified reference
+    c.execute("UPDATE settings SET value='فروشگاه' WHERE key='webapp_title' AND (value='SpeedyBot' OR value='speedybot')")
+    c.execute("UPDATE settings SET value='فروشگاه' WHERE key='brand_name' AND (value='SpeedyBot' OR value='speedybot')")
+    r_brand = c.execute("SELECT value FROM settings WHERE key='brand_name'").fetchone()
+    r_title = c.execute("SELECT value FROM settings WHERE key='webapp_title'").fetchone()
+    b_val = str(r_brand[0]).strip() if r_brand and r_brand[0] else ""
+    t_val = str(r_title[0]).strip() if r_title and r_title[0] else ""
+    if b_val and b_val.lower() != "speedybot" and (not t_val or t_val.lower() in ("", "speedybot", "فروشگاه")):
+        c.execute("UPDATE settings SET value=? WHERE key='webapp_title'", (b_val,))
+    elif t_val and t_val.lower() != "speedybot" and (not b_val or b_val.lower() in ("", "speedybot", "فروشگاه")):
+        c.execute("UPDATE settings SET value=? WHERE key='brand_name'", (t_val,))
 
     legacy_welcome = "سلام به ربات فروش خودکار **SpeedPing** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
     neutral_welcome = "سلام به **فروشگاه** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
