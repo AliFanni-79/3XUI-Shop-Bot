@@ -16,6 +16,9 @@ from speedybot.api import app, _verify_init_data, _VERIFIED_CACHE
 class TestMiniAppApi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from speedybot import core, storage
+        core.init_db()
+        storage.init_db()
         cls.client = TestClient(app)
         cls.bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 

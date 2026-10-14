@@ -132,10 +132,49 @@ def _verify_init_data(init_data_raw: str) -> Dict[str, Any]:
 
 from .db import get_connection, get_db_path
 _DB_PATH = get_db_path()
+_SCHEMA_INITIALIZED = False
+
+
+def _ensure_schema():
+    global _SCHEMA_INITIALIZED
+    if _SCHEMA_INITIALIZED:
+        return
+    try:
+        from . import core as _core, storage as _storage  # noqa: PLC0415
+        _core.init_db()
+        _storage.init_db()
+        _SCHEMA_INITIALIZED = True
+    except Exception:
+        pass
 
 
 def _db():
+    if not _SCHEMA_INITIALIZED:
+        _ensure_schema()
     return get_connection(timeout=30)
+
+
+def _get_plan(plan_id: int) -> Optional[Dict[str, Any]]:
+    conn = _db()
+    try:
+        plan_row = conn.execute(
+            "SELECT * FROM plans WHERE id = ? AND active = 1", (plan_id,)
+        ).fetchone()
+        if not plan_row:
+            return None
+        return {
+            "id": plan_row["id"],
+            "name": plan_row["name"],
+            "price": int(plan_row["price"]),
+            "days": int(plan_row["days"]),
+            "volume_gb": float(plan_row["volume_gb"] or 0),
+            "ip_limit": int(plan_row["ip_limit"] or 0),
+            "volume": float(plan_row["volume_gb"] or 0),
+            "sort_order": int(plan_row["sort_order"] or 100),
+            "active": True,
+        }
+    finally:
+        conn.close()
 
 
 def _setting(key: str, default: str = "") -> str:
@@ -436,7 +475,7 @@ async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
             "ip_limit": p["ip_limit"],
         })
 
-    from . import trial as _trial
+    from . import core as _core, trial as _trial  # noqa: PLC0415
     uid = user["id"]
     eligible, rem_days, last_ts, trial_status = _trial.get_trial_eligibility(uid)
     gb, days, ip, _ = _trial.values(uid)
@@ -465,7 +504,7 @@ async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
 @app.get("/api/trial/status")
 async def get_trial_status(user: Dict[str, Any] = Depends(get_current_user)):
     """Return whether user is eligible for monthly free trial and trial plan specs."""
-    from . import trial as _trial
+    from . import core as _core, trial as _trial  # noqa: PLC0415
     uid = user["id"]
     eligible, rem_days, last_ts, trial_status = _trial.get_trial_eligibility(uid)
     gb, days, ip, _ = _trial.values(uid)
@@ -886,26 +925,9 @@ async def init_card_order(
     uid = user["id"]
 
     # Resolve plan
-    conn = _db()
-    plan_row = conn.execute(
-        "SELECT * FROM plans WHERE id = ? AND active = 1", (body.plan_id,)
-    ).fetchone()
-    conn.close()
-    if not plan_row:
+    plan = _get_plan(body.plan_id)
+    if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
-
-    plan = {
-        "id": plan_row["id"],
-        "name": plan_row["name"],
-        "price": int(plan_row["price"]),
-        "days": int(plan_row["days"]),
-        "volume_gb": float(plan_row["volume_gb"] or 0),
-        "ip_limit": int(plan_row["ip_limit"] or 0),
-        # Alias used by _product_snapshot
-        "volume": float(plan_row["volume_gb"] or 0),
-        "sort_order": int(plan_row["sort_order"] or 100),
-        "active": True,
-    }
 
     # Optionally pre-load a discount code
     if body.discount_code:
@@ -934,25 +956,9 @@ async def init_wallet_order(
     """Deduct wallet balance and immediately provision the service."""
     uid = user["id"]
 
-    conn = _db()
-    plan_row = conn.execute(
-        "SELECT * FROM plans WHERE id = ? AND active = 1", (body.plan_id,)
-    ).fetchone()
-    conn.close()
-    if not plan_row:
+    plan = _get_plan(body.plan_id)
+    if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
-
-    plan = {
-        "id": plan_row["id"],
-        "name": plan_row["name"],
-        "price": int(plan_row["price"]),
-        "days": int(plan_row["days"]),
-        "volume_gb": float(plan_row["volume_gb"] or 0),
-        "ip_limit": int(plan_row["ip_limit"] or 0),
-        "volume": float(plan_row["volume_gb"] or 0),
-        "sort_order": int(plan_row["sort_order"] or 100),
-        "active": True,
-    }
 
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415

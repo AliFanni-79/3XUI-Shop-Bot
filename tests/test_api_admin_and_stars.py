@@ -16,6 +16,9 @@ from speedybot.api import app
 class TestAdminEndpointsAndStars(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from speedybot import core, storage
+        core.init_db()
+        storage.init_db()
         cls.client = TestClient(app)
         cls.bot_token = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
