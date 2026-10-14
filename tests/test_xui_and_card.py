@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 try:
     import telebot
@@ -110,7 +111,7 @@ class XuiAndCardTests(unittest.TestCase):
         )
         con.execute(
             "CREATE TABLE plans(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, volume_gb REAL, "
-            "days INTEGER, ip_limit INTEGER, active INTEGER, sort_order INTEGER, created_at INTEGER, updated_at INTEGER, category_id INTEGER)"
+            "days INTEGER, ip_limit INTEGER, active INTEGER, sort_order INTEGER, group_name TEXT, created_at INTEGER, updated_at INTEGER, category_id INTEGER)"
         )
         con.execute(
             "INSERT INTO plans(id, name, price, volume_gb, days, ip_limit, active, sort_order, created_at, updated_at, category_id) "
@@ -265,6 +266,28 @@ class XuiAndCardTests(unittest.TestCase):
             core.bot.send_message = original_send_message
             if original_send_photo:
                 core.bot.send_photo = original_send_photo
+
+    def test_provision_xui_service_assigns_group(self):
+        con = sqlite3.connect("app.db")
+        con.execute("UPDATE plans SET group_name='VIP_Group' WHERE id=1")
+        con.execute(
+            "INSERT INTO transactions(id, user_id, plan_id, status, price, service_email) "
+            "VALUES(99, 123456789, 1, 'APPROVED', 150000, 'test_user_email')"
+        )
+        con.commit()
+        con.close()
+
+        assigned_groups = []
+        with patch("speedybot.core._selected_inbound_ids_for", return_value=[1]):
+            with patch("speedybot.core._get_client_data", return_value={"id": 1, "email": "test_user_email"}):
+                with patch("speedybot.core._sync_client_inbounds"):
+                    with patch("speedybot.core._xui_assign_group", side_effect=lambda email, group: assigned_groups.append((email, group))):
+                        with patch("speedybot.core._get_client_subscription_id", return_value="sub_123"):
+                            with patch("speedybot.core._get_delivery_links", return_value=["vless://123"]):
+                                sub_id, links = core.provision_xui_service(123456789, 1, 99, "test_user_email")
+                                self.assertEqual(sub_id, "sub_123")
+                                self.assertEqual(links, ["vless://123"])
+                                self.assertEqual(assigned_groups, [("test_user_email", "VIP_Group")])
 
 
 if __name__ == "__main__":

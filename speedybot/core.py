@@ -538,6 +538,7 @@ def replace_domain_in_all_configs(old_domain, new_domain):
 def _row_to_plan(row):
     if not row:
         return None
+    keys = row.keys() if hasattr(row, 'keys') else []
     return {
         'id': int(row['id']),
         'name': row['name'],
@@ -548,6 +549,7 @@ def _row_to_plan(row):
         'ip_limit': max(0, int(row['ip_limit'] or 0)),
         'active': bool(row['active']),
         'sort_order': int(row['sort_order'] or 100),
+        'group_name': str(row['group_name'] or '').strip() if 'group_name' in keys and row['group_name'] else '',
     }
 
 
@@ -4456,6 +4458,7 @@ def _tx_plan_snapshot(tx):
         'days': int(tx['plan_days_snapshot'] if tx['plan_days_snapshot'] is not None else (plan['days'] if plan else 0)),
         'volume': float(tx['plan_volume_gb_snapshot'] if tx['plan_volume_gb_snapshot'] is not None else (plan['volume'] if plan else 0)),
         'ip_limit': int(tx['plan_ip_limit_snapshot'] if tx['plan_ip_limit_snapshot'] is not None else (plan['ip_limit'] if plan else 1)),
+        'group_name': (plan.get('group_name') or '').strip() if plan and plan.get('group_name') else '',
     }
 
 
@@ -4505,9 +4508,7 @@ def provision_xui_service(user_id, plan_id, tx_id, user_email):
         client_data = _get_client_data(user_email, headers, request_proxies) or client_data
 
     try:
-        target_group = None
-        if not is_trial and plan:
-            target_group = (plan.get('group_name') or '').strip()
+        target_group = (plan.get('group_name') or '').strip() if plan else ''
         if not target_group:
             target_group = get_db_setting('xui_customers_group', 'Customers') or 'Customers'
         _xui_assign_group(user_email, target_group)
