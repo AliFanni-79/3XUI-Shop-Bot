@@ -313,7 +313,7 @@ printf '\n'
 
 # --- 4. Store Branding & Support ---
 info "4. Store Branding & Support"
-BRAND_NAME="$(prompt "Store / Brand display name (Bot & Web UI)" "فروشگاه")"
+BRAND_NAME="$(prompt "Store / Brand display name (Bot & Web UI)" "Shop")"
 SUPPORT_CONTACT="$(prompt_optional "Support Telegram username or link (optional, e.g. @MySupport)" "")"
 printf '\n'
 
@@ -607,7 +607,7 @@ if [[ -n "$WEBAPP_URL" ]]; then
   printf '   1. Open @BotFather in Telegram\n'
   printf '   2. Send /setmenubutton -> pick your bot\n'
   printf '   3. Enter URL: %s\n' "$WEBAPP_URL"
-  printf '   4. Button Title: 🚀 ورود به اپلیکیشن\n\n'
+  printf '   4. Button Title: 🚀 Enter Shop\n\n'
 else
   printf '\n💡 To run the Mini App through the Internet without Nginx:\n'
   printf '   • Free Cloudflare Quick Tunnel: Run "cloudflared tunnel --url http://localhost:%s"\n' "$WEBAPP_PORT"

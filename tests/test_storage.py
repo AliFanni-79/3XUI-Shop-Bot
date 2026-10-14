@@ -103,7 +103,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(C.setting("trial_default_ip_limit", ""), "0")
 
     def test_brand_and_customer_menu_defaults_are_seeded(self):
-        self.assertEqual(C.brand_name(), "فروشگاه")
+        self.assertEqual(C.brand_name(), "Shop")
         for key in C.CUSTOMER_MENU_KEYS:
             self.assertTrue(C.menu_visible(key), key)
         C.set_setting("menu_guide_visible", "0")
@@ -123,7 +123,7 @@ class StorageTests(unittest.TestCase):
         storage.init_db()
         self.assertNotIn("SpeedPing", C.setting("welcome_text", ""))
         self.assertNotIn("SpeedPing", C.setting("faq_text", ""))
-        self.assertIn("فروشگاه", C.setting("welcome_text", ""))
+        self.assertIn("Shop", C.setting("welcome_text", ""))
 
     def test_custom_welcome_copy_is_preserved_on_upgrade(self):
         custom = "متن اختصاصی فروشنده بدون قالب پیش‌فرض"
@@ -235,7 +235,7 @@ class StorageTests(unittest.TestCase):
         # Reset brand settings
         con.execute("DELETE FROM settings WHERE key IN ('webapp_title', 'brand_name')")
         con.commit()
-        self.assertEqual(get_brand_name(conn=con), "فروشگاه")
+        self.assertEqual(get_brand_name(conn=con), "Shop")
 
         # Brand name set
         con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_name', 'VizzPN')")

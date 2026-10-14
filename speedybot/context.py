@@ -38,7 +38,7 @@ def set_setting(key: str, value: Any):
 
 def brand_name() -> str:
     from .db import get_brand_name
-    return get_brand_name(default="فروشگاه")[:64]
+    return get_brand_name(default="Shop")[:64]
 
 def menu_visible(key: str, default: str = "1") -> bool:
     return setting(f"menu_{key}_visible", default).strip() == "1"

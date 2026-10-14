@@ -53,7 +53,7 @@ def _save_brand(message, actor):
         return
     name = " ".join(raw.split())
     if name == "0":
-        name = "فروشگاه"
+        name = "Shop"
     if not name or len(name) > 64:
         C.BOT.send_message(
             message.chat.id,
@@ -91,7 +91,7 @@ def _sync_default_content(old_brand, new_brand):
             C.set_setting(key, branded_default)
             continue
         updated = value.replace("SpeedyBot", new_brand).replace("SpeedPing", new_brand)
-        if old_brand and old_brand != "فروشگاه" and old_brand != new_brand:
+        if old_brand and old_brand != "Shop" and old_brand != new_brand:
             updated = updated.replace(old_brand, new_brand)
         if updated != value:
             C.set_setting(key, updated)

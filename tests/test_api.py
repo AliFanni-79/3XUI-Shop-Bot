@@ -211,7 +211,7 @@ class TestMiniAppApi(unittest.TestCase):
                 # Reset to default
                 self.client.post(
                     "/api/admin/branding",
-                    json={"webapp_title": "فروشگاه"},
+                    json={"webapp_title": "Shop"},
                     headers={"X-Telegram-Init-Data": init_data}
                 )
 

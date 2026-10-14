@@ -7,17 +7,6 @@ from .storage import backfill_categories
 def main_menu():
     t = C.CORE.types
     m = t.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
-
-    webapp_url = C.setting("webapp_url", "").strip()
-    if not webapp_url and hasattr(C.CORE, "os"):
-        webapp_url = C.CORE.os.getenv("WEBAPP_URL", "").strip()
-
-    if webapp_url and hasattr(t, "WebAppInfo"):
-        try:
-            m.row(t.KeyboardButton("🚀 ورود به اپلیکیشن و خرید", web_app=t.WebAppInfo(url=webapp_url)))
-        except Exception:
-            pass
-
     m.row(
         C.reply("📡 سرویس‌های فعال من", "account"),
         t.KeyboardButton("📚 راهنما و سوالات")

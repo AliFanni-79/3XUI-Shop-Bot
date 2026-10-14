@@ -188,9 +188,9 @@ def _setting(key: str, default: str = "") -> str:
 def _brand_name() -> str:
     try:
         from .db import get_brand_name  # noqa: PLC0415
-        return get_brand_name(default="فروشگاه")
+        return get_brand_name(default="Shop")
     except Exception:
-        return _setting("webapp_title", "").strip() or _setting("brand_name", "").strip() or "فروشگاه"
+        return _setting("webapp_title", "").strip() or _setting("brand_name", "").strip() or "Shop"
 
 
 def _update_setting(key: str, value: Any):

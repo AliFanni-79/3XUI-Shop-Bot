@@ -68,7 +68,7 @@ def run():
             core.bot.set_chat_menu_button(
                 menu_button=core.types.MenuButtonWebApp(
                     type="web_app",
-                    text="🚀 ورود به اپلیکیشن",
+                    text="🚀 Enter Shop",
                     web_app=core.types.WebAppInfo(url=webapp_url)
                 )
             )

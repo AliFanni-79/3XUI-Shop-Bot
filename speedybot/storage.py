@@ -34,7 +34,7 @@ def init_db():
         "operating_mode": "NORMAL",
         "sales_paused_message": "🛒 فروش و تمدید موقتاً متوقف شده است. حساب کاربری، راهنما و پشتیبانی همچنان در دسترس هستند.",
         "maintenance_message": "🛠 سرویس موقتاً در حال نگهداری است. حساب کاربری، راهنما و پشتیبانی همچنان در دسترس هستند.",
-        "brand_name": "فروشگاه",
+        "brand_name": "Shop",
         "menu_buy_visible": "1",
         "menu_account_visible": "1",
         "menu_trial_visible": "1",
@@ -87,29 +87,29 @@ def init_db():
         "gateway_zarinpal_merchant": "",
         "gateway_zarinpal_sandbox": "0",
         "webapp_url": "",
-        "webapp_title": "فروشگاه",
+        "webapp_title": "Shop",
     }
     for k, v in defaults.items():
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", (k, v))
 
     # Synchronize brand_name and webapp_title into a single unified reference
-    c.execute("UPDATE settings SET value='فروشگاه' WHERE key='webapp_title' AND (value='SpeedyBot' OR value='speedybot')")
-    c.execute("UPDATE settings SET value='فروشگاه' WHERE key='brand_name' AND (value='SpeedyBot' OR value='speedybot')")
+    c.execute("UPDATE settings SET value='Shop' WHERE key='webapp_title' AND (value='SpeedyBot' OR value='speedybot')")
+    c.execute("UPDATE settings SET value='Shop' WHERE key='brand_name' AND (value='SpeedyBot' OR value='speedybot')")
     r_brand = c.execute("SELECT value FROM settings WHERE key='brand_name'").fetchone()
     r_title = c.execute("SELECT value FROM settings WHERE key='webapp_title'").fetchone()
     b_val = str(r_brand[0]).strip() if r_brand and r_brand[0] else ""
     t_val = str(r_title[0]).strip() if r_title and r_title[0] else ""
-    if b_val and b_val.lower() != "speedybot" and (not t_val or t_val.lower() in ("", "speedybot", "فروشگاه")):
+    if b_val and b_val.lower() != "speedybot" and (not t_val or t_val.lower() in ("", "speedybot", "Shop")):
         c.execute("UPDATE settings SET value=? WHERE key='webapp_title'", (b_val,))
-    elif t_val and t_val.lower() != "speedybot" and (not b_val or b_val.lower() in ("", "speedybot", "فروشگاه")):
+    elif t_val and t_val.lower() != "speedybot" and (not b_val or b_val.lower() in ("", "speedybot", "Shop")):
         c.execute("UPDATE settings SET value=? WHERE key='brand_name'", (t_val,))
 
     legacy_welcome = "سلام به ربات فروش خودکار **SpeedPing** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
-    neutral_welcome = "سلام به **فروشگاه** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
+    neutral_welcome = "سلام به **Shop** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
     legacy_faq = "📚 **راهنمای SpeedPing**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
-    neutral_faq = "📚 **راهنمای فروشگاه**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
-    c.execute("UPDATE settings SET value=? WHERE key='welcome_text' AND value=?", (neutral_welcome, legacy_welcome))
-    c.execute("UPDATE settings SET value=? WHERE key='faq_text' AND value=?", (neutral_faq, legacy_faq))
+    neutral_faq = "📚 **راهنمای Shop**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
+    c.execute("UPDATE settings SET value=? WHERE key='welcome_text' AND (value=? OR value=?)", (neutral_welcome, legacy_welcome, "سلام به **فروشگاه** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."))
+    c.execute("UPDATE settings SET value=? WHERE key='faq_text' AND (value=? OR value=?)", (neutral_faq, legacy_faq, "📚 **راهنمای فروشگاه**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."))
 
     c.commit()
     c.close()

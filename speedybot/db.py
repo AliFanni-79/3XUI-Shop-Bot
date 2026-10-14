@@ -73,7 +73,7 @@ def get_connection(timeout: int = 20) -> sqlite3.Connection:
     return conn
 
 
-def get_brand_name(default: str = "فروشگاه", conn: Optional[sqlite3.Connection] = None) -> str:
+def get_brand_name(default: str = "Shop", conn: Optional[sqlite3.Connection] = None) -> str:
     """Return configured brand name by combining webapp_title, brand_name, and environment."""
     close_after = False
     if conn is None:
