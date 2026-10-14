@@ -15,6 +15,7 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS user_blocks(user_id INTEGER PRIMARY KEY,reason TEXT,active INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL,created_by INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS plan_categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,active INTEGER NOT NULL DEFAULT 1,sort_order INTEGER NOT NULL DEFAULT 100,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)")
     _ensure_column(c, "plans", "category_id", "INTEGER")
+    _ensure_column(c, "plans", "group_name", "TEXT")
     _ensure_column(c, "transactions", "sub_id", "TEXT")
     _ensure_column(c, "transactions", "custom_name", "TEXT")
     _ensure_column(c, "trial_services", "sub_id", "TEXT")

@@ -171,6 +171,7 @@ def _get_plan(plan_id: int) -> Optional[Dict[str, Any]]:
             "ip_limit": int(plan_row["ip_limit"] or 0),
             "volume": float(plan_row["volume_gb"] or 0),
             "sort_order": int(plan_row["sort_order"] or 100),
+            "group_name": plan_row["group_name"] if "group_name" in plan_row.keys() and plan_row["group_name"] else "",
             "active": True,
         }
     finally:
@@ -338,6 +339,7 @@ class AdminPlanCreateRequest(BaseModel):
     ip_limit: int = 1
     active: int = 1
     sort_order: int = 100
+    group_name: Optional[str] = None
 
 
 class AdminPlanUpdateRequest(BaseModel):
@@ -348,6 +350,54 @@ class AdminPlanUpdateRequest(BaseModel):
     ip_limit: Optional[int] = None
     active: Optional[int] = None
     sort_order: Optional[int] = None
+    group_name: Optional[str] = None
+
+
+class ReplaceDomainRequest(BaseModel):
+    old_domain: str
+    new_domain: str
+
+
+class DeleteClientRequest(BaseModel):
+    email: str
+
+
+class CreateDiscountRequest(BaseModel):
+    code: str
+    discount_type: str = "PERCENT"  # "PERCENT" or "FIXED"
+    value: float
+    min_purchase: int = 0
+    max_uses: int = 0
+    per_user_limit: int = 1
+    expires_at: Optional[int] = None
+
+
+class CreateGiftRequest(BaseModel):
+    code: str
+    amount: int
+    max_uses: int = 1
+    expires_at: Optional[int] = None
+
+
+class CashbackUpdateRequest(BaseModel):
+    percent: float
+
+
+class AffiliateSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    percent: Optional[float] = None
+
+
+class ContentSecurityRequest(BaseModel):
+    welcome_text: Optional[str] = None
+    faq_text: Optional[str] = None
+    phone_verification_required: Optional[bool] = None
+    membership_required: Optional[bool] = None
+    required_channel: Optional[str] = None
+    required_channel_url: Optional[str] = None
+    service_notifications_enabled: Optional[bool] = None
+    service_volume_warning_percent: Optional[int] = None
+    service_expiry_warning_hours: Optional[int] = None
 
 
 class AdminBuilderDefaultsRequest(BaseModel):
@@ -2147,7 +2197,7 @@ async def admin_toggle_user_status(user_id: int, _admin: Dict[str, Any] = Depend
 async def admin_plans(_admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
     rows = conn.execute(
-        "SELECT id, name, price, volume_gb, days, ip_limit, active, sort_order FROM plans ORDER BY sort_order, id"
+        "SELECT id, name, price, volume_gb, days, ip_limit, active, sort_order, group_name FROM plans ORDER BY sort_order, id"
     ).fetchall()
     conn.close()
     return {
@@ -2161,6 +2211,7 @@ async def admin_plans(_admin: Dict[str, Any] = Depends(get_admin_user)):
                 "ip_limit": r["ip_limit"],
                 "active": bool(r["active"]),
                 "sort_order": r["sort_order"],
+                "group_name": r["group_name"] or "",
             }
             for r in rows
         ]
@@ -2174,10 +2225,10 @@ async def admin_create_plan(body: AdminPlanCreateRequest, _admin: Dict[str, Any]
     c = conn.cursor()
     c.execute(
         """
-        INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, group_name, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, now, now),
+        (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, (body.group_name or "").strip() or None, now, now),
     )
     plan_id = c.lastrowid
     conn.commit()
@@ -2201,14 +2252,15 @@ async def admin_update_plan(plan_id: int, body: AdminPlanUpdateRequest, _admin: 
     ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
     active = body.active if body.active is not None else plan["active"]
     sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
+    group_name = body.group_name.strip() if body.group_name is not None else (plan["group_name"] if "group_name" in plan.keys() else None)
 
     conn.execute(
         """
         UPDATE plans
-        SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, updated_at = ?
+        SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, group_name = ?, updated_at = ?
         WHERE id = ?
         """,
-        (name, price, volume_gb, days, ip_limit, active, sort_order, now, plan_id),
+        (name, price, volume_gb, days, ip_limit, active, sort_order, (group_name or "").strip() or None, now, plan_id),
     )
     conn.commit()
     conn.close()
@@ -2464,8 +2516,287 @@ async def admin_broadcast(
             except Exception:
                 failed += 1
 
-    threading.Thread(target=_send, daemon=True).start()
-    return {"status": "queued", "total": len(audience_ids), "audience": body.audience}
+# ---------------------------------------------------------------------------
+# Admin — Sanaei 3x-ui & Groups Management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/xui/groups")
+async def admin_xui_groups(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Fetch live groups list from Sanaei 3x-ui panel."""
+    try:
+        from . import core as _core
+        raw_groups = _core._xui_list_groups()
+        groups = []
+        for g in raw_groups:
+            if isinstance(g, dict):
+                groups.append({
+                    "id": g.get("id"),
+                    "name": g.get("name", "")
+                })
+            elif isinstance(g, str):
+                groups.append({"id": None, "name": g})
+        return {"groups": groups, "total": len(groups)}
+    except Exception as e:
+        return {"groups": [], "total": 0, "error": str(e)}
+
+
+@app.post("/api/admin/xui/groups/reconcile")
+async def admin_xui_groups_reconcile(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Reconcile clients and ensure groups exist on Sanaei 3x-ui."""
+    try:
+        from . import core as _core
+        res = _core.reconcile_service_groups()
+        return {"status": "success", "result": res}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در همگام‌سازی گروه‌ها: {e}")
+
+
+@app.get("/api/admin/xui/test")
+async def admin_xui_test(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Run diagnostic checks against 3x-ui API."""
+    try:
+        from . import core as _core
+        output = _core._run_xui_diagnostic()
+        return {"result": output}
+    except Exception as e:
+        return {"result": f"❌ خطا: {e}"}
+
+
+@app.post("/api/admin/xui/replace-domain")
+async def admin_xui_replace_domain(body: ReplaceDomainRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Replace domain string across DB settings and .env."""
+    try:
+        from . import core as _core
+        ok, msg = _core.replace_domain_in_all_configs(body.old_domain, body.new_domain)
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        return {"status": "success", "message": msg}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/xui/delete-client")
+async def admin_xui_delete_client(body: DeleteClientRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Delete a client subscription directly from Sanaei panel."""
+    from urllib.parse import quote
+    import requests
+    email = body.email.strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="ایمیل کلاینت الزامی است.")
+    try:
+        from . import core as _core
+        del_url = _core._xui_url(f"panel/api/clients/del/{quote(str(email), safe='')}") + "?keepTraffic=0"
+        res = requests.post(
+            del_url,
+            headers=_core._xui_headers(),
+            proxies=_core._xui_proxies(),
+            timeout=15,
+            verify=not _core.DEVELOPMENT_MODE
+        )
+        data = _core._safe_json(res)
+        if res.status_code == 200 and data.get("success"):
+            return {"status": "success", "message": f"اشتراک {email} با موفقیت از پنل حذف شد."}
+        else:
+            raise HTTPException(status_code=400, detail=data.get("msg") or res.text or "خطای پنل")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Admin — Rewards (Cashback, Discounts, Gifts)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/rewards")
+async def admin_get_rewards(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    cashback = float(_setting("cashback_percent", "0") or 0)
+    discounts = conn.execute("SELECT * FROM discount_codes ORDER BY created_at DESC").fetchall()
+    gifts = conn.execute("SELECT * FROM gift_codes ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return {
+        "cashback_percent": cashback,
+        "discount_codes": [
+            {
+                "code": d["code"],
+                "discount_type": d["discount_type"],
+                "value": float(d["value"]),
+                "min_purchase": int(d["min_purchase"] or 0),
+                "max_uses": int(d["max_uses"] or 0),
+                "per_user_limit": int(d["per_user_limit"] or 1),
+                "expires_at": d["expires_at"],
+                "active": bool(d["active"]),
+                "created_at": d["created_at"],
+            }
+            for d in discounts
+        ],
+        "gift_codes": [
+            {
+                "code": g["code"],
+                "amount": int(g["amount"]),
+                "max_uses": int(g["max_uses"] or 1),
+                "expires_at": g["expires_at"],
+                "active": bool(g["active"]),
+                "created_at": g["created_at"],
+            }
+            for g in gifts
+        ]
+    }
+
+
+@app.post("/api/admin/rewards/cashback")
+async def admin_set_cashback(body: CashbackUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    _update_setting("cashback_percent", f"{body.percent:g}")
+    return {"status": "saved", "cashback_percent": body.percent}
+
+
+@app.post("/api/admin/rewards/discounts")
+async def admin_create_discount(body: CreateDiscountRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    code = body.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="کد تخفیف الزامی است.")
+    dtype = body.discount_type.upper()
+    if dtype not in ("PERCENT", "FIXED"):
+        raise HTTPException(status_code=400, detail="نوع تخفیف باید PERCENT یا FIXED باشد.")
+    now = int(time.time())
+    conn = _db()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO discount_codes (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        """,
+        (code, dtype, body.value, body.min_purchase, body.max_uses, body.per_user_limit, body.expires_at, now)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "created", "code": code}
+
+
+@app.delete("/api/admin/rewards/discounts/{code}")
+async def admin_delete_discount(code: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM discount_codes WHERE code = ? COLLATE NOCASE", (code.strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "code": code}
+
+
+@app.post("/api/admin/rewards/gifts")
+async def admin_create_gift(body: CreateGiftRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    code = body.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="کد هدیه الزامی است.")
+    now = int(time.time())
+    conn = _db()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO gift_codes (code, amount, max_uses, expires_at, active, created_at)
+        VALUES (?, ?, ?, ?, 1, ?)
+        """,
+        (code, body.amount, body.max_uses, body.expires_at, now)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "created", "code": code}
+
+
+@app.delete("/api/admin/rewards/gifts/{code}")
+async def admin_delete_gift(code: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM gift_codes WHERE code = ? COLLATE NOCASE", (code.strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "code": code}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Affiliate & Referrals
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/affiliate")
+async def admin_get_affiliate(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    enabled = _setting("referral_enabled", "1") == "1"
+    percent = float(_setting("referral_commission_percent", "10") or 10)
+    referrals_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE referred_by IS NOT NULL").fetchone()["c"]
+    commissions_count = conn.execute("SELECT COUNT(*) AS c FROM referral_commissions").fetchone()["c"]
+    commissions_sum = conn.execute("SELECT COALESCE(SUM(commission_amount),0) AS s FROM referral_commissions").fetchone()["s"]
+    wallet_total = conn.execute("SELECT COALESCE(SUM(balance),0) AS s FROM users").fetchone()["s"]
+    top_rows = conn.execute(
+        """SELECT referrer_id, COUNT(DISTINCT referred_id) AS buyers, SUM(commission_amount) AS earned
+           FROM referral_commissions GROUP BY referrer_id ORDER BY earned DESC LIMIT 10"""
+    ).fetchall()
+    conn.close()
+    return {
+        "enabled": enabled,
+        "percent": percent,
+        "total_referrals": int(referrals_count),
+        "total_commissions_count": int(commissions_count),
+        "total_commissions_amount": int(commissions_sum),
+        "total_wallet_balance": int(wallet_total),
+        "top_referrers": [
+            {
+                "referrer_id": r["referrer_id"],
+                "buyers": int(r["buyers"]),
+                "earned": int(r["earned"] or 0)
+            }
+            for r in top_rows
+        ]
+    }
+
+
+@app.post("/api/admin/affiliate/settings")
+async def admin_save_affiliate(body: AffiliateSettingsRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    if body.enabled is not None:
+        _update_setting("referral_enabled", "1" if body.enabled else "0")
+    if body.percent is not None:
+        _update_setting("referral_commission_percent", f"{body.percent:g}")
+    return {"status": "saved"}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Content, Security & Notifications
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/content-security")
+async def admin_get_content_security(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    return {
+        "welcome_text": _setting("welcome_text", ""),
+        "faq_text": _setting("faq_text", ""),
+        "phone_verification_required": _setting("phone_verification_required", "0") == "1",
+        "membership_required": _setting("membership_required", "0") == "1",
+        "required_channel": _setting("required_channel", ""),
+        "required_channel_url": _setting("required_channel_url", ""),
+        "service_notifications_enabled": _setting("service_notifications_enabled", "1") == "1",
+        "service_volume_warning_percent": int(_setting("service_volume_warning_percent", "90") or 90),
+        "service_expiry_warning_hours": int(_setting("service_expiry_warning_hours", "24") or 24),
+    }
+
+
+@app.post("/api/admin/content-security")
+async def admin_save_content_security(body: ContentSecurityRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    if body.welcome_text is not None:
+        _update_setting("welcome_text", body.welcome_text.strip())
+    if body.faq_text is not None:
+        _update_setting("faq_text", body.faq_text.strip())
+    if body.phone_verification_required is not None:
+        _update_setting("phone_verification_required", "1" if body.phone_verification_required else "0")
+    if body.membership_required is not None:
+        _update_setting("membership_required", "1" if body.membership_required else "0")
+    if body.required_channel is not None:
+        _update_setting("required_channel", body.required_channel.strip())
+    if body.required_channel_url is not None:
+        _update_setting("required_channel_url", body.required_channel_url.strip())
+    if body.service_notifications_enabled is not None:
+        _update_setting("service_notifications_enabled", "1" if body.service_notifications_enabled else "0")
+    if body.service_volume_warning_percent is not None:
+        _update_setting("service_volume_warning_percent", str(body.service_volume_warning_percent))
+    if body.service_expiry_warning_hours is not None:
+        _update_setting("service_expiry_warning_hours", str(body.service_expiry_warning_hours))
+    return {"status": "saved"}
 
 
 # ---------------------------------------------------------------------------

@@ -136,10 +136,11 @@
                 {{ p.active ? 'فعال' : 'غیرفعال' }}
               </span>
             </div>
-            <div class="text-[10px] text-tg-hint flex gap-3">
+            <div class="text-[10px] text-tg-hint flex flex-wrap gap-x-3 gap-y-0.5">
               <span>مدت: {{ p.days }} روز</span>
               <span>حجم: {{ p.volume_gb > 0 ? p.volume_gb + ' GB' : 'نامحدود' }}</span>
               <span>کاربر: {{ p.ip_limit > 0 ? p.ip_limit + ' کاربره' : 'نامحدود' }}</span>
+              <span v-if="p.group_name" class="text-blue-400 font-semibold">👥 گروه: {{ p.group_name }}</span>
             </div>
             <div class="text-emerald-400 font-bold text-xs pt-0.5">
               {{ Number(p.price).toLocaleString('fa-IR') }} تومان
@@ -172,6 +173,466 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- ==================== Tab: Sanaei 3x-ui & Groups ==================== -->
+    <div v-if="activeTab === 'xui'" class="space-y-3 text-xs">
+      <!-- Sanaei Groups Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">👥 گروه‌های پنل سنائی (Sanaei Groups)</h4>
+            <span class="text-[10px] text-tg-hint">دسته‌بندی خودکار کلاینت‌ها و اختصاص به گروه‌های 3x-ui</span>
+          </div>
+          <button
+            @click="handleReconcileGroups"
+            :disabled="loadingXui"
+            class="btn-tg py-1.5 px-3 rounded-xl font-bold shadow text-xs flex items-center gap-1"
+          >
+            <span>🔄</span>
+            <span>{{ loadingXui ? 'در حال همگام‌سازی...' : 'همگام‌سازی کلاینت‌ها با گروه‌ها' }}</span>
+          </button>
+        </div>
+
+        <div v-if="xuiGroups.length" class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+          <div
+            v-for="g in xuiGroups"
+            :key="g.name"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+          >
+            <span class="font-bold font-mono text-sm text-blue-400">{{ g.name }}</span>
+            <span v-if="g.id" class="text-[10px] text-tg-hint font-mono">#{{ g.id }}</span>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px] bg-tg rounded-xl">
+          گروهی دریافت نشد یا ارتباط با پنل برقرار نیست.
+        </div>
+      </div>
+
+      <!-- Diagnostic Test Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">🧪 تست سلامت اتصال API سنائی (Diagnostic)</h4>
+            <span class="text-[10px] text-tg-hint">بررسی دسترسی توکن، اینباندها و کلاینت‌ها بدون تغییر اطلاعات</span>
+          </div>
+          <button
+            @click="handleRunXuiDiag"
+            :disabled="runningDiag"
+            class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 rounded-xl shadow text-xs transition"
+          >
+            {{ runningDiag ? 'در حال بررسی...' : 'اجرای تست اتصال 🔎' }}
+          </button>
+        </div>
+
+        <div v-if="xuiDiagResult" class="bg-black/50 p-3 rounded-xl border border-gray-700/40 font-mono text-[11px] whitespace-pre-wrap text-emerald-400">
+          {{ xuiDiagResult }}
+        </div>
+      </div>
+
+      <!-- Domain Migration Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">🔄 تعویض کلی دامنه (Domain Migration)</h4>
+        <span class="text-[10px] text-tg-hint block">جایگزینی دامنه قدیمی با دامنه جدید در تنظیمات ربات، ساب، خوش‌آمدگویی و فایل .env</span>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">دامنه یا هاست قدیمی:</label>
+            <input
+              type="text"
+              v-model="domainForm.old_domain"
+              placeholder="old-domain.com"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">دامنه یا هاست جدید:</label>
+            <input
+              type="text"
+              v-model="domainForm.new_domain"
+              placeholder="new-domain.com"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+        </div>
+
+        <button
+          @click="handleReplaceDomain"
+          :disabled="replacingDomain || !domainForm.old_domain || !domainForm.new_domain"
+          class="w-full btn-tg font-bold py-2 rounded-xl text-xs transition shadow"
+        >
+          {{ replacingDomain ? 'در حال اعمال تغییرات...' : 'اعمال تعویض دامنه در کل سیستم 🔄' }}
+        </button>
+      </div>
+
+      <!-- Delete Client directly from panel -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-rose-500/20 space-y-3">
+        <h4 class="font-bold text-sm text-rose-400">🔌 حذف مستقیم اشتراک از پنل سنائی</h4>
+        <span class="text-[10px] text-tg-hint block">حذف کامل اشتراک یک کاربر (با ایمیل کلاینت) مستقیماً از روی پنل 3x-ui</span>
+
+        <div class="flex gap-2">
+          <input
+            type="text"
+            v-model="deleteClientEmail"
+            placeholder="ایمیل کلاینت در پنل، مثلا: sp_123456789_1"
+            class="flex-1 bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+            dir="ltr"
+          />
+          <button
+            @click="handleDeleteClient"
+            :disabled="deletingClient || !deleteClientEmail.trim()"
+            class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 px-4 rounded-xl text-xs transition shadow"
+          >
+            {{ deletingClient ? 'در حال حذف...' : 'حذف از پنل 🗑' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab: Rewards & Discounts ==================== -->
+    <div v-if="activeTab === 'rewards'" class="space-y-3 text-xs">
+      <!-- Cashback Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">💰 سیستم کش‌بک (بازگشت وجه به کیف پول)</h4>
+            <span class="text-[10px] text-tg-hint">درصدی از مبلغ هر خرید موفق به صورت خودکار به کیف پول خریدار واریز می‌شود</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1.5 flex-1">
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              max="100"
+              v-model.number="rewardsData.cashback_percent"
+              class="w-24 bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+            />
+            <span class="text-sm font-bold text-tg">% درصد پاداش</span>
+          </div>
+          <button
+            @click="handleSaveCashback"
+            :disabled="savingCashback"
+            class="btn-tg py-2 px-4 rounded-xl font-bold text-xs shadow"
+          >
+            {{ savingCashback ? 'ذخیره...' : 'ذخیره درصد کش‌بک 💾' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Discount Codes Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">🎟 کدهای تخفیف</h4>
+            <span class="text-[10px] text-tg-hint">تعداد فعال: {{ rewardsData.discount_codes.length }}</span>
+          </div>
+          <button
+            @click="showDiscountModal = true"
+            class="btn-tg py-1.5 px-3 rounded-xl font-bold shadow text-xs flex items-center gap-1"
+          >
+            <span>➕</span>
+            <span>کد تخفیف جدید</span>
+          </button>
+        </div>
+
+        <div v-if="rewardsData.discount_codes.length" class="space-y-1.5 max-h-60 overflow-y-auto">
+          <div
+            v-for="d in rewardsData.discount_codes"
+            :key="d.code"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+          >
+            <div>
+              <span class="font-mono font-bold text-sm text-blue-400 block">{{ d.code }}</span>
+              <span class="text-[10px] text-tg-hint">
+                {{ d.discount_type === 'PERCENT' ? (d.value + '% درصد') : (Number(d.value).toLocaleString('fa-IR') + ' تومان') }}
+                <span v-if="d.max_uses > 0"> | ظرفیت: {{ d.max_uses }}</span>
+                <span v-if="d.min_purchase > 0"> | حداقل خرید: {{ Number(d.min_purchase).toLocaleString('fa-IR') }}</span>
+              </span>
+            </div>
+            <button
+              @click="handleDeleteDiscount(d.code)"
+              class="p-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg text-xs"
+              title="حذف کد"
+            >
+              🗑
+            </button>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px] bg-tg rounded-xl">
+          کد تخفیفی تعریف نشده است.
+        </div>
+      </div>
+
+      <!-- Gift Codes Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">🎁 کدهای شارژ هدیه کیف پول</h4>
+            <span class="text-[10px] text-tg-hint">تعداد فعال: {{ rewardsData.gift_codes.length }}</span>
+          </div>
+          <button
+            @click="showGiftModal = true"
+            class="btn-tg py-1.5 px-3 rounded-xl font-bold shadow text-xs flex items-center gap-1"
+          >
+            <span>➕</span>
+            <span>کد هدیه جدید</span>
+          </button>
+        </div>
+
+        <div v-if="rewardsData.gift_codes.length" class="space-y-1.5 max-h-60 overflow-y-auto">
+          <div
+            v-for="g in rewardsData.gift_codes"
+            :key="g.code"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+          >
+            <div>
+              <span class="font-mono font-bold text-sm text-emerald-400 block">{{ g.code }}</span>
+              <span class="text-[10px] text-tg-hint">
+                مبلغ: {{ Number(g.amount).toLocaleString('fa-IR') }} تومان | سقف استفاده: {{ g.max_uses }}
+              </span>
+            </div>
+            <button
+              @click="handleDeleteGift(g.code)"
+              class="p-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg text-xs"
+              title="حذف کد"
+            >
+              🗑
+            </button>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px] bg-tg rounded-xl">
+          کد هدیه‌ای تعریف نشده است.
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab: Affiliate & Referrals ==================== -->
+    <div v-if="activeTab === 'affiliate'" class="space-y-3 text-xs">
+      <!-- Stats Summary -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+          <span class="text-tg-hint text-[10px] block">کاربران دعوت‌شده</span>
+          <span class="text-sm font-bold text-tg mt-0.5 block">{{ Number(affiliateData.total_referrals).toLocaleString('fa-IR') }}</span>
+        </div>
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+          <span class="text-tg-hint text-[10px] block">تعداد پورسانت‌ها</span>
+          <span class="text-sm font-bold text-blue-400 mt-0.5 block">{{ Number(affiliateData.total_commissions_count).toLocaleString('fa-IR') }}</span>
+        </div>
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+          <span class="text-tg-hint text-[10px] block">مجموع پورسانت‌ها</span>
+          <span class="text-sm font-bold text-emerald-400 mt-0.5 block">{{ Number(affiliateData.total_commissions_amount).toLocaleString('fa-IR') }} تومان</span>
+        </div>
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+          <span class="text-tg-hint text-[10px] block">مانده کل کیف پول‌ها</span>
+          <span class="text-sm font-bold text-amber-400 mt-0.5 block">{{ Number(affiliateData.total_wallet_balance).toLocaleString('fa-IR') }} تومان</span>
+        </div>
+      </div>
+
+      <!-- Settings Box -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">⚙️ تنظیمات همکاری در فروش (Affiliate)</h4>
+
+        <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+          <div>
+            <span class="font-bold block">فعال بودن سیستم معرفی و دعوت</span>
+            <span class="text-[10px] text-tg-hint">در صورت فعال بودن، کاربران لینک اختصاصی دریافت می‌کنند</span>
+          </div>
+          <button
+            @click="affiliateData.enabled = !affiliateData.enabled"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition"
+            :class="affiliateData.enabled ? 'bg-emerald-600 text-white shadow' : 'bg-rose-600/30 text-rose-300'"
+          >
+            {{ affiliateData.enabled ? 'فعال ✓' : 'غیرفعال ✕' }}
+          </button>
+        </div>
+
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">درصد پورسانت معرف از هر خرید (%):</label>
+          <div class="flex gap-2">
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              max="100"
+              v-model.number="affiliateData.percent"
+              class="w-32 bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+            />
+            <button
+              @click="handleSaveAffiliate"
+              :disabled="savingAffiliate"
+              class="btn-tg py-2 px-4 rounded-xl font-bold text-xs shadow flex-1"
+            >
+              {{ savingAffiliate ? 'ذخیره...' : 'ذخیره تنظیمات همکاری 💾' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Referrers Leaderboard -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">🏆 ۱۰ معرف برتر سیستم</h4>
+
+        <div v-if="affiliateData.top_referrers.length" class="space-y-1.5">
+          <div
+            v-for="(r, idx) in affiliateData.top_referrers"
+            :key="r.referrer_id"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+          >
+            <div class="flex items-center gap-2">
+              <span class="font-bold w-5 text-center text-tg-hint">{{ idx + 1 }}.</span>
+              <div>
+                <span class="font-mono font-bold block">{{ r.referrer_id }}</span>
+                <span class="text-[10px] text-tg-hint">خریداران مستقیم: {{ r.buyers }} نفر</span>
+              </div>
+            </div>
+            <span class="font-bold text-emerald-400 font-mono">{{ Number(r.earned).toLocaleString('fa-IR') }} تومان</span>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px] bg-tg rounded-xl">
+          هنوز پورسانتی ثبت نشده است.
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab: Content & Security ==================== -->
+    <div v-if="activeTab === 'content'" class="space-y-3 text-xs">
+      <!-- Welcome Message & FAQ -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">📝 پیام خوش‌آمدگویی و راهنما</h4>
+
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">متن پیام شروع ربات (Welcome Text):</label>
+          <textarea
+            v-model="contentSecurity.welcome_text"
+            rows="3"
+            class="w-full bg-tg border border-gray-700/40 rounded-xl p-3 text-xs leading-relaxed"
+            placeholder="سلام به ربات ما خوش آمدید..."
+          ></textarea>
+        </div>
+
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">متن بخش سوالات متداول و راهنما (FAQ Text):</label>
+          <textarea
+            v-model="contentSecurity.faq_text"
+            rows="4"
+            class="w-full bg-tg border border-gray-700/40 rounded-xl p-3 text-xs leading-relaxed"
+            placeholder="راهنمای خرید و اتصال..."
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- Security & Channel Lock -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">🔐 امنیت و قفل کانال تلگرام</h4>
+
+        <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+          <div>
+            <span class="font-bold block">احراز هویت با شماره تماس</span>
+            <span class="text-[10px] text-tg-hint">کاربران قبل از دسترسی باید شماره موبایل تلگرام خود را ارسال کنند</span>
+          </div>
+          <button
+            @click="contentSecurity.phone_verification_required = !contentSecurity.phone_verification_required"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition"
+            :class="contentSecurity.phone_verification_required ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ contentSecurity.phone_verification_required ? 'اجباری ✓' : 'اختیاری' }}
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+          <div>
+            <span class="font-bold block">عضویت اجباری در کانال (Channel Lock)</span>
+            <span class="text-[10px] text-tg-hint">ربات تا قبل از عضویت در کانال قفل خواهد بود (ربات باید ادمین کانال باشد)</span>
+          </div>
+          <button
+            @click="contentSecurity.membership_required = !contentSecurity.membership_required"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition"
+            :class="contentSecurity.membership_required ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ contentSecurity.membership_required ? 'فعال ✓' : 'غیرفعال' }}
+          </button>
+        </div>
+
+        <div v-if="contentSecurity.membership_required" class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">شناسه یا آیدی کانال:</label>
+            <input
+              type="text"
+              v-model="contentSecurity.required_channel"
+              placeholder="@MyChannel یا -1001234567890"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">لینک عضویت کانال:</label>
+            <input
+              type="text"
+              v-model="contentSecurity.required_channel_url"
+              placeholder="https://t.me/MyChannel"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Service Notifications -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">🔔 اعلان‌های هوشمند سرویس</h4>
+
+        <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+          <div>
+            <span class="font-bold block">ارسال خودکار پیام هشدار پایان حجم / زمان</span>
+            <span class="text-[10px] text-tg-hint">هشدار به کاربران تلگرام قبل از قطعی سرویس جهت تمدید سریع</span>
+          </div>
+          <button
+            @click="contentSecurity.service_notifications_enabled = !contentSecurity.service_notifications_enabled"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition"
+            :class="contentSecurity.service_notifications_enabled ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ contentSecurity.service_notifications_enabled ? 'فعال ✓' : 'غیرفعال' }}
+          </button>
+        </div>
+
+        <div v-if="contentSecurity.service_notifications_enabled" class="grid grid-cols-2 gap-2 pt-1">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">درصد هشدار مصرف حجم:</label>
+            <input
+              type="number"
+              min="50"
+              max="99"
+              v-model.number="contentSecurity.service_volume_warning_percent"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+            />
+            <span class="text-[9px] text-tg-hint block mt-0.5">مثلاً ۹۰ یعنی با مصرف ۹۰٪ حجم، پیام هشدار ارسال می‌شود.</span>
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">هشدار انقضا (ساعت قبل از پایان):</label>
+            <input
+              type="number"
+              min="1"
+              max="168"
+              v-model.number="contentSecurity.service_expiry_warning_hours"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+            />
+            <span class="text-[9px] text-tg-hint block mt-0.5">مثلاً ۲۴ یعنی یک روز قبل از انقضا به کاربر پیام می‌دهد.</span>
+          </div>
+        </div>
+      </div>
+
+      <button
+        @click="handleSaveContentSecurity"
+        :disabled="savingContentSec"
+        class="w-full btn-tg font-bold py-2.5 rounded-xl text-xs transition shadow"
+      >
+        {{ savingContentSec ? 'در حال ذخیره‌سازی...' : 'ذخیره متن‌ها، اعلان‌ها و امنیت 💾' }}
+      </button>
     </div>
 
     <!-- ==================== Tab 3: Builder Defaults (تنظیمات پلن‌ساز) ==================== -->
@@ -704,6 +1165,22 @@
               <input type="number" v-model.number="planForm.ip_limit" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
             </div>
           </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">نام گروه سنائی (3x-ui Group Name):</label>
+            <input
+              type="text"
+              list="xuiGroupsList"
+              v-model="planForm.group_name"
+              placeholder="مثلاً Customers یا VIP"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono"
+            />
+            <datalist id="xuiGroupsList">
+              <option v-for="g in xuiGroups" :key="g.name" :value="g.name" />
+            </datalist>
+            <span class="text-[9px] text-tg-hint block mt-0.5">
+              کلاینت‌های این پلن در پنل سنائی به این Group اختصاص داده می‌شوند (پیش‌فرض: Customers).
+            </span>
+          </div>
         </div>
 
         <div class="flex gap-2 pt-2">
@@ -834,6 +1311,77 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal 6: Create Discount Code -->
+    <div v-if="showDiscountModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <h4 class="font-bold text-sm">ایجاد کد تخفیف جدید</h4>
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">کد تخفیف (انگلیسی):</label>
+          <input type="text" v-model="discountForm.code" placeholder="OFF30" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left uppercase" dir="ltr" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">نوع تخفیف:</label>
+            <select v-model="discountForm.discount_type" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2 text-xs">
+              <option value="PERCENT">درصدی (%)</option>
+              <option value="FIXED">مبلغ ثابت (تومان)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">مقدار تخفیف:</label>
+            <input type="number" v-model.number="discountForm.value" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">حداقل خرید (تومان):</label>
+            <input type="number" v-model.number="discountForm.min_purchase" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">سقف استفاده (0=نامحدود):</label>
+            <input type="number" v-model.number="discountForm.max_uses" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button @click="handleCreateDiscount" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ثبت کد تخفیف 💾
+          </button>
+          <button @click="showDiscountModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 7: Create Gift Code -->
+    <div v-if="showGiftModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <h4 class="font-bold text-sm">ایجاد کد هدیه کیف پول</h4>
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">کد هدیه (انگلیسی):</label>
+          <input type="text" v-model="giftForm.code" placeholder="GIFT50" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left uppercase" dir="ltr" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">مبلغ هدیه (تومان):</label>
+            <input type="number" v-model.number="giftForm.amount" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">ظرفیت استفاده:</label>
+            <input type="number" v-model.number="giftForm.max_uses" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button @click="handleCreateGift" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ثبت کد هدیه 🎁
+          </button>
+          <button @click="showGiftModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -870,7 +1418,22 @@ import {
   saveAdminPayments,
   sendBroadcast,
   getAdminBranding,
-  saveAdminBranding
+  saveAdminBranding,
+  getAdminXuiGroups,
+  reconcileAdminXuiGroups,
+  testAdminXui,
+  replaceAdminDomain,
+  deleteAdminPanelClient,
+  getAdminRewards,
+  saveAdminCashback,
+  createAdminDiscount,
+  deleteAdminDiscount,
+  createAdminGift,
+  deleteAdminGift,
+  getAdminAffiliate,
+  saveAdminAffiliate,
+  getAdminContentSecurity,
+  saveAdminContentSecurity
 } from '@/api'
 
 // Navigation Tabs
@@ -878,6 +1441,10 @@ const activeTab = ref('orders')
 const tabs = computed(() => [
   { id: 'orders', label: 'سفارش‌ها', icon: '📑', badge: orders.value.length || null },
   { id: 'plans', label: 'پلان‌ها', icon: '📦' },
+  { id: 'xui', label: 'سنائی و گروه‌ها', icon: '🌐' },
+  { id: 'rewards', label: 'تخفیف و پاداش', icon: '🎟' },
+  { id: 'affiliate', label: 'همکاری در فروش', icon: '🤝' },
+  { id: 'content', label: 'متن‌ها و امنیت', icon: '📝' },
   { id: 'builder', label: 'پلن‌ساز', icon: '🛠' },
   { id: 'users', label: 'کاربران', icon: '👥' },
   { id: 'blacklist', label: 'مسدودی', icon: '🚫' },
@@ -905,7 +1472,51 @@ const orders = ref([])
 const plansList = ref([])
 const showPlanModal = ref(false)
 const isEditingPlan = ref(false)
-const planForm = ref({ id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100 })
+const planForm = ref({ id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '' })
+
+// Sanaei 3x-ui & Groups
+const xuiGroups = ref([])
+const loadingXui = ref(false)
+const xuiDiagResult = ref('')
+const runningDiag = ref(false)
+const domainForm = ref({ old_domain: '', new_domain: '' })
+const replacingDomain = ref(false)
+const deleteClientEmail = ref('')
+const deletingClient = ref(false)
+
+// Rewards & Discounts
+const rewardsData = ref({ cashback_percent: 0, discount_codes: [], gift_codes: [] })
+const savingCashback = ref(false)
+const showDiscountModal = ref(false)
+const discountForm = ref({ code: '', discount_type: 'PERCENT', value: 10, min_purchase: 0, max_uses: 0, per_user_limit: 1 })
+const showGiftModal = ref(false)
+const giftForm = ref({ code: '', amount: 10000, max_uses: 1 })
+
+// Affiliate & Referrals
+const affiliateData = ref({
+  enabled: true,
+  percent: 10,
+  total_referrals: 0,
+  total_commissions_count: 0,
+  total_commissions_amount: 0,
+  total_wallet_balance: 0,
+  top_referrers: [],
+})
+const savingAffiliate = ref(false)
+
+// Content, Security & Notifications
+const contentSecurity = ref({
+  welcome_text: '',
+  faq_text: '',
+  phone_verification_required: false,
+  membership_required: false,
+  required_channel: '',
+  required_channel_url: '',
+  service_notifications_enabled: true,
+  service_volume_warning_percent: 90,
+  service_expiry_warning_hours: 24,
+})
+const savingContentSec = ref(false)
 
 // Builder Defaults
 const builderDefaults = ref({
@@ -978,7 +1589,7 @@ const showNotify = (msg, success = true) => {
 // ─── Data Loaders ────────────────────────────────────────────────────────────
 const loadData = async () => {
   try {
-    const [stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes, bkRes, srvRes, brRes] = await Promise.all([
+    const [stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes, bkRes, srvRes, brRes, xuiRes, rewRes, affRes, csRes] = await Promise.all([
       getAdminStats().catch(() => ({ data: {} })),
       getAdminOrders().catch(() => ({ data: { orders: [] } })),
       getAdminPlans().catch(() => ({ data: { plans: [] } })),
@@ -989,7 +1600,11 @@ const loadData = async () => {
       getAdminPayments().catch(() => ({ data: null })),
       getAdminBackups().catch(() => ({ data: { backups: [] } })),
       getAdminServerStatus().catch(() => ({ data: null })),
-      getAdminBranding().catch(() => ({ data: { webapp_title: '' } }))
+      getAdminBranding().catch(() => ({ data: { webapp_title: '' } })),
+      getAdminXuiGroups().catch(() => ({ data: { groups: [] } })),
+      getAdminRewards().catch(() => ({ data: null })),
+      getAdminAffiliate().catch(() => ({ data: null })),
+      getAdminContentSecurity().catch(() => ({ data: null })),
     ])
 
     stats.value = stRes.data || {}
@@ -1003,6 +1618,10 @@ const loadData = async () => {
     backupsList.value = bkRes.data?.backups || []
     serverStatus.value = srvRes?.data || null
     uiTitle.value = brRes.data?.webapp_title || ''
+    xuiGroups.value = xuiRes.data?.groups || []
+    if (rewRes?.data) rewardsData.value = { ...rewardsData.value, ...rewRes.data }
+    if (affRes?.data) affiliateData.value = { ...affiliateData.value, ...affRes.data }
+    if (csRes?.data) contentSecurity.value = { ...contentSecurity.value, ...csRes.data }
 
     const modeRes = await getAdminOpsMode().catch(() => null)
     if (modeRes?.data?.mode) opsMode.value = modeRes.data.mode
@@ -1042,13 +1661,13 @@ const handleReject = async (orderId) => {
 // ─── Plans Handlers ──────────────────────────────────────────────────────────
 const openCreatePlanModal = () => {
   isEditingPlan.value = false
-  planForm.value = { id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100 }
+  planForm.value = { id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '' }
   showPlanModal.value = true
 }
 
 const openEditPlanModal = (plan) => {
   isEditingPlan.value = true
-  planForm.value = { ...plan }
+  planForm.value = { ...plan, group_name: plan.group_name || '' }
   showPlanModal.value = true
 }
 
@@ -1287,6 +1906,157 @@ const handleSaveBranding = async () => {
     showNotify(err.response?.data?.detail || 'خطا در ذخیره عنوان', false)
   } finally {
     savingBranding.value = false
+  }
+}
+
+// ─── Sanaei 3x-ui Handlers ──────────────────────────────────────────────────
+const handleReconcileGroups = async () => {
+  loadingXui.value = true
+  try {
+    const res = await reconcileAdminXuiGroups()
+    showNotify(`همگام‌سازی گروه‌ها با موفقیت انجام شد ✓ (${res.data?.result?.updated || 0} کلاینت)`)
+    const gRes = await getAdminXuiGroups()
+    xuiGroups.value = gRes.data?.groups || []
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در همگام‌سازی گروه‌ها', false)
+  } finally {
+    loadingXui.value = false
+  }
+}
+
+const handleRunXuiDiag = async () => {
+  runningDiag.value = true
+  xuiDiagResult.value = 'در حال تست ارتباط...'
+  try {
+    const res = await testAdminXui()
+    xuiDiagResult.value = res.data?.result || 'تستی دریافت نشد.'
+  } catch (e) {
+    xuiDiagResult.value = '❌ خطا در تست ارتباط: ' + (e.response?.data?.detail || e.message)
+  } finally {
+    runningDiag.value = false
+  }
+}
+
+const handleReplaceDomain = async () => {
+  if (!domainForm.value.old_domain || !domainForm.value.new_domain) return
+  replacingDomain.value = true
+  try {
+    const res = await replaceAdminDomain(domainForm.value.old_domain, domainForm.value.new_domain)
+    showNotify(res.data?.message || 'تعویض دامنه با موفقیت انجام شد ✓')
+    domainForm.value = { old_domain: '', new_domain: '' }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در تعویض دامنه', false)
+  } finally {
+    replacingDomain.value = false
+  }
+}
+
+const handleDeleteClient = async () => {
+  if (!deleteClientEmail.value.trim()) return
+  if (!confirm(`آیا از حذف اشتراک ${deleteClientEmail.value} از پنل اطمینان دارید؟`)) return
+  deletingClient.value = true
+  try {
+    const res = await deleteAdminPanelClient(deleteClientEmail.value.trim())
+    showNotify(res.data?.message || 'اشتراک از پنل حذف شد ✓')
+    deleteClientEmail.value = ''
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در حذف اشتراک', false)
+  } finally {
+    deletingClient.value = false
+  }
+}
+
+// ─── Rewards Handlers ────────────────────────────────────────────────────────
+const handleSaveCashback = async () => {
+  savingCashback.value = true
+  try {
+    await saveAdminCashback(rewardsData.value.cashback_percent)
+    showNotify('درصد کش‌بک با موفقیت ذخیره شد.')
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ذخیره کش‌بک', false)
+  } finally {
+    savingCashback.value = false
+  }
+}
+
+const handleCreateDiscount = async () => {
+  if (!discountForm.value.code) return
+  try {
+    await createAdminDiscount(discountForm.value)
+    showNotify('کد تخفیف جدید ایجاد شد.')
+    showDiscountModal.value = false
+    discountForm.value = { code: '', discount_type: 'PERCENT', value: 10, min_purchase: 0, max_uses: 0, per_user_limit: 1 }
+    const rRes = await getAdminRewards()
+    if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ایجاد کد تخفیف', false)
+  }
+}
+
+const handleDeleteDiscount = async (code) => {
+  if (!confirm(`آیا از حذف کد تخفیف ${code} اطمینان دارید؟`)) return
+  try {
+    await deleteAdminDiscount(code)
+    showNotify('کد تخفیف حذف شد.')
+    const rRes = await getAdminRewards()
+    if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در حذف کد تخفیف', false)
+  }
+}
+
+const handleCreateGift = async () => {
+  if (!giftForm.value.code) return
+  try {
+    await createAdminGift(giftForm.value)
+    showNotify('کد هدیه جدید ایجاد شد.')
+    showGiftModal.value = false
+    giftForm.value = { code: '', amount: 10000, max_uses: 1 }
+    const rRes = await getAdminRewards()
+    if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ایجاد کد هدیه', false)
+  }
+}
+
+const handleDeleteGift = async (code) => {
+  if (!confirm(`آیا از حذف کد هدیه ${code} اطمینان دارید؟`)) return
+  try {
+    await deleteAdminGift(code)
+    showNotify('کد هدیه حذف شد.')
+    const rRes = await getAdminRewards()
+    if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در حذف کد هدیه', false)
+  }
+}
+
+// ─── Affiliate Handlers ──────────────────────────────────────────────────────
+const handleSaveAffiliate = async () => {
+  savingAffiliate.value = true
+  try {
+    await saveAdminAffiliate({
+      enabled: affiliateData.value.enabled,
+      percent: affiliateData.value.percent,
+    })
+    showNotify('تنظیمات همکاری در فروش ذخیره شد.')
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ذخیره تنظیمات همکاری', false)
+  } finally {
+    savingAffiliate.value = false
+  }
+}
+
+// ─── Content & Security Handlers ─────────────────────────────────────────────
+const handleSaveContentSecurity = async () => {
+  savingContentSec.value = true
+  try {
+    await saveAdminContentSecurity(contentSecurity.value)
+    showNotify('تنظیمات متن‌ها و امنیت ذخیره شد.')
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ذخیره متن‌ها و امنیت', false)
+  } finally {
+    savingContentSec.value = false
   }
 }
 

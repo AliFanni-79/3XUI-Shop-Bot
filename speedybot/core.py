@@ -203,8 +203,10 @@ def init_db():
         active INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 100,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        group_name TEXT
     )''')
+    _ensure_column(cursor, 'plans', 'group_name', 'TEXT')
     cursor.execute('''CREATE TABLE IF NOT EXISTS volume_packs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -2481,12 +2483,28 @@ def xui_diag_command(message):
     )
 
 
-@bot.message_handler(commands=['sudoadmin'])
+@bot.message_handler(commands=['sudoadmin', 'admin'])
 def super_admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ شما به این منو دسترسی ندارید.")
         return
-    bot.send_message(message.chat.id, f"🚀 **به پنل مدیریت ارشد {get_brand_name()} خوش آمدید**\nتنظیمات مورد نظر را انتخاب کنید:", reply_markup=admin_main_menu(), parse_mode="Markdown")
+    webapp_url = get_db_setting('webapp_url', '').strip()
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    if webapp_url:
+        admin_app_url = f"{webapp_url.rstrip('/')}/#/admin"
+        markup.add(types.InlineKeyboardButton("⚙️ ورود به پنل مدیریت وب (Admin Panel)", web_app=types.WebAppInfo(url=admin_app_url)))
+    else:
+        markup.add(types.InlineKeyboardButton("⚙️ منوی مدیریت ربات", callback_data="admin:stats"))
+
+    bot.send_message(
+        message.chat.id,
+        f"👑 **به پنل مدیریت ارشد {get_brand_name()} خوش آمدید**\n\n"
+        "⚡️ تمام بخش‌های مدیریت ربات و سرور (پلن‌ها، گروه‌های Sanaei، امور مالی، تخفیف‌ها، کاربران و...) "
+        "به پنل وب Web App منتقل شده است.\n\n"
+        "برای مدیریت روی دکمه زیر بزنید:",
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
 
 def _show_admin_bank_config(admin_chat):
     card_num = get_db_setting('card_number')
@@ -4187,14 +4205,24 @@ def _xui_online_emails():
 def reconcile_service_groups():
     customer_group, trial_group = ensure_required_xui_groups()
     conn = _db_connect()
-    paid = conn.execute("SELECT DISTINCT service_email FROM transactions WHERE status='APPROVED' AND kind='NEW' AND service_email IS NOT NULL").fetchall()
+    paid = conn.execute("""
+        SELECT t.service_email, COALESCE(p.group_name, ?) as group_name
+        FROM transactions t
+        LEFT JOIN plans p ON t.plan_id = p.id
+        WHERE t.status='APPROVED' AND t.kind='NEW' AND t.service_email IS NOT NULL
+    """, (customer_group,)).fetchall()
     trials = conn.execute("SELECT email FROM trial_services WHERE status IN ('ACTIVE','EXPIRED')").fetchall()
     conn.close()
     ok = 0; errors = []
-    try:
-        ok += _xui_assign_group_bulk([row['service_email'] for row in paid], customer_group)
-    except Exception as e:
-        errors.append(f"Customers: {str(e)[:300]}")
+    groups_map = {}
+    for row in paid:
+        g = (row['group_name'] or '').strip() or customer_group
+        groups_map.setdefault(g, []).append(row['service_email'])
+    for g, emails in groups_map.items():
+        try:
+            ok += _xui_assign_group_bulk(emails, g)
+        except Exception as e:
+            errors.append(f"{g}: {str(e)[:300]}")
     try:
         ok += _xui_assign_group_bulk([row['email'] for row in trials], trial_group)
     except Exception as e:
@@ -4261,10 +4289,17 @@ def renew_xui_service(user_id, user_email, days, volume_gb, ip_limit, plan_id=No
     if plan_id:
         desired = _selected_inbound_ids_for('plan', int(plan_id), _xui_headers(), _xui_proxies())
         _sync_client_inbounds(user_email, desired)
+    target_group = None
+    if plan_id:
+        p_row = get_plan_by_id(plan_id, include_inactive=True)
+        if p_row and p_row.get('group_name'):
+            target_group = str(p_row['group_name']).strip()
+    if not target_group:
+        target_group = get_db_setting('xui_customers_group', 'Customers') or 'Customers'
     try:
-        _xui_assign_group(user_email, get_db_setting('xui_customers_group', 'Customers') or 'Customers')
+        _xui_assign_group(user_email, target_group)
     except Exception as e:
-        notify_admins(f"⚠️ تمدید {user_email} انجام شد ولی Group Customers به‌روزرسانی نشد: {str(e)[:300]}")
+        notify_admins(f"⚠️ تمدید {user_email} انجام شد ولی Group {target_group} به‌روزرسانی نشد: {str(e)[:300]}")
     return new_expiry
 
 
@@ -4470,9 +4505,14 @@ def provision_xui_service(user_id, plan_id, tx_id, user_email):
         client_data = _get_client_data(user_email, headers, request_proxies) or client_data
 
     try:
-        _xui_assign_group(user_email, get_db_setting('xui_customers_group', 'Customers') or 'Customers')
+        target_group = None
+        if not is_trial and plan:
+            target_group = (plan.get('group_name') or '').strip()
+        if not target_group:
+            target_group = get_db_setting('xui_customers_group', 'Customers') or 'Customers'
+        _xui_assign_group(user_email, target_group)
     except Exception as group_error:
-        notify_admins(f"⚠️ سرویس {user_email} ساخته شد اما Group Customers خطا داد: {str(group_error)[:350]}")
+        notify_admins(f"⚠️ سرویس {user_email} ساخته شد اما Group {target_group} خطا داد: {str(group_error)[:350]}")
 
     sub_id = _get_client_subscription_id(user_email, headers, request_proxies, client_data)
     config_links = _get_delivery_links(user_email, sub_id, headers, request_proxies)

@@ -17,7 +17,7 @@ def _mode_text(): return {'NORMAL':'🟢 عادی — همه سرویس‌ها �
 
 def admin_home(message):
     if not C.is_admin(message.from_user.id): C.BOT.send_message(message.chat.id,'❌ شما به این بخش دسترسی ندارید.'); return
-    C.audit('ADMIN_PANEL_OPEN',message.from_user.id,send=False); _send(message.chat.id,ui.admin_home(),ui.admin_menu())
+    C.CORE.super_admin_panel(message)
 
 
 def _ui_panel(chat):

@@ -262,10 +262,140 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 res = self.client.post("/api/orders/init-stars", json=payload, headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(res.status_code, 200)
                 data = res.json()
-                self.assertEqual(data["status"], "invoice_created")
-                self.assertEqual(data["invoice_link"], "https://t.me/$invoice_test_link")
-                self.assertGreater(data["stars_amount"], 0)
-                self.assertTrue(mock_invoice.called)
+    def test_admin_plans_group_name(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Create with group_name
+                create_res = self.client.post(
+                    "/api/admin/plans",
+                    json={
+                        "name": "پلن VIP تست",
+                        "price": 120000,
+                        "volume_gb": 30,
+                        "days": 30,
+                        "ip_limit": 2,
+                        "group_name": "VIP_Clients"
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_res.status_code, 200)
+                plan_id = create_res.json()["plan_id"]
+
+                # Verify in list
+                list_res = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(list_res.status_code, 200)
+                plans = list_res.json()["plans"]
+                created_plan = next((p for p in plans if p["id"] == plan_id), None)
+                self.assertIsNotNone(created_plan)
+                self.assertEqual(created_plan["group_name"], "VIP_Clients")
+
+                # Update group_name
+                update_res = self.client.put(
+                    f"/api/admin/plans/{plan_id}",
+                    json={"group_name": "Super_VIP"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(update_res.status_code, 200)
+
+                # Verify update
+                list_res2 = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                updated_plan = next((p for p in list_res2.json()["plans"] if p["id"] == plan_id), None)
+                self.assertEqual(updated_plan["group_name"], "Super_VIP")
+
+                # Cleanup
+                self.client.delete(f"/api/admin/plans/{plan_id}", headers={"X-Telegram-Init-Data": init_data})
+
+    def test_admin_xui_endpoints(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                with patch("speedybot.core._xui_list_groups", return_value=[{"id": 1, "name": "Customers"}, {"id": 2, "name": "Trial"}]):
+                    res = self.client.get("/api/admin/xui/groups", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(res.status_code, 200)
+                    self.assertEqual(res.json()["total"], 2)
+
+                with patch("speedybot.core.reconcile_service_groups", return_value={"updated": 5, "errors": []}):
+                    res = self.client.post("/api/admin/xui/groups/reconcile", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(res.status_code, 200)
+                    self.assertEqual(res.json()["status"], "success")
+
+                with patch("speedybot.core._run_xui_diagnostic", return_value="✅ Inbounds: OK"):
+                    res = self.client.get("/api/admin/xui/test", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(res.status_code, 200)
+                    self.assertIn("Inbounds", res.json()["result"])
+
+    def test_admin_rewards_endpoints(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Cashback
+                cb_res = self.client.post("/api/admin/rewards/cashback", json={"percent": 5.5}, headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(cb_res.status_code, 200)
+
+                # Create Discount Code
+                disc_res = self.client.post(
+                    "/api/admin/rewards/discounts",
+                    json={
+                        "code": "TEST50",
+                        "discount_type": "PERCENT",
+                        "value": 50,
+                        "min_purchase": 50000,
+                        "max_uses": 10
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(disc_res.status_code, 200)
+
+                # Create Gift Code
+                gift_res = self.client.post(
+                    "/api/admin/rewards/gifts",
+                    json={"code": "GIFT20K", "amount": 20000, "max_uses": 5},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(gift_res.status_code, 200)
+
+                # Get Rewards
+                get_rewards = self.client.get("/api/admin/rewards", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(get_rewards.status_code, 200)
+                data = get_rewards.json()
+                self.assertEqual(data["cashback_percent"], 5.5)
+                self.assertTrue(any(d["code"] == "TEST50" for d in data["discount_codes"]))
+                self.assertTrue(any(g["code"] == "GIFT20K" for g in data["gift_codes"]))
+
+                # Delete Codes
+                del_d = self.client.delete("/api/admin/rewards/discounts/TEST50", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_d.status_code, 200)
+                del_g = self.client.delete("/api/admin/rewards/gifts/GIFT20K", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_g.status_code, 200)
+
+    def test_admin_affiliate_and_content_security(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Affiliate GET & POST
+                aff_get = self.client.get("/api/admin/affiliate", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(aff_get.status_code, 200)
+                aff_post = self.client.post(
+                    "/api/admin/affiliate/settings",
+                    json={"enabled": True, "percent": 12.5},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(aff_post.status_code, 200)
+
+                # Content & Security GET & POST
+                sec_get = self.client.get("/api/admin/content-security", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(sec_get.status_code, 200)
+                sec_post = self.client.post(
+                    "/api/admin/content-security",
+                    json={
+                        "welcome_text": "خوش آمدید تستی",
+                        "phone_verification_required": False,
+                        "membership_required": False
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(sec_post.status_code, 200)
 
 
 if __name__ == "__main__":

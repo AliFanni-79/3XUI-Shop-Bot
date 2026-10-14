@@ -151,5 +151,30 @@ export const getAppConfig = () => client.get('/app/config')
 export const getAdminBranding = () => client.get('/admin/branding')
 export const saveAdminBranding = (payload) => client.post('/admin/branding', payload)
 
+// ─── Admin — Sanaei 3x-ui & Groups ──────────────────────────────────────────
+export const getAdminXuiGroups = () => client.get('/admin/xui/groups')
+export const reconcileAdminXuiGroups = () => client.post('/admin/xui/groups/reconcile')
+export const testAdminXui = () => client.get('/admin/xui/test')
+export const replaceAdminDomain = (oldDomain, newDomain) =>
+  client.post('/admin/xui/replace-domain', { old_domain: oldDomain, new_domain: newDomain })
+export const deleteAdminPanelClient = (email) =>
+  client.post('/admin/xui/delete-client', { email })
+
+// ─── Admin — Rewards (Cashback, Discounts, Gifts) ───────────────────────────
+export const getAdminRewards = () => client.get('/admin/rewards')
+export const saveAdminCashback = (percent) => client.post('/admin/rewards/cashback', { percent })
+export const createAdminDiscount = (payload) => client.post('/admin/rewards/discounts', payload)
+export const deleteAdminDiscount = (code) => client.delete(`/admin/rewards/discounts/${code}`)
+export const createAdminGift = (payload) => client.post('/admin/rewards/gifts', payload)
+export const deleteAdminGift = (code) => client.delete(`/admin/rewards/gifts/${code}`)
+
+// ─── Admin — Affiliate & Referrals ──────────────────────────────────────────
+export const getAdminAffiliate = () => client.get('/admin/affiliate')
+export const saveAdminAffiliate = (payload) => client.post('/admin/affiliate/settings', payload)
+
+// ─── Admin — Content, Security & Notifications ──────────────────────────────
+export const getAdminContentSecurity = () => client.get('/admin/content-security')
+export const saveAdminContentSecurity = (payload) => client.post('/admin/content-security', payload)
+
 export default client
 
