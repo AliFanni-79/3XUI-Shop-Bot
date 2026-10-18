@@ -27,7 +27,7 @@ main.py
   └── Uvicorn Daemon Thread (FastAPI REST API + static Vue 3 Mini App on port 8080)
 ```
 
-The application package is located in `speedybot/` and the compiled single-page frontend is served from `webapp/dist/`.
+The application package is located in `xuishop/` and the compiled single-page frontend is served from `webapp/dist/`.
 
 ---
 
@@ -808,7 +808,7 @@ cd /root/SpeedyBot
 1. Re-executes itself from `/tmp` so it can safely replace its own file.
 2. Resolves the current GitHub branch commit.
 3. Clones the complete repository into a temporary directory.
-4. Validates `main.py`, every `speedybot/*.py`, `install.sh` and `update.sh`.
+4. Validates `main.py`, every `xuishop/*.py`, `install.sh` and `update.sh`.
 5. Installs dependencies before downtime.
 6. Stops the systemd service.
 7. Creates a complete rollback copy of the deployed application.
@@ -888,7 +888,7 @@ For real production, periodically copy backups to another machine/storage provid
 ```text
 SpeedyBot/
 ├── main.py                    # Unified production entrypoint (TeleBot + FastAPI daemon)
-├── speedybot/                 # Core application backend package
+├── xuishop/                 # Core application backend package
 │   ├── __init__.py            # Package init & version declaration
 │   ├── core.py                # Sales and provisioning business core
 │   ├── api.py                 # FastAPI REST API endpoints for Mini App & webhooks

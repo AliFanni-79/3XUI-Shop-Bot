@@ -1,4 +1,4 @@
-name: SpeedyBot CI
+name: X-UI Shop Bot CI
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Python syntax
-        run: python -m py_compile main.py restore.py speedybot/*.py
+        run: python -m py_compile main.py restore.py xuishop/*.py
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Shell syntax
@@ -31,15 +31,15 @@ jobs:
       - name: Integrated layout
         run: |
           test -f main.py
-          test -f speedybot/core.py
-          test -f speedybot/admin_tools.py
-          test -f speedybot/admin_ux.py
+          test -f xuishop/core.py
+          test -f xuishop/admin_tools.py
+          test -f xuishop/admin_ux.py
           test ! -e app.py
           test ! -e speedybot_v4
       - name: Version file
         run: |
           test -f VERSION.txt
-          python -c 'import speedybot; assert speedybot.VERSION == open("VERSION.txt").read().strip()'
+          python -c 'import xuishop; assert xuishop.VERSION == open("VERSION.txt").read().strip()'
 
   prerelease:
     name: Auto Pre-release

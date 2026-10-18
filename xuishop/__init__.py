@@ -1,4 +1,4 @@
-"""SpeedyBot application package."""
+"""X-UI Shop Bot application package."""
 
 VERSION = "26.1.0"
 

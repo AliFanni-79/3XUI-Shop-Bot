@@ -33,7 +33,7 @@ def check_once():
     try:
         response = C.CORE.requests.get(
             VERSION_URL,
-            headers={"Accept": "text/plain", "User-Agent": f"SpeedyBot/{VERSION}"},
+            headers={"Accept": "text/plain", "User-Agent": f"XUIShopBot/{VERSION}"},
             timeout=10,
         )
         if response.status_code != 200:

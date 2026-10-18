@@ -100,7 +100,7 @@ setup_cf_quick_tunnel(){
   info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
-Description=SpeedyBot Cloudflare Tunnel (No Nginx)
+Description=X-UI Shop Bot Cloudflare Tunnel (No Nginx)
 After=network-online.target xui-bot.service
 Wants=network-online.target
 
@@ -185,7 +185,7 @@ EOF
 [[ "$EUID" -eq 0 ]] || fail "Run install.sh as root."
 command -v apt-get >/dev/null 2>&1 || fail "apt-get was not found. Ubuntu/Debian is required."
 [[ -f "$SOURCE_DIR/main.py" ]] || fail "main.py is missing next to install.sh."
-[[ -d "$SOURCE_DIR/speedybot" ]] || fail "speedybot application package is missing."
+[[ -d "$SOURCE_DIR/xuishop" ]] || fail "xuishop application package is missing."
 
 printf '\n============================================================\n VizzPN Shop Bot Installer\n Telegram Mini App + 3x-ui / Sanaei Automation\n============================================================\n\n'
 
@@ -416,7 +416,7 @@ if [[ -f requirements.txt ]]; then
 else
   ./.venv/bin/python -m pip install pyTelegramBotAPI requests 'qrcode[pil]' fastapi uvicorn python-multipart
 fi
-./.venv/bin/python -m py_compile main.py speedybot/*.py
+./.venv/bin/python -m py_compile main.py xuishop/*.py
 bash -n install.sh
 [[ ! -f update.sh ]] || bash -n update.sh
 [[ ! -f upgrade.sh ]] || bash -n upgrade.sh
@@ -480,7 +480,7 @@ import os
 import sqlite3
 
 try:
-    from speedybot import storage, db
+    from xuishop import storage, db
     storage.init_db()
 
     conn = db.get_connection(timeout=15)
@@ -570,7 +570,7 @@ if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
     TARGET_URL="$WEBAPP_URL" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
 import os
 try:
-    from speedybot import db
+    from xuishop import db
     conn = db.get_connection(timeout=15)
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')

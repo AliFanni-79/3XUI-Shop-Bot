@@ -71,7 +71,7 @@ except ImportError:
     sys.modules["requests.exceptions"] = mock_requests.exceptions
 
 os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
-from speedybot import env_manager, core
+from xuishop import env_manager, core
 
 
 class FakeMessage:
@@ -278,12 +278,12 @@ class XuiAndCardTests(unittest.TestCase):
         con.close()
 
         assigned_groups = []
-        with patch("speedybot.core._selected_inbound_ids_for", return_value=[1]):
-            with patch("speedybot.core._get_client_data", return_value={"id": 1, "email": "test_user_email"}):
-                with patch("speedybot.core._sync_client_inbounds"):
-                    with patch("speedybot.core._xui_assign_group", side_effect=lambda email, group: assigned_groups.append((email, group))):
-                        with patch("speedybot.core._get_client_subscription_id", return_value="sub_123"):
-                            with patch("speedybot.core._get_delivery_links", return_value=["vless://123"]):
+        with patch("xuishop.core._selected_inbound_ids_for", return_value=[1]):
+            with patch("xuishop.core._get_client_data", return_value={"id": 1, "email": "test_user_email"}):
+                with patch("xuishop.core._sync_client_inbounds"):
+                    with patch("xuishop.core._xui_assign_group", side_effect=lambda email, group: assigned_groups.append((email, group))):
+                        with patch("xuishop.core._get_client_subscription_id", return_value="sub_123"):
+                            with patch("xuishop.core._get_delivery_links", return_value=["vless://123"]):
                                 sub_id, links = core.provision_xui_service(123456789, 1, 99, "test_user_email")
                                 self.assertEqual(sub_id, "sub_123")
                                 self.assertEqual(links, ["vless://123"])

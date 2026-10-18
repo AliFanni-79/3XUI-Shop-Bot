@@ -15,7 +15,7 @@ from datetime import datetime
 from html import escape
 from typing import Optional
 
-logger = logging.getLogger("speedybot.core")
+logger = logging.getLogger("xuishop.core")
 
 try:
     import qrcode

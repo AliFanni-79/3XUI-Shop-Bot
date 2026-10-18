@@ -1,9 +1,9 @@
 import unittest
 from types import SimpleNamespace
 
-from speedybot import admin_ux
-from speedybot.admin_ux import ContinueHandling
-from speedybot import context as C
+from xuishop import admin_ux
+from xuishop.admin_ux import ContinueHandling
+from xuishop import context as C
 
 
 class FakeBot:

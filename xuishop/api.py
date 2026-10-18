@@ -1,4 +1,4 @@
-"""FastAPI application — SpeedyBot Mini App REST layer.
+"""FastAPI application — X-UI Shop Bot Mini App REST layer.
 
 Endpoints:
   GET  /api/auth/me                  → validate initData, return profile + is_admin
@@ -40,7 +40,7 @@ from pydantic import BaseModel
 
 from . import VERSION, core, ops, db
 
-logger = logging.getLogger("speedybot.api")
+logger = logging.getLogger("xuishop.api")
 
 # ---------------------------------------------------------------------------
 # App instance

@@ -1,11 +1,11 @@
 ---
 name: Bug report
-about: Report a reproducible SpeedyBot problem
+about: Report a reproducible X-UI Shop Bot problem
 title: "[Bug] "
 labels: bug
 ---
 
-## SpeedyBot version
+## X-UI Shop Bot version
 
 ## 3x-ui version
 

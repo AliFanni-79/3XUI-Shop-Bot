@@ -27,7 +27,7 @@ def _migrate_db_files(directory: str, legacy_name: str = "speedping.db", target_
 def get_db_path() -> str:
     """Return canonical database path (app.db), automatically migrating legacy speedping.db."""
     # 1. Environment variable override
-    env_db = os.environ.get("DATABASE_PATH") or os.environ.get("SPEEDYBOT_DB_PATH")
+    env_db = os.environ.get("DATABASE_PATH") or os.environ.get("XUISHOP_DB_PATH") or os.environ.get("SPEEDYBOT_DB_PATH")
     if env_db:
         return os.path.abspath(env_db)
 
@@ -47,8 +47,8 @@ def get_db_path() -> str:
     if os.path.exists(speedping_in_root):
         return _migrate_db_files(project_root, "speedping.db", "app.db")
 
-    # 4. Check SPEEDYBOT_APP_DIR if configured
-    configured_app_dir = os.environ.get("SPEEDYBOT_APP_DIR")
+    # 4. Check XUISHOP_APP_DIR or legacy SPEEDYBOT_APP_DIR if configured
+    configured_app_dir = os.environ.get("XUISHOP_APP_DIR") or os.environ.get("SPEEDYBOT_APP_DIR")
     if configured_app_dir and os.path.isdir(configured_app_dir):
         app_db_in_cfg = os.path.join(configured_app_dir, "app.db")
         speedping_in_cfg = os.path.join(configured_app_dir, "speedping.db")

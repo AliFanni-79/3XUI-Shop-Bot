@@ -1,4 +1,4 @@
-"""Unit tests for SpeedyBot backup and restore management."""
+"""Unit tests for X-UI Shop Bot backup and restore management."""
 
 import os
 from pathlib import Path
@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from speedybot import backup_manager
+from xuishop import backup_manager
 
 
 class BackupManagerTests(unittest.TestCase):

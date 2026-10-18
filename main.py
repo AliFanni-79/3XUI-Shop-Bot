@@ -1,7 +1,7 @@
 """VizzPN Shop Bot production entrypoint.
 
 VizzPN Shop Bot is a single integrated application. The business core and the
-Control Center live in the ``speedybot`` package; this file is the canonical
+Control Center live in the ``xuishop`` package; this file is the canonical
 runtime entrypoint used by systemd, manual runs, installation and updates.
 
 Architecture (Phase 2+):
@@ -11,15 +11,15 @@ Architecture (Phase 2+):
 import os
 import threading
 
-from speedybot import core
-import speedybot
+from xuishop import core
+import xuishop
 
 
 def _start_api_server():
     """Start the FastAPI / Uvicorn server in a daemon thread."""
     try:
         import uvicorn
-        from speedybot.api import app  # noqa: PLC0415
+        from xuishop.api import app  # noqa: PLC0415
 
         port = int(os.getenv("WEBAPP_PORT", "8080"))
         host = os.getenv("WEBAPP_HOST", "0.0.0.0")
@@ -48,14 +48,14 @@ def run():
         print("=" * 60 + "\n")
         return
 
-    speedybot.install(core)
-    print(f"VizzPN Shop Bot {speedybot.VERSION} is running...")
+    xuishop.install(core)
+    print(f"VizzPN Shop Bot {xuishop.VERSION} is running...")
     core.bot.remove_webhook()
     core.recover_processing_transactions()
     core.reconcile_missing_referral_commissions()
     core.start_startup_panel_reconcile()
     core.start_service_monitor()
-    speedybot.start_background()
+    xuishop.start_background()
 
     # Start FastAPI in a background thread (daemon=False keeps process alive)
     api_thread = threading.Thread(target=_start_api_server, name="uvicorn", daemon=True)

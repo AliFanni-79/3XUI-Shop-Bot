@@ -10,13 +10,13 @@ os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
 
 from fastapi.testclient import TestClient
 
-from speedybot.api import app
+from xuishop.api import app
 
 
 class TestAdminEndpointsAndStars(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from speedybot import core, storage
+        from xuishop import core, storage
         core.init_db()
         storage.init_db()
         cls.client = TestClient(app)
@@ -37,8 +37,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
         return urlencode(data)
 
     def test_admin_server_status(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 response = self.client.get("/api/admin/server-status", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(response.status_code, 200)
@@ -49,8 +49,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIn("xui", data)
 
     def test_admin_builder_defaults(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # GET
                 get_res = self.client.get("/api/admin/builder/defaults", headers={"X-Telegram-Init-Data": init_data})
@@ -84,8 +84,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     )
 
     def test_admin_payments_settings(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 get_res = self.client.get("/api/admin/payments", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(get_res.status_code, 200)
@@ -108,8 +108,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIn(post_res.json()["status"], ["ok", "saved"])
 
     def test_admin_plans_crud(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
 
                 # Create plan
@@ -145,8 +145,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(del_res.status_code, 200)
 
     def test_admin_users_and_balance(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Get users
                 res = self.client.get("/api/admin/users", headers={"X-Telegram-Init-Data": init_data})
@@ -163,8 +163,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(adj_res.status_code, 200)
 
     def test_admin_blacklist(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Add to blacklist
                 add_res = self.client.post(
@@ -188,8 +188,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(rem_res.status_code, 200)
 
     def test_admin_admins_management(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Add admin
                 add_res = self.client.post(
@@ -213,8 +213,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(rem_res.status_code, 200)
 
     def test_admin_backups(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Create backup
                 create_res = self.client.post("/api/admin/backups/create", headers={"X-Telegram-Init-Data": init_data})
@@ -227,8 +227,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIsInstance(list_res.json()["backups"], list)
 
     def test_admin_ops_mode(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 post_res = self.client.post(
                     "/api/admin/ops/mode",
@@ -249,9 +249,9 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 )
 
     def test_init_stars_order(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
             init_data = self._generate_valid_init_data({"id": 888777, "first_name": "Reza"})
-            with patch("speedybot.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
                 payload = {
                     "custom_spec": {
                         "months": 1,
@@ -265,8 +265,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(data.get("invoice_link"), "https://t.me/$invoice_test_link")
                 mock_invoice.assert_called_once()
     def test_admin_plans_group_name(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Create with group_name
                 create_res = self.client.post(
@@ -309,27 +309,27 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.client.delete(f"/api/admin/plans/{plan_id}", headers={"X-Telegram-Init-Data": init_data})
 
     def test_admin_xui_endpoints(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
-                with patch("speedybot.core._xui_list_groups", return_value=[{"id": 1, "name": "Customers"}, {"id": 2, "name": "Trial"}]):
+                with patch("xuishop.core._xui_list_groups", return_value=[{"id": 1, "name": "Customers"}, {"id": 2, "name": "Trial"}]):
                     res = self.client.get("/api/admin/xui/groups", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertEqual(res.json()["total"], 2)
 
-                with patch("speedybot.core.reconcile_service_groups", return_value={"updated": 5, "errors": []}):
+                with patch("xuishop.core.reconcile_service_groups", return_value={"updated": 5, "errors": []}):
                     res = self.client.post("/api/admin/xui/groups/reconcile", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertEqual(res.json()["status"], "success")
 
-                with patch("speedybot.core._run_xui_diagnostic", return_value="✅ Inbounds: OK"):
+                with patch("xuishop.core._run_xui_diagnostic", return_value="✅ Inbounds: OK"):
                     res = self.client.get("/api/admin/xui/test", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertIn("Inbounds", res.json()["result"])
 
     def test_admin_rewards_endpoints(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Cashback
                 cb_res = self.client.post("/api/admin/rewards/cashback", json={"percent": 5.5}, headers={"X-Telegram-Init-Data": init_data})
@@ -372,8 +372,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(del_g.status_code, 200)
 
     def test_admin_affiliate_and_content_security(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Affiliate GET & POST
                 aff_get = self.client.get("/api/admin/affiliate", headers={"X-Telegram-Init-Data": init_data})
@@ -401,8 +401,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
 
 
     def test_admin_version_and_stats(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Version endpoint
                 ver_res = self.client.get("/api/admin/version")
@@ -416,8 +416,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIn("brand_name", stats_res.json())
 
     def test_admin_trial_features(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # GET trial settings
                 settings_res = self.client.get("/api/admin/trial/settings", headers={"X-Telegram-Init-Data": init_data})
@@ -471,8 +471,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(del_ov.status_code, 200)
 
     def test_admin_categories_and_volume_packs(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Categories CRUD
                 c_create = self.client.post(
@@ -517,8 +517,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(vp_del.status_code, 200)
 
     def test_admin_crm_and_guides_and_audit(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # CRM
                 crm_get = self.client.get("/api/admin/crm", headers={"X-Telegram-Init-Data": init_data})
@@ -563,13 +563,13 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(audit_post.status_code, 200)
 
                 # Notifications check now
-                with patch("speedybot.core.check_service_notifications", return_value={"enabled": True, "tracked": 5, "sent": 0}):
+                with patch("xuishop.core.check_service_notifications", return_value={"enabled": True, "tracked": 5, "sent": 0}):
                     notif_res = self.client.post("/api/admin/notifications/check-now", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(notif_res.status_code, 200)
 
     def test_admin_user_detail(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 res = self.client.get("/api/admin/users/111222", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(res.status_code, 200)
@@ -580,10 +580,10 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(data["user"]["id"], 111222)
 
     def test_customer_menu_toggles_and_keyboard(self):
-        from speedybot import ui, context as C, core
+        from xuishop import ui, context as C, core
         C.configure(core)
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Get branding
                 b_get = self.client.get("/api/admin/branding", headers={"X-Telegram-Init-Data": init_data})
@@ -634,8 +634,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 )
 
     def test_guide_media_endpoint_and_urls(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # 1. External URL guide
                 create_ext = self.client.post(
@@ -674,7 +674,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 class MockFile:
                     file_path = "videos/guide_video.mp4"
 
-                from speedybot import core
+                from xuishop import core
                 with patch.object(core.bot, "get_file", return_value=MockFile()):
                     with patch.object(core.bot, "download_file", return_value=b"\x00\x00\x00\x18ftypmp42"):
                         media_res = self.client.get(f"/api/guides/{tg_id}/media")
@@ -705,11 +705,11 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     self.assertIn("نام نرم‌افزار", mock_send.call_args[0][1])
 
     def test_admin_broadcast(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
-                with patch("speedybot.storage.audiences", return_value=[12345, 67890]):
-                    with patch("speedybot.core.bot.send_message"):
+                with patch("xuishop.storage.audiences", return_value=[12345, 67890]):
+                    with patch("xuishop.core.bot.send_message"):
                         res = self.client.post(
                             "/api/admin/broadcast",
                             json={"audience": "all", "message": "Test Announcement"},
@@ -721,7 +721,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                         self.assertEqual(data.get("total"), 2)
 
     def test_calc_discount_and_stars_checkout(self):
-        from speedybot.api import _calc_discount
+        from xuishop.api import _calc_discount
         import sqlite3
         conn = sqlite3.connect("app.db")
         conn.execute(
@@ -734,9 +734,9 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
         disc = _calc_discount("TEST50", 100000, 888777)
         self.assertEqual(disc, 50000)
 
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
             init_data = self._generate_valid_init_data({"id": 888777, "first_name": "Reza"})
-            with patch("speedybot.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
                 payload = {
                     "custom_spec": {
                         "months": 1,
@@ -751,7 +751,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
 
     def test_core_logger_and_plan_alias(self):
         import logging
-        from speedybot import core
+        from xuishop import core
         self.assertTrue(hasattr(core, "logger"))
         self.assertIsInstance(core.logger, logging.Logger)
         self.assertTrue(hasattr(core, "get_plan_by_id"))

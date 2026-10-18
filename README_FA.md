@@ -27,7 +27,7 @@ main.py
   └── Uvicorn Daemon Thread (سرویس REST API فست‌اِی‌پی‌آی + وب‌اپ کامپایل‌شده روی پورت 8080)
 ```
 
-کدهای بک‌اند در پوشه `speedybot/` و وب‌اپلیکیشن در مسیر `webapp/dist/` نگهداری و بارگذاری می‌شوند.
+کدهای بک‌اند در پوشه `xuishop/` و وب‌اپلیکیشن در مسیر `webapp/dist/` نگهداری و بارگذاری می‌شوند.
 
 ---
 
@@ -807,7 +807,7 @@ cd /root/SpeedyBot
 1. خودش را از `/tmp` دوباره اجرا می‌کند تا هنگام Replace شدن `update.sh` قطع نشود.
 2. Commit فعلی `main` در GitHub را پیدا می‌کند.
 3. کل Repository را داخل `/tmp` Clone می‌کند.
-4. `main.py`، تمام `speedybot/*.py`، `install.sh` و `update.sh` را Validate می‌کند.
+4. `main.py`، تمام `xuishop/*.py`، `install.sh` و `update.sh` را Validate می‌کند.
 5. Dependencyها را قبل از Downtime نصب می‌کند.
 6. systemd را Stop می‌کند.
 7. از کل Source فعلی یک Rollback Backup می‌گیرد.
@@ -888,7 +888,7 @@ Runtime حیاتی:
 ```text
 SpeedyBot/
 ├── main.py                    # نقطه ورود اصلی اجرا (TeleBot + سرویس پس‌زمینه FastAPI)
-├── speedybot/                 # پکیج کدهای هسته و سرور بک‌اند
+├── xuishop/                 # پکیج کدهای هسته و سرور بک‌اند
 │   ├── __init__.py            # تعریف پکیج و شماره نسخه برنامه
 │   ├── core.py                # هسته پردازش منطق کسب‌وکار، فروش و ساخت اکانت
 │   ├── api.py                 # مسیرهای وب API برای مینی‌اپ و وبهوک‌ها

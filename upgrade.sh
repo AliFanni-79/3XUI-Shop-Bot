@@ -136,7 +136,7 @@ setup_cf_quick_tunnel(){
   info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
-Description=SpeedyBot Cloudflare Tunnel (No Nginx)
+Description=X-UI Shop Bot Cloudflare Tunnel (No Nginx)
 After=network-online.target xui-bot.service
 Wants=network-online.target
 
@@ -292,7 +292,7 @@ configure_mini_app_exposure(){
       TARGET_URL="$new_url" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
 import os
 try:
-    from speedybot import db
+    from xuishop import db
     conn = db.get_connection(timeout=15)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -344,7 +344,7 @@ done
 # If SOURCE_DIR not provided via environment, determine or clone it
 if [[ -z "$SOURCE_DIR" || ! -d "$SOURCE_DIR" ]]; then
   LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -f "$LOCAL_DIR/main.py" && -d "$LOCAL_DIR/speedybot" && "$LOCAL_DIR" != "$APP_DIR" ]]; then
+  if [[ -f "$LOCAL_DIR/main.py" && -d "$LOCAL_DIR/xuishop" && "$LOCAL_DIR" != "$APP_DIR" ]]; then
     SOURCE_DIR="$LOCAL_DIR"
   else
     info "Source directory not specified; pulling latest from GitHub..."
@@ -384,10 +384,10 @@ if [[ "$FORCE" -ne 1 && -f "$APP_DIR/VERSION.txt" && -f "$SOURCE_DIR/VERSION.txt
 fi
 
 [[ -f "$SOURCE_DIR/main.py" ]] || fail "main.py is missing from target repository."
-[[ -d "$SOURCE_DIR/speedybot" ]] || fail "speedybot application package is missing from target repository."
+[[ -d "$SOURCE_DIR/xuishop" ]] || fail "xuishop application package is missing from target repository."
 
 info "Validating source code before service downtime..."
-python3 -m py_compile "$SOURCE_DIR/main.py" "$SOURCE_DIR"/speedybot/*.py || fail "Python syntax validation failed."
+python3 -m py_compile "$SOURCE_DIR/main.py" "$SOURCE_DIR"/xuishop/*.py || fail "Python syntax validation failed."
 bash -n "$SOURCE_DIR/update.sh" 2>/dev/null || fail "update.sh syntax validation failed."
 bash -n "$SOURCE_DIR/upgrade.sh" 2>/dev/null || fail "upgrade.sh syntax validation failed."
 [[ ! -f "$SOURCE_DIR/install.sh" ]] || bash -n "$SOURCE_DIR/install.sh" || fail "install.sh syntax validation failed."
@@ -474,10 +474,10 @@ printf '%s\n' "$CLONED_COMMIT" > "$CURRENT_COMMIT_FILE"
 write_runner
 
 info "Running database schema migrations..."
-"$APP_DIR/.venv/bin/python3" -c "from speedybot import storage, db; storage.init_db()" || rollback
+"$APP_DIR/.venv/bin/python3" -c "from xuishop import storage, db; storage.init_db()" || rollback
 
 info "Validating deployed application..."
-"$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/speedybot/*.py || rollback
+"$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/xuishop/*.py || rollback
 bash -n "$APP_DIR/update.sh" || rollback
 bash -n "$APP_DIR/upgrade.sh" || rollback
 [[ ! -f "$APP_DIR/install.sh" ]] || bash -n "$APP_DIR/install.sh" || rollback
