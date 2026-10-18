@@ -408,6 +408,7 @@ class AdminRejectClaimRequest(BaseModel):
 
 class AdminGuideCreateRequest(BaseModel):
     platform: str
+    app_name: Optional[str] = None
     media_type: str = "TEXT"
     body: str
     sort_order: Optional[int] = None
@@ -1041,7 +1042,7 @@ async def get_referral(user: Dict[str, Any] = Depends(get_current_user)):
 async def get_guides(_user: Dict[str, Any] = Depends(get_current_user)):
     conn = _db()
     rows = conn.execute(
-        "SELECT id, platform, media_type, body, file_id, sort_order FROM guide_items WHERE active = 1 ORDER BY sort_order, id"
+        "SELECT id, platform, media_type, body, file_id, sort_order, app_name FROM guide_items WHERE active = 1 ORDER BY sort_order, id"
     ).fetchall()
     conn.close()
     return {
@@ -1049,6 +1050,7 @@ async def get_guides(_user: Dict[str, Any] = Depends(get_current_user)):
             {
                 "id": r["id"],
                 "platform": r["platform"],
+                "app_name": r["app_name"] or "",
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
                 "file_id": r["file_id"],
@@ -3578,7 +3580,7 @@ async def admin_reject_claim(claim_id: int, body: AdminRejectClaimRequest, admin
 @app.get("/api/admin/guides")
 async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    rows = conn.execute("SELECT id, platform, media_type, body, file_id, sort_order, active FROM guide_items ORDER BY platform, sort_order, id").fetchall()
+    rows = conn.execute("SELECT id, platform, media_type, body, file_id, sort_order, active, app_name FROM guide_items ORDER BY platform, sort_order, id").fetchall()
     conn.close()
     return {
         "enabled": core.connection_guides_enabled(),
@@ -3586,6 +3588,7 @@ async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
             {
                 "id": r["id"],
                 "platform": (r["platform"] or "").lower(),
+                "app_name": r["app_name"] or "",
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
                 "media_file_id": r["file_id"] or "",
@@ -3609,6 +3612,7 @@ async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, An
     if not body.body.strip():
         raise HTTPException(status_code=400, detail="متن یا لینک راهنما نمی‌تواند خالی باشد.")
 
+    app_name = (body.app_name or "").strip() or None
     conn = _db()
     order = body.sort_order
     if order is None:
@@ -3618,8 +3622,8 @@ async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, An
     file_id = body.media_file_id.strip() if body.media_file_id else None
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-        (platform, media_type, body.body.strip(), file_id, order, now),
+        "INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at, app_name) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+        (platform, media_type, body.body.strip(), file_id, order, now, app_name),
     )
     item_id = cur.lastrowid
     conn.commit()
@@ -3630,6 +3634,7 @@ async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, An
 @app.post("/api/admin/guides/prompt-bot")
 async def admin_guides_prompt_bot(
     platform: str = Query(..., description="Platform identifier"),
+    app_name: Optional[str] = Query(None, description="App name identifier"),
     _admin: Dict[str, Any] = Depends(get_admin_user),
 ):
     plat = platform.lower().strip()
@@ -3640,13 +3645,9 @@ async def admin_guides_prompt_bot(
         raise HTTPException(status_code=400, detail="شناسه ادمین نامشخص است.")
 
     plat_title = core.GUIDE_PLATFORMS.get(plat, plat)
-    text = (
-        f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title}**\n\n"
-        f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
-        f"(برای انصراف عبارت /cancel را ارسال کنید)"
-    )
+    chosen_app = (app_name or "").strip()
 
-    def _capture_guide_message(msg):
+    def _save_guide(msg, app_val):
         if not core.is_admin(msg.from_user.id):
             return
         raw_text = (msg.text or '').strip()
@@ -3672,17 +3673,56 @@ async def admin_guides_prompt_bot(
         conn = core._db_connect()
         order = int(conn.execute('SELECT COALESCE(MAX(sort_order),0)+10 n FROM guide_items WHERE LOWER(platform)=?', (plat,)).fetchone()['n'])
         cur = conn.execute(
-            'INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)',
-            (plat, mtype, body, file_id, order, int(time.time()))
+            'INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at, app_name) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+            (plat, mtype, body, file_id, order, int(time.time()), app_val or None)
         )
         conn.commit()
         iid = cur.lastrowid
         conn.close()
-        core._admin_reply(msg, f"✅ مطلب راهنمای `#{iid}` با موفقیت برای **{plat_title}** ذخیره شد و در پنل وب و ربات فعال گردید.", parse_mode="Markdown")
+        app_tag = f" (برنامه {app_val})" if app_val else ""
+        core._admin_reply(msg, f"✅ آموزش راهنمای `#{iid}` با موفقیت برای **{plat_title}**{app_tag} ذخیره شد و در پنل وب و ربات فعال گردید.", parse_mode="Markdown")
+
+    def _ask_guide_content(msg, app_val):
+        if not core.is_admin(msg.from_user.id):
+            return
+        content_prompt = (
+            f"📲 **راهنمای اتصال برای {plat_title} (نرم‌افزار {app_val})**\n\n"
+            f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
+            f"(برای انصراف عبارت /cancel را ارسال کنید)"
+        )
+        sent = core.bot.send_message(admin_id, content_prompt, parse_mode="Markdown")
+        core.bot.register_next_step_handler(sent, lambda m: _save_guide(m, app_val))
+
+    def _capture_app_name(msg):
+        if not core.is_admin(msg.from_user.id):
+            return
+        raw_text = (msg.text or '').strip()
+        if raw_text in ['/cancel', 'انصراف', 'لغو']:
+            core._admin_reply(msg, "عملیات افزودن راهنما لغو شد.")
+            return
+        if not raw_text:
+            core._admin_reply(msg, "❌ لطفاً نام نرم‌افزار را به صورت متنی ارسال فرمایید:")
+            core.bot.register_next_step_handler(msg, _capture_app_name)
+            return
+        _ask_guide_content(msg, raw_text)
 
     try:
-        sent_msg = core.bot.send_message(admin_id, text, parse_mode="Markdown")
-        core.bot.register_next_step_handler(sent_msg, _capture_guide_message)
+        if chosen_app:
+            prompt_txt = (
+                f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title} (نرم‌افزار {chosen_app})**\n\n"
+                f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
+                f"(برای انصراف عبارت /cancel را ارسال کنید)"
+            )
+            sent_msg = core.bot.send_message(admin_id, prompt_txt, parse_mode="Markdown")
+            core.bot.register_next_step_handler(sent_msg, lambda m: _save_guide(m, chosen_app))
+        else:
+            step1_txt = (
+                f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title}**\n\n"
+                f"لطفاً نام نرم‌افزار / برنامه را ارسال فرمایید (مثلاً: V2RayNG یا Streisand یا Hiddify):\n"
+                f"(برای انصراف عبارت /cancel را ارسال کنید)"
+            )
+            sent_msg = core.bot.send_message(admin_id, step1_txt, parse_mode="Markdown")
+            core.bot.register_next_step_handler(sent_msg, _capture_app_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"امکان ارسال پیام به تلگرام مدیر وجود ندارد: {str(e)[:150]}")
 

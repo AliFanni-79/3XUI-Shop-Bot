@@ -218,8 +218,8 @@ export const getAdminGuides = () => client.get('/admin/guides')
 export const createAdminGuide = (payload) => client.post('/admin/guides', payload)
 export const deleteAdminGuide = (id) => client.delete(`/admin/guides/${id}`)
 export const toggleAdminGuides = () => client.post('/admin/guides/toggle')
-export const promptAdminGuideBot = (platform) =>
-  client.post('/admin/guides/prompt-bot', null, { params: { platform } })
+export const promptAdminGuideBot = (platform, app_name = null) =>
+  client.post('/admin/guides/prompt-bot', null, { params: { platform, app_name: app_name || undefined } })
 
 // ─── Admin — Audit Log ───────────────────────────────────────────────────────
 export const getAdminAudit = (limit = 50) => client.get('/admin/audit', { params: { limit } })

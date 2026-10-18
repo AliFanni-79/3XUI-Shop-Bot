@@ -285,8 +285,18 @@ def init_db():
         file_id TEXT,
         active INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 100,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        app_name TEXT
     )''')
+    try:
+        cursor.execute("ALTER TABLE guide_items ADD COLUMN app_name TEXT")
+    except Exception:
+        pass
+    cursor.execute("UPDATE guide_items SET app_name = 'V2RayNG' WHERE LOWER(platform) = 'android' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'Streisand' WHERE LOWER(platform) = 'ios' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'v2rayN' WHERE LOWER(platform) = 'windows' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'V2rayU' WHERE LOWER(platform) IN ('macos', 'mac') AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'v2rayA' WHERE LOWER(platform) = 'linux' AND (app_name IS NULL OR app_name = '')")
     cursor.execute('UPDATE guide_items SET platform = LOWER(platform) WHERE platform != LOWER(platform)')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_acquisition (
         user_id INTEGER PRIMARY KEY,
@@ -1299,12 +1309,27 @@ def _send_platform_guide(chat_id, platform):
         bot.send_message(chat_id, f'📲 برای **{GUIDE_PLATFORMS[platform_key]}** هنوز راهنمایی ثبت نشده است. با پشتیبانی تماس بگیرید.', parse_mode='Markdown'); return
     bot.send_message(chat_id, f'📲 **راهنمای اتصال {GUIDE_PLATFORMS[platform_key]}**', parse_mode='Markdown')
     for row in rows:
+        app_name = row['app_name'] if ('app_name' in row.keys() and row['app_name']) else None
+        app_prefix = f"🔹 **نرم‌افزار {app_name}**\n\n" if app_name else ""
+        text_body = app_prefix + (row['body'] or '-')
+        cap = (app_prefix + row['body']) if row['body'] else (f"🔹 **نرم‌افزار {app_name}**" if app_name else None)
         try:
-            if row['media_type'] == 'TEXT': bot.send_message(chat_id, row['body'] or '-', parse_mode='Markdown')
-            elif row['media_type'] == 'PHOTO': bot.send_photo(chat_id, row['file_id'], caption=row['body'] or None)
-            elif row['media_type'] == 'VIDEO': bot.send_video(chat_id, row['file_id'], caption=row['body'] or None)
+            if row['media_type'] == 'TEXT':
+                bot.send_message(chat_id, text_body, parse_mode='Markdown')
+            elif row['media_type'] == 'PHOTO':
+                bot.send_photo(chat_id, row['file_id'], caption=cap, parse_mode='Markdown')
+            elif row['media_type'] == 'VIDEO':
+                bot.send_video(chat_id, row['file_id'], caption=cap, parse_mode='Markdown')
         except Exception:
-            continue
+            try:
+                if row['media_type'] == 'TEXT':
+                    bot.send_message(chat_id, text_body)
+                elif row['media_type'] == 'PHOTO':
+                    bot.send_photo(chat_id, row['file_id'], caption=cap)
+                elif row['media_type'] == 'VIDEO':
+                    bot.send_video(chat_id, row['file_id'], caption=cap)
+            except Exception:
+                continue
 
 
 def _send_guide_cta(user_id):

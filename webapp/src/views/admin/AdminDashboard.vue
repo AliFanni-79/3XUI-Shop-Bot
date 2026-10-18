@@ -859,8 +859,11 @@
           >
             <div class="flex justify-between items-start gap-2">
               <div class="flex-1 min-w-0 space-y-2">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-bold text-sm">{{ item.title || (item.body ? (item.body.length > 50 ? item.body.slice(0, 50) + '...' : item.body) : ('آموزش #' + item.id)) }}</span>
+                  <span v-if="item.app_name" class="text-[10px] px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
+                    برنامه: {{ item.app_name }}
+                  </span>
                   <span class="text-[9px] px-2 py-0.5 rounded-full font-mono" :class="item.media_type === 'VIDEO' ? 'bg-purple-500/20 text-purple-300' : (item.media_type === 'PHOTO' ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700/30 text-tg-hint')">
                     {{ item.media_type }}
                   </span>
@@ -2414,7 +2417,7 @@
             به جای تایپ دستی، می‌توانید درخواست را به ربات بفرستید تا مطلب کامل (شامل متن بلند، تصویر و ویدیو همراه کپشن) را مستقیماً از تلگرام به عنوان راهنما دریافت و ذخیره کند.
           </p>
           <button
-            @click="handlePromptGuideBot(guideForm.platform)"
+            @click="handlePromptGuideBot(guideForm.platform, guideForm.app_name)"
             :disabled="promptingBot"
             class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
           >
@@ -2450,6 +2453,32 @@
               </select>
             </div>
           </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-0.5">
+              <label class="block text-[10px] text-tg-hint">نام نرم‌افزار / اپلیکیشن:</label>
+              <span class="text-[9px] text-blue-400">پیشنهادها را انتخاب یا دستی بنویسید</span>
+            </div>
+            <input
+              type="text"
+              v-model="guideForm.app_name"
+              placeholder="مثلاً: V2RayNG یا Streisand یا Hiddify"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-medium"
+            />
+            <div v-if="platformSuggestedApps[guideForm.platform]" class="flex gap-1.5 flex-wrap mt-1.5">
+              <button
+                v-for="sApp in platformSuggestedApps[guideForm.platform]"
+                :key="sApp"
+                type="button"
+                @click="guideForm.app_name = sApp"
+                class="text-[10px] px-2 py-0.5 rounded-lg border transition"
+                :class="guideForm.app_name === sApp ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-500'"
+              >
+                {{ sApp }}
+              </button>
+            </div>
+          </div>
+
           <div>
             <label class="block text-[10px] text-tg-hint mb-0.5">عنوان آموزش:</label>
             <input type="text" v-model="guideForm.title" placeholder="مثلاً: راهنمای نصب نرم‌افزار v2rayNG" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
@@ -2678,8 +2707,15 @@ const guidePlatforms = [
 const filteredGuides = computed(() =>
   guidesList.value.filter(g => (g.platform || '').toLowerCase() === activeGuidePlatform.value.toLowerCase())
 )
+const platformSuggestedApps = {
+  android: ['V2RayNG', 'Hiddify', 'NekoBox', 'Clash Meta', 'Sing-box'],
+  ios: ['Streisand', 'V2Box', 'FoXray', 'Shadowrocket', 'Sing-box'],
+  windows: ['v2rayN', 'Hiddify', 'Clash Verge', 'NekoRay'],
+  macos: ['V2rayU', 'FoXray', 'Clash Verge', 'Hiddify'],
+  linux: ['v2rayA', 'NekoRay', 'Clash Verge'],
+}
 const showAddGuideModal = ref(false)
-const guideForm = ref({ platform: 'android', title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 })
+const guideForm = ref({ platform: 'android', app_name: 'V2RayNG', title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 })
 const promptingBot = ref(false)
 const telegramBotUrl = ref('')
 
@@ -3281,10 +3317,10 @@ const handleToggleGuides = async () => {
   }
 }
 
-const handlePromptGuideBot = async (platform) => {
+const handlePromptGuideBot = async (platform, appName = null) => {
   promptingBot.value = true
   try {
-    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value)
+    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value, appName || guideForm.value.app_name)
     showNotify(res.data?.message || 'دستور ثبت راهنما به چت تلگرام شما ارسال شد.')
     if (res.data?.bot_username) {
       telegramBotUrl.value = `https://t.me/${res.data.bot_username}`
@@ -3297,7 +3333,22 @@ const handlePromptGuideBot = async (platform) => {
 }
 
 const openAddGuideModal = () => {
-  guideForm.value = { platform: activeGuidePlatform.value, title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 }
+  const defaultApps = {
+    android: 'V2RayNG',
+    ios: 'Streisand',
+    windows: 'v2rayN',
+    macos: 'V2rayU',
+    linux: 'v2rayA'
+  }
+  guideForm.value = {
+    platform: activeGuidePlatform.value,
+    app_name: defaultApps[activeGuidePlatform.value] || 'V2RayNG',
+    title: '',
+    body: '',
+    media_type: 'TEXT',
+    media_file_id: '',
+    sort_order: 100
+  }
   showAddGuideModal.value = true
 }
 

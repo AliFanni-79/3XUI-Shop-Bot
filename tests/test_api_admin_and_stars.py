@@ -659,6 +659,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     "/api/admin/guides",
                     json={
                         "platform": "ios",
+                        "app_name": "Streisand",
                         "media_type": "VIDEO",
                         "body": "Video tutorial",
                         "media_file_id": "BAACAgQAAxkBAAOwatS6V5gkd6jh34UdqgZ0Jc7i8UcAAGcfAAKEkKFsAbPye1xo8no9BA",
@@ -679,12 +680,27 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                         self.assertEqual(media_res.headers.get("content-type"), "video/mp4")
                         self.assertEqual(media_res.content, b"\x00\x00\x00\x18ftypmp42")
 
-                # 3. /api/guides public list includes media_url
+                # 3. /api/guides public list includes media_url and app_name
                 guides_res = self.client.get("/api/guides", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(guides_res.status_code, 200)
                 items = guides_res.json()["guides"]
                 tg_guide = next(item for item in items if item["id"] == tg_id)
                 self.assertEqual(tg_guide["media_url"], f"/api/guides/{tg_id}/media")
+                self.assertEqual(tg_guide["app_name"], "Streisand")
+
+                # 4. Prompt bot with explicit app_name
+                with patch.object(core.bot, "send_message") as mock_send:
+                    prompt_res = self.client.post("/api/admin/guides/prompt-bot?platform=android&app_name=V2RayNG", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(prompt_res.status_code, 200)
+                    self.assertTrue(mock_send.called)
+                    self.assertIn("V2RayNG", mock_send.call_args[0][1])
+
+                # 5. Prompt bot without app_name (asks for app name first)
+                with patch.object(core.bot, "send_message") as mock_send:
+                    prompt_res2 = self.client.post("/api/admin/guides/prompt-bot?platform=android", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(prompt_res2.status_code, 200)
+                    self.assertTrue(mock_send.called)
+                    self.assertIn("نام نرم‌افزار", mock_send.call_args[0][1])
 
 
 
