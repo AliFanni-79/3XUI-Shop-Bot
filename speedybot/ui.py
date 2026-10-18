@@ -7,13 +7,30 @@ from .storage import backfill_categories
 def main_menu():
     t = C.CORE.types
     m = t.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
-    m.row(
-        C.reply("📡 سرویس‌های فعال من", "account"),
-        t.KeyboardButton("📚 راهنما و سوالات")
-    )
-    m.row(
-        C.reply("📞 پشتیبانی", "support")
-    )
+    buttons = []
+    if C.menu_visible("buy"):
+        buttons.append(C.reply("🛍 مشاهده و خرید پلان‌ها", "buy"))
+    if C.menu_visible("account"):
+        buttons.append(C.reply("📡 سرویس‌های فعال من", "account"))
+    if C.menu_visible("trial") and getattr(C.CORE, "trial_enabled", lambda: False)():
+        buttons.append(C.reply("🎁 دریافت تست رایگان", "trial"))
+    if C.menu_visible("affiliate"):
+        buttons.append(C.reply("🤝 همکاری در فروش", "affiliate"))
+    if C.menu_visible("guide"):
+        buttons.append(C.reply("📲 راهنمای اتصال", "guide"))
+    if C.menu_visible("faq"):
+        buttons.append(t.KeyboardButton("📚 راهنما و سوالات"))
+    if C.menu_visible("rewards"):
+        buttons.append(C.reply("🎟 کد هدیه / تخفیف", "rewards"))
+    if C.menu_visible("support"):
+        buttons.append(C.reply("📞 پشتیبانی", "support"))
+
+    if not buttons:
+        buttons.append(C.reply("🛍 مشاهده و خرید پلان‌ها", "buy"))
+        buttons.append(C.reply("📡 سرویس‌های فعال من", "account"))
+
+    for i in range(0, len(buttons), 2):
+        m.row(*buttons[i:i+2])
     return m
 
 

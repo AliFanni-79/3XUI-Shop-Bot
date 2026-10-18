@@ -30,7 +30,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, unquote
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -407,6 +407,7 @@ class AdminGuideCreateRequest(BaseModel):
     media_type: str = "TEXT"
     body: str
     sort_order: Optional[int] = None
+    media_file_id: Optional[str] = None
 
 
 class AdminAuditSettingsRequest(BaseModel):
@@ -1761,8 +1762,17 @@ async def save_admin_branding(
     _update_setting("brand_name", title)
 
     if body.customer_menu:
+        key_aliases = {
+            "buy_service": "buy",
+            "my_services": "account",
+            "free_test": "trial",
+            "guides": "guide",
+            "pricing": "buy",
+            "wallet": "account",
+        }
         for k, v in body.customer_menu.items():
-            _update_setting(f"menu_{k}_visible", "1" if v else "0")
+            target_key = key_aliases.get(k, k)
+            _update_setting(f"menu_{target_key}_visible", "1" if v else "0")
 
     menu_keys = ["buy", "account", "trial", "affiliate", "guide", "faq", "rewards", "support"]
     customer_menu = {k: _setting(f"menu_{k}_visible", "1") == "1" for k in menu_keys}
@@ -2193,14 +2203,47 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
         (user_id,),
     ).fetchall()
 
-    services = conn.execute(
+    tx_services = conn.execute(
         """
-        SELECT id, sub_id, plan_id, status, created_at, expires_at
-        FROM linked_services WHERE user_id = ? ORDER BY id DESC LIMIT 10
+        SELECT id, COALESCE(custom_name, service_email, sub_id, 'سرویس #' || id) AS display_name,
+               sub_id, service_email, plan_name_snapshot, status, created_at, approved_at
+        FROM transactions
+        WHERE user_id = ? AND (status = 'APPROVED' OR service_email IS NOT NULL OR sub_id IS NOT NULL)
+        ORDER BY id DESC LIMIT 15
+        """,
+        (user_id,),
+    ).fetchall()
+
+    linked_services = conn.execute(
+        """
+        SELECT id, email, linked_at, source
+        FROM linked_services
+        WHERE user_id = ?
+        ORDER BY id DESC LIMIT 15
         """,
         (user_id,),
     ).fetchall()
     conn.close()
+
+    services_list = []
+    for s in tx_services:
+        services_list.append({
+            "id": s["id"],
+            "sub_id": s["display_name"] or s["sub_id"] or s["service_email"] or f"سرویس #{s['id']}",
+            "plan_id": None,
+            "status": s["status"],
+            "created_at": s["created_at"],
+            "expires_at": None,
+        })
+    for ls in linked_services:
+        services_list.append({
+            "id": ls["id"],
+            "sub_id": ls["email"],
+            "plan_id": None,
+            "status": "LINKED",
+            "created_at": ls["linked_at"],
+            "expires_at": None,
+        })
 
     return {
         "user": {
@@ -2222,17 +2265,7 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
             }
             for t in transactions
         ],
-        "services": [
-            {
-                "id": s["id"],
-                "sub_id": s["sub_id"],
-                "plan_id": s["plan_id"],
-                "status": s["status"],
-                "created_at": s["created_at"],
-                "expires_at": s["expires_at"],
-            }
-            for s in services
-        ],
+        "services": services_list,
     }
 
 
@@ -3425,16 +3458,17 @@ async def admin_reject_claim(claim_id: int, body: AdminRejectClaimRequest, admin
 @app.get("/api/admin/guides")
 async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    rows = conn.execute("SELECT id, platform, media_type, body, sort_order, active FROM guide_items ORDER BY platform, sort_order, id").fetchall()
+    rows = conn.execute("SELECT id, platform, media_type, body, file_id, sort_order, active FROM guide_items ORDER BY platform, sort_order, id").fetchall()
     conn.close()
     return {
         "enabled": core.connection_guides_enabled(),
         "items": [
             {
                 "id": r["id"],
-                "platform": r["platform"],
+                "platform": (r["platform"] or "").lower(),
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
+                "media_file_id": r["file_id"] or "",
                 "sort_order": r["sort_order"],
                 "active": bool(r["active"]),
             }
@@ -3445,8 +3479,8 @@ async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
 
 @app.post("/api/admin/guides")
 async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
-    platform = body.platform.upper().strip()
-    if platform not in ["ANDROID", "IOS", "WINDOWS", "MACOS", "LINUX"]:
+    platform = body.platform.lower().strip()
+    if platform not in ["android", "ios", "windows", "macos", "linux", "tv"]:
         raise HTTPException(status_code=400, detail="پلتفرم نامعتبر است.")
     media_type = body.media_type.upper().strip()
     if media_type not in ["TEXT", "PHOTO", "VIDEO"]:
@@ -3457,18 +3491,92 @@ async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, An
     conn = _db()
     order = body.sort_order
     if order is None:
-        m = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 FROM guide_items WHERE platform = ?", (platform,)).fetchone()[0]
+        m = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 FROM guide_items WHERE LOWER(platform) = ?", (platform,)).fetchone()[0]
         order = int(m)
     now = int(time.time())
+    file_id = body.media_file_id.strip() if body.media_file_id else None
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO guide_items (platform, media_type, body, active, sort_order, created_at) VALUES (?, ?, ?, 1, ?, ?)",
-        (platform, media_type, body.body.strip(), order, now),
+        "INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+        (platform, media_type, body.body.strip(), file_id, order, now),
     )
     item_id = cur.lastrowid
     conn.commit()
     conn.close()
     return {"status": "created", "item_id": item_id, "message": "آیتم راهنما ایجاد شد."}
+
+
+@app.post("/api/admin/guides/prompt-bot")
+async def admin_guides_prompt_bot(
+    platform: str = Query(..., description="Platform identifier"),
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    plat = platform.lower().strip()
+    if plat not in core.GUIDE_PLATFORMS:
+        raise HTTPException(status_code=400, detail="پلتفرم نامعتبر است.")
+    admin_id = _admin.get("id")
+    if not admin_id:
+        raise HTTPException(status_code=400, detail="شناسه ادمین نامشخص است.")
+
+    plat_title = core.GUIDE_PLATFORMS.get(plat, plat)
+    text = (
+        f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title}**\n\n"
+        f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
+        f"(برای انصراف عبارت /cancel را ارسال کنید)"
+    )
+
+    def _capture_guide_message(msg):
+        if not core.is_admin(msg.from_user.id):
+            return
+        raw_text = (msg.text or '').strip()
+        if raw_text in ['/cancel', 'انصراف', 'لغو']:
+            core._admin_reply(msg, "عملیات افزودن راهنما لغو شد.")
+            return
+
+        mtype = 'TEXT'
+        file_id = None
+        body = raw_text
+        if msg.photo:
+            mtype = 'PHOTO'
+            file_id = msg.photo[-1].file_id
+            body = (msg.caption or '').strip() or None
+        elif msg.video:
+            mtype = 'VIDEO'
+            file_id = msg.video.file_id
+            body = (msg.caption or '').strip() or None
+        elif not body:
+            core._admin_reply(msg, "❌ پیام ارسالی نامعتبر است. باید متن، عکس یا ویدیو باشد.")
+            return
+
+        conn = core._db_connect()
+        order = int(conn.execute('SELECT COALESCE(MAX(sort_order),0)+10 n FROM guide_items WHERE LOWER(platform)=?', (plat,)).fetchone()['n'])
+        cur = conn.execute(
+            'INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)',
+            (plat, mtype, body, file_id, order, int(time.time()))
+        )
+        conn.commit()
+        iid = cur.lastrowid
+        conn.close()
+        core._admin_reply(msg, f"✅ مطلب راهنمای `#{iid}` با موفقیت برای **{plat_title}** ذخیره شد و در پنل وب و ربات فعال گردید.", parse_mode="Markdown")
+
+    try:
+        sent_msg = core.bot.send_message(admin_id, text, parse_mode="Markdown")
+        core.bot.register_next_step_handler(sent_msg, _capture_guide_message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"امکان ارسال پیام به تلگرام مدیر وجود ندارد: {str(e)[:150]}")
+
+    bot_username = None
+    try:
+        me = core.bot.get_me()
+        bot_username = me.username
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": f"دستور ثبت آموزش برای {plat_title} به تلگرام شما ارسال شد. لطفاً به ربات مراجعه کرده و محتوا را ارسال فرمایید.",
+        "bot_username": bot_username,
+    }
 
 
 @app.delete("/api/admin/guides/{item_id}")

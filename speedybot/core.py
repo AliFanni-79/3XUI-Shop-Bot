@@ -287,6 +287,7 @@ def init_db():
         sort_order INTEGER NOT NULL DEFAULT 100,
         created_at INTEGER NOT NULL
     )''')
+    cursor.execute('UPDATE guide_items SET platform = LOWER(platform) WHERE platform != LOWER(platform)')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_acquisition (
         user_id INTEGER PRIMARY KEY,
         source TEXT,
@@ -1290,12 +1291,13 @@ def _send_guide_menu(chat_id, text='📲 پلتفرم دستگاه خود را �
 
 
 def _send_platform_guide(chat_id, platform):
-    if platform not in GUIDE_PLATFORMS:
+    platform_key = (platform or '').lower().strip()
+    if platform_key not in GUIDE_PLATFORMS:
         bot.send_message(chat_id, '❌ پلتفرم نامعتبر است.'); return
-    conn = _db_connect(); rows = conn.execute('SELECT * FROM guide_items WHERE platform=? AND active=1 ORDER BY sort_order,id', (platform,)).fetchall(); conn.close()
+    conn = _db_connect(); rows = conn.execute('SELECT * FROM guide_items WHERE LOWER(platform)=? AND active=1 ORDER BY sort_order,id', (platform_key,)).fetchall(); conn.close()
     if not rows:
-        bot.send_message(chat_id, f'📲 برای **{GUIDE_PLATFORMS[platform]}** هنوز راهنمایی ثبت نشده است. با پشتیبانی تماس بگیرید.', parse_mode='Markdown'); return
-    bot.send_message(chat_id, f'📲 **راهنمای اتصال {GUIDE_PLATFORMS[platform]}**', parse_mode='Markdown')
+        bot.send_message(chat_id, f'📲 برای **{GUIDE_PLATFORMS[platform_key]}** هنوز راهنمایی ثبت نشده است. با پشتیبانی تماس بگیرید.', parse_mode='Markdown'); return
+    bot.send_message(chat_id, f'📲 **راهنمای اتصال {GUIDE_PLATFORMS[platform_key]}**', parse_mode='Markdown')
     for row in rows:
         try:
             if row['media_type'] == 'TEXT': bot.send_message(chat_id, row['body'] or '-', parse_mode='Markdown')
@@ -1365,13 +1367,33 @@ def _validate_custom_service_name(value):
 # --- KEYBOARDS ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("🛍 مشاهده و خرید پلان‌ها", "👤 حساب کاربری")
-    if trial_enabled():
-        markup.row("🤝 همکاری در فروش", "🎁 دریافت تست رایگان")
-    else:
-        markup.row("🤝 همکاری در فروش")
-    markup.row("📲 راهنمای اتصال", "📚 راهنما و سوالات")
-    markup.row("🎟 کد هدیه / تخفیف", "📞 پشتیبانی")
+    buttons = []
+
+    def _is_vis(key):
+        return get_db_setting(f"menu_{key}_visible", "1") == "1"
+
+    if _is_vis("buy"):
+        buttons.append("🛍 مشاهده و خرید پلان‌ها")
+    if _is_vis("account"):
+        buttons.append("👤 حساب کاربری")
+    if _is_vis("trial") and trial_enabled():
+        buttons.append("🎁 دریافت تست رایگان")
+    if _is_vis("affiliate"):
+        buttons.append("🤝 همکاری در فروش")
+    if _is_vis("guide"):
+        buttons.append("📲 راهنمای اتصال")
+    if _is_vis("faq"):
+        buttons.append("📚 راهنما و سوالات")
+    if _is_vis("rewards"):
+        buttons.append("🎟 کد هدیه / تخفیف")
+    if _is_vis("support"):
+        buttons.append("📞 پشتیبانی")
+
+    if not buttons:
+        buttons = ["🛍 مشاهده و خرید پلان‌ها", "👤 حساب کاربری"]
+
+    for i in range(0, len(buttons), 2):
+        markup.row(*buttons[i:i+2])
     return markup
 
 def back_menu():

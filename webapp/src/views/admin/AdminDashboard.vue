@@ -824,13 +824,31 @@
 
         <div class="flex justify-between items-center pt-2">
           <span class="font-bold text-tg">مطالب راهنمای پلتفرم انتخاب شده:</span>
-          <button
-            @click="openAddGuideModal"
-            class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow"
-          >
-            <span>➕</span>
-            <span>افزودن مطلب راهنما</span>
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              @click="handlePromptGuideBot(activeGuidePlatform)"
+              :disabled="promptingBot"
+              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition"
+              title="ارسال پیام به چت تلگرام مدیر تا مطلب راهنما را مستقیماً در چت ربات ارسال فرمایید"
+            >
+              <span>📲</span>
+              <span>{{ promptingBot ? 'در حال ارسال...' : 'ارسال در تلگرام' }}</span>
+            </button>
+            <button
+              @click="openAddGuideModal"
+              class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow"
+            >
+              <span>➕</span>
+              <span>افزودن در وب</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="telegramBotUrl" class="p-2.5 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between text-xs">
+          <span class="text-blue-300">دستور به تلگرام شما ارسال شد. لطفاً به چت ربات بروید و متن یا تصویر/ویدیو را ارسال کنید:</span>
+          <a :href="telegramBotUrl" target="_blank" class="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-bold text-[11px] hover:bg-blue-500">
+            باز کردن ربات در تلگرام ↗️
+          </a>
         </div>
 
         <div v-if="filteredGuides.length" class="space-y-2">
@@ -842,7 +860,7 @@
             <div class="flex justify-between items-start">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-sm">{{ item.title }}</span>
+                  <span class="font-bold text-sm">{{ item.title || (item.body ? (item.body.length > 50 ? item.body.slice(0, 50) + '...' : item.body) : ('آموزش #' + item.id)) }}</span>
                   <span class="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono">
                     {{ item.media_type }}
                   </span>
@@ -2361,6 +2379,30 @@
           <button @click="showAddGuideModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
         </div>
 
+        <div class="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-blue-300">📲 ارسال مطلب مستقیم در چت ربات تلگرام:</span>
+            <span class="text-[10px] bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded-full font-bold">پیشنهادی</span>
+          </div>
+          <p class="text-[10px] text-tg-hint leading-relaxed">
+            به جای تایپ دستی، می‌توانید درخواست را به ربات بفرستید تا مطلب کامل (شامل متن بلند، تصویر و ویدیو همراه کپشن) را مستقیماً از تلگرام به عنوان راهنما دریافت و ذخیره کند.
+          </p>
+          <button
+            @click="handlePromptGuideBot(guideForm.platform)"
+            :disabled="promptingBot"
+            class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+          >
+            <span>🚀</span>
+            <span>{{ promptingBot ? 'در حال ارسال پیام به ربات...' : 'ارسال درخواست ثبت راهنما به تلگرام من' }}</span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <div class="h-px bg-gray-700/40 flex-1"></div>
+          <span class="text-[10px] text-tg-hint">یا ثبت دستی در پنل وب:</span>
+          <div class="h-px bg-gray-700/40 flex-1"></div>
+        </div>
+
         <div class="space-y-2">
           <div class="grid grid-cols-2 gap-2">
             <div>
@@ -2495,6 +2537,7 @@ import {
   createAdminGuide,
   deleteAdminGuide,
   toggleAdminGuides,
+  promptAdminGuideBot,
   getAdminAudit,
   saveAdminAuditSettings,
   getAdminSnapshot,
@@ -2505,7 +2548,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const appVersion = computed(() => auth.appVersion || stats.value?.version || '5.4.0')
+const appVersion = computed(() => auth.appVersion || stats.value?.version || '5.4.1')
 
 // Navigation Tabs
 const activeTab = ref('orders')
@@ -2606,9 +2649,13 @@ const guidePlatforms = [
   { id: 'macos', label: 'مک', icon: '🖥' },
   { id: 'linux', label: 'لینوکس', icon: '🐧' },
 ]
-const filteredGuides = computed(() => guidesList.value.filter(g => g.platform === activeGuidePlatform.value))
+const filteredGuides = computed(() =>
+  guidesList.value.filter(g => (g.platform || '').toLowerCase() === activeGuidePlatform.value.toLowerCase())
+)
 const showAddGuideModal = ref(false)
 const guideForm = ref({ platform: 'android', title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 })
+const promptingBot = ref(false)
+const telegramBotUrl = ref('')
 
 // Audit Log
 const auditSettings = ref({ enabled: false, audit_chat_id: '' })
@@ -2625,24 +2672,24 @@ const checkingNotifications = ref(false)
 
 // Customer Menu
 const customerMenu = ref({
-  buy_service: true,
-  my_services: true,
-  free_test: true,
-  wallet: true,
-  pricing: true,
-  support: true,
-  guides: true,
-  faq: true
+  buy: true,
+  account: true,
+  trial: true,
+  affiliate: true,
+  guide: true,
+  faq: true,
+  rewards: true,
+  support: true
 })
 const customerMenuLabels = {
-  buy_service: '🛒 خرید اشتراک',
-  my_services: '📋 سرویس‌های من',
-  free_test: '🎁 تست رایگان',
-  wallet: '💳 کیف پول',
-  pricing: '💰 تعرفه و قیمت‌ها',
-  support: '☎️ پشتیبانی',
-  guides: '📲 راهنمای اتصال',
-  faq: '❓ سوالات متداول'
+  buy: '🛍 خرید و مشاهده پلان‌ها',
+  account: '👤 حساب و سرویس‌های من',
+  trial: '🎁 دریافت تست رایگان',
+  affiliate: '🤝 همکاری در فروش',
+  guide: '📲 راهنمای اتصال',
+  faq: '📚 راهنما و سوالات',
+  rewards: '🎟 کد هدیه / تخفیف',
+  support: '📞 پشتیبانی'
 }
 
 // Sanaei 3x-ui & Groups
@@ -3205,6 +3252,21 @@ const handleToggleGuides = async () => {
     showNotify(`بخش راهنما ${guidesEnabled.value ? 'فعال' : 'غیرفعال'} شد.`)
   } catch (err) {
     showNotify('خطا در تغییر وضعیت راهنما', false)
+  }
+}
+
+const handlePromptGuideBot = async (platform) => {
+  promptingBot.value = true
+  try {
+    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value)
+    showNotify(res.data?.message || 'دستور ثبت راهنما به چت تلگرام شما ارسال شد.')
+    if (res.data?.bot_username) {
+      telegramBotUrl.value = `https://t.me/${res.data.bot_username}`
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ارسال پیام به ربات تلگرام', false)
+  } finally {
+    promptingBot.value = false
   }
 }
 

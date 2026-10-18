@@ -405,12 +405,12 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 # Version endpoint
                 ver_res = self.client.get("/api/admin/version")
                 self.assertEqual(ver_res.status_code, 200)
-                self.assertEqual(ver_res.json()["version"], "5.4.0")
+                self.assertEqual(ver_res.json()["version"], "5.4.1")
 
                 # Stats endpoint contains app_version
                 stats_res = self.client.get("/api/admin/stats", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(stats_res.status_code, 200)
-                self.assertEqual(stats_res.json()["app_version"], "5.4.0")
+                self.assertEqual(stats_res.json()["app_version"], "5.4.1")
                 self.assertIn("brand_name", stats_res.json())
 
     def test_admin_trial_features(self):
@@ -564,6 +564,72 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 with patch("speedybot.core.check_service_notifications", return_value={"enabled": True, "tracked": 5, "sent": 0}):
                     notif_res = self.client.post("/api/admin/notifications/check-now", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(notif_res.status_code, 200)
+
+    def test_admin_user_detail(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                res = self.client.get("/api/admin/users/111222", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertIn("user", data)
+                self.assertIn("transactions", data)
+                self.assertIn("services", data)
+                self.assertEqual(data["user"]["id"], 111222)
+
+    def test_customer_menu_toggles_and_keyboard(self):
+        from speedybot import ui, context as C, core
+        C.configure(core)
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Get branding
+                b_get = self.client.get("/api/admin/branding", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(b_get.status_code, 200)
+                self.assertIn("customer_menu", b_get.json())
+
+                # Save branding with toggles
+                b_post = self.client.post(
+                    "/api/admin/branding",
+                    json={
+                        "webapp_title": "My Test Shop",
+                        "customer_menu": {
+                            "buy": True,
+                            "account": True,
+                            "support": False,
+                            "faq": False
+                        }
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(b_post.status_code, 200)
+                menu_data = b_post.json()["customer_menu"]
+                self.assertTrue(menu_data["buy"])
+                self.assertFalse(menu_data["support"])
+
+                # Verify bot reply keyboard respects settings
+                kb = ui.main_menu()
+                button_texts = []
+                for row in kb.keyboard:
+                    for b in row:
+                        button_texts.append(b["text"] if isinstance(b, dict) else b.text)
+                self.assertIn("🛍 مشاهده و خرید پلان‌ها", button_texts)
+                self.assertNotIn("📞 پشتیبانی", button_texts)
+
+                # Restore
+                self.client.post(
+                    "/api/admin/branding",
+                    json={
+                        "webapp_title": "Shop",
+                        "customer_menu": {
+                            "buy": True,
+                            "account": True,
+                            "support": True,
+                            "faq": True
+                        }
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
 
 
 if __name__ == "__main__":
