@@ -1,8 +1,29 @@
 <template>
   <div class="space-y-4">
-    <div class="flex items-center gap-2">
-      <span class="text-xl">📖</span>
-      <h2 class="text-sm font-bold">راهنمای اتصال و نرم‌افزارها</h2>
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📖</span>
+        <h2 class="text-sm font-bold">راهنمای اتصال و نرم‌افزارها</h2>
+      </div>
+      <span v-if="!loading && guides.length" class="text-[11px] text-tg-hint bg-tg-sec px-2 py-0.5 rounded-full border border-gray-700/40">
+        {{ filteredGuides.length }} آموزش
+      </span>
+    </div>
+
+    <!-- Platform Filter Pills -->
+    <div v-if="!loading && guides.length" class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+      <button
+        v-for="p in platforms"
+        :key="p.id"
+        @click="selectedPlatform = p.id"
+        class="px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center gap-1 font-medium border text-[11px]"
+        :class="selectedPlatform === p.id
+          ? 'bg-tg-button text-white border-transparent shadow-sm'
+          : 'bg-tg-sec text-tg-hint hover:text-tg border-gray-700/30'"
+      >
+        <span>{{ p.icon }}</span>
+        <span>{{ p.label }}</span>
+      </button>
     </div>
 
     <!-- Loading -->
@@ -11,26 +32,72 @@
     </div>
 
     <!-- Guides List -->
-    <div v-else-if="guides.length" class="space-y-3">
+    <div v-else-if="filteredGuides.length" class="space-y-3">
       <div
-        v-for="guide in guides"
+        v-for="guide in filteredGuides"
         :key="guide.id"
-        class="bg-tg-sec rounded-2xl p-4 border border-gray-700/30 space-y-2"
+        class="bg-tg-sec rounded-2xl p-4 border border-gray-700/30 space-y-3"
       >
         <div class="flex justify-between items-center">
           <span class="font-bold text-xs bg-tg px-2.5 py-1 rounded-lg border border-gray-700/40">
             {{ formatPlatform(guide.platform) }}
           </span>
-          <span class="text-[10px] text-tg-hint">{{ guide.media_type }}</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full font-mono" :class="guide.media_type === 'VIDEO' ? 'bg-purple-500/20 text-purple-300' : (guide.media_type === 'PHOTO' ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700/30 text-tg-hint')">
+            {{ guide.media_type }}
+          </span>
         </div>
 
-        <p class="text-xs text-tg/90 leading-relaxed whitespace-pre-line">
+        <!-- Image Media -->
+        <div
+          v-if="guide.file_id && guide.media_type === 'PHOTO' && !failedMedia[guide.id]"
+          class="rounded-xl overflow-hidden bg-black/40 border border-gray-700/40"
+        >
+          <img
+            :src="getMediaUrl(guide)"
+            :alt="formatPlatform(guide.platform)"
+            class="w-full max-h-96 object-contain rounded-xl"
+            loading="lazy"
+            @error="handleMediaError(guide.id)"
+          />
+        </div>
+
+        <!-- Video Media -->
+        <div
+          v-else-if="guide.file_id && guide.media_type === 'VIDEO' && !failedMedia[guide.id]"
+          class="rounded-xl overflow-hidden bg-black/60 border border-gray-700/40"
+        >
+          <video
+            controls
+            playsinline
+            preload="metadata"
+            :src="getMediaUrl(guide)"
+            class="w-full max-h-96 rounded-xl"
+            @error="handleMediaError(guide.id)"
+          ></video>
+        </div>
+
+        <!-- Media Error Fallback -->
+        <div v-if="failedMedia[guide.id]" class="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-[11px] text-amber-300 flex items-center justify-between">
+          <span>رسانه این راهنما به صورت مستقیم در دسترس نیست.</span>
+          <span class="text-[10px] text-amber-400">مشاهده در تلگرام</span>
+        </div>
+
+        <!-- Guide Body Text -->
+        <p v-if="guide.body" class="text-xs text-tg/90 leading-relaxed whitespace-pre-line">
           {{ guide.body }}
         </p>
       </div>
     </div>
 
-    <!-- Empty State -->
+    <!-- Empty State for Platform Filter -->
+    <div v-else-if="guides.length && !filteredGuides.length" class="text-center py-10 bg-tg-sec/50 rounded-2xl border border-dashed border-gray-700/40 space-y-2">
+      <p class="text-xs text-tg-hint">برای پلتفرم انتخاب شده راهنمایی ثبت نشده است.</p>
+      <button @click="selectedPlatform = 'all'" class="text-xs text-tg-button hover:underline">
+        مشاهده همه راهنماها
+      </button>
+    </div>
+
+    <!-- Empty State Global -->
     <div v-else class="text-center py-12 bg-tg-sec/50 rounded-2xl border border-dashed border-gray-700/40">
       <p class="text-xs text-tg-hint">راهنمایی ثبت نشده است. از پشتیبانی چت تلگرام کمک بگیرید.</p>
     </div>
@@ -38,11 +105,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getGuides } from '@/api'
 
 const guides = ref([])
 const loading = ref(true)
+const selectedPlatform = ref('all')
+const failedMedia = ref({})
+
+const platforms = [
+  { id: 'all', label: 'همه', icon: '🌐' },
+  { id: 'android', label: 'اندروید', icon: '📱' },
+  { id: 'ios', label: 'آیفون', icon: '🍏' },
+  { id: 'windows', label: 'ویندوز', icon: '💻' },
+  { id: 'macos', label: 'مک', icon: '🖥' },
+  { id: 'linux', label: 'لینوکس', icon: '🐧' },
+]
 
 const formatPlatform = (p) => {
   const map = {
@@ -50,9 +128,29 @@ const formatPlatform = (p) => {
     IOS: '🍏 آیفون (Streisand / V2Box)',
     WINDOWS: '💻 ویندوز (v2rayN)',
     MAC: '🖥 مک (V2rayU / FoXray)',
+    MACOS: '🖥 مک (V2rayU / FoXray)',
     LINUX: '🐧 لینوکس'
   }
   return map[p?.toUpperCase()] || p
+}
+
+const filteredGuides = computed(() => {
+  if (selectedPlatform.value === 'all') return guides.value
+  return guides.value.filter(g => (g.platform || '').toLowerCase() === selectedPlatform.value)
+})
+
+const getMediaUrl = (guide) => {
+  if (guide?.media_url) return guide.media_url
+  if (!guide?.file_id) return ''
+  const fid = guide.file_id.trim()
+  if (fid.startsWith('http://') || fid.startsWith('https://')) {
+    return fid
+  }
+  return `/api/guides/${guide.id}/media`
+}
+
+const handleMediaError = (guideId) => {
+  failedMedia.value[guideId] = true
 }
 
 onMounted(async () => {

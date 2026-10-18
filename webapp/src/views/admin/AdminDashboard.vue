@@ -855,24 +855,50 @@
           <div
             v-for="item in filteredGuides"
             :key="item.id"
-            class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2"
+            class="bg-tg p-3.5 rounded-xl border border-gray-700/30 space-y-2"
           >
-            <div class="flex justify-between items-start">
-              <div>
+            <div class="flex justify-between items-start gap-2">
+              <div class="flex-1 min-w-0 space-y-2">
                 <div class="flex items-center gap-2">
                   <span class="font-bold text-sm">{{ item.title || (item.body ? (item.body.length > 50 ? item.body.slice(0, 50) + '...' : item.body) : ('آموزش #' + item.id)) }}</span>
-                  <span class="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono">
+                  <span class="text-[9px] px-2 py-0.5 rounded-full font-mono" :class="item.media_type === 'VIDEO' ? 'bg-purple-500/20 text-purple-300' : (item.media_type === 'PHOTO' ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700/30 text-tg-hint')">
                     {{ item.media_type }}
                   </span>
                 </div>
-                <p class="text-[11px] text-tg-hint mt-1 whitespace-pre-wrap leading-relaxed">{{ item.body }}</p>
-                <span v-if="item.media_file_id" class="text-[9px] text-amber-400 block mt-1 font-mono">
-                  فایل پیوست: {{ item.media_file_id }}
-                </span>
+
+                <!-- Media Preview in Admin Panel -->
+                <div v-if="item.media_file_id && item.media_type === 'PHOTO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/40 max-w-sm">
+                  <img :src="getGuideMediaUrl(item)" class="w-full max-h-48 object-contain" loading="lazy" />
+                </div>
+                <div v-else-if="item.media_file_id && item.media_type === 'VIDEO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/60 max-w-sm">
+                  <video controls playsinline preload="metadata" :src="getGuideMediaUrl(item)" class="w-full max-h-48 rounded-xl"></video>
+                </div>
+
+                <p v-if="item.body" class="text-[11px] text-tg-hint whitespace-pre-wrap leading-relaxed">{{ item.body }}</p>
+
+                <!-- Attached Telegram File ID Box (Fixed Layout) -->
+                <div v-if="item.media_file_id" class="p-2 bg-gray-800/60 rounded-xl border border-gray-700/40 space-y-1.5 max-w-sm">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
+                      📎 فایل پیوست:
+                    </span>
+                    <button
+                      type="button"
+                      @click.stop="copyFileId(item.media_file_id)"
+                      class="text-[9px] px-2 py-0.5 bg-gray-700/70 hover:bg-gray-600 text-gray-200 rounded-md transition flex items-center gap-1"
+                    >
+                      <span>{{ copiedFileId === item.media_file_id ? '✓ کپی شد' : '📋 کپی ID' }}</span>
+                    </button>
+                  </div>
+                  <div class="font-mono text-[9px] text-gray-300 break-all bg-black/40 px-2 py-1.5 rounded-lg border border-gray-800/80 dir-ltr select-all">
+                    {{ item.media_file_id }}
+                  </div>
+                </div>
               </div>
+
               <button
                 @click="handleDeleteGuide(item.id)"
-                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl hover:bg-rose-500/30 transition"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl hover:bg-rose-500/30 transition shrink-0"
                 title="حذف"
               >
                 🗑
@@ -3276,7 +3302,12 @@ const openAddGuideModal = () => {
 }
 
 const handleSaveGuide = async () => {
-  if (!guideForm.value.title.trim() || !guideForm.value.body.trim()) return
+  const bodyText = (guideForm.value.body || guideForm.value.title || '').trim()
+  if (!bodyText) {
+    showNotify('متن راهنما نمی‌تواند خالی باشد.', false)
+    return
+  }
+  guideForm.value.body = bodyText
   try {
     await createAdminGuide(guideForm.value)
     showNotify('آموزش جدید با موفقیت ثبت شد.')
@@ -3297,6 +3328,30 @@ const handleDeleteGuide = async (itemId) => {
   } catch (err) {
     showNotify('خطا در حذف آموزش', false)
   }
+}
+
+const copiedFileId = ref('')
+const copyFileId = async (id) => {
+  if (!id) return
+  try {
+    await navigator.clipboard.writeText(id)
+    copiedFileId.value = id
+    setTimeout(() => {
+      if (copiedFileId.value === id) copiedFileId.value = ''
+    }, 2000)
+  } catch (e) {
+    console.error('Failed to copy', e)
+  }
+}
+
+const getGuideMediaUrl = (item) => {
+  if (item?.media_url) return item.media_url
+  if (!item?.media_file_id) return ''
+  const fid = item.media_file_id.trim()
+  if (fid.startsWith('http://') || fid.startsWith('https://')) {
+    return fid
+  }
+  return `/api/guides/${item.id}/media`
 }
 
 // ─── Audit Log Handlers ──────────────────────────────────────────────────────

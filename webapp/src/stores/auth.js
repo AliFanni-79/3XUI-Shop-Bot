@@ -17,6 +17,7 @@ export const useAuthStore = defineStore('auth', {
     isAdmin: (s) => s.user?.is_admin === true,
     balance: (s) => s.user?.balance ?? 0,
     version: (s) => s.appVersion || s.user?.version || '5.4.1',
+    guidesEnabled: (s) => s.user?.guides_enabled !== false,
   },
   actions: {
     async fetchMe() {

@@ -631,6 +631,62 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     headers={"X-Telegram-Init-Data": init_data}
                 )
 
+    def test_guide_media_endpoint_and_urls(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # 1. External URL guide
+                create_ext = self.client.post(
+                    "/api/admin/guides",
+                    json={
+                        "platform": "android",
+                        "media_type": "PHOTO",
+                        "body": "Guide with external photo",
+                        "media_file_id": "https://example.com/screenshot.jpg",
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_ext.status_code, 200)
+                ext_id = create_ext.json()["item_id"]
+
+                # Public media route redirects external URLs
+                redir_res = self.client.get(f"/api/guides/{ext_id}/media", follow_redirects=False)
+                self.assertEqual(redir_res.status_code, 307)
+                self.assertEqual(redir_res.headers.get("location"), "https://example.com/screenshot.jpg")
+
+                # 2. Telegram File ID guide
+                create_tg = self.client.post(
+                    "/api/admin/guides",
+                    json={
+                        "platform": "ios",
+                        "media_type": "VIDEO",
+                        "body": "Video tutorial",
+                        "media_file_id": "BAACAgQAAxkBAAOwatS6V5gkd6jh34UdqgZ0Jc7i8UcAAGcfAAKEkKFsAbPye1xo8no9BA",
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_tg.status_code, 200)
+                tg_id = create_tg.json()["item_id"]
+
+                class MockFile:
+                    file_path = "videos/guide_video.mp4"
+
+                from speedybot import core
+                with patch.object(core.bot, "get_file", return_value=MockFile()):
+                    with patch.object(core.bot, "download_file", return_value=b"\x00\x00\x00\x18ftypmp42"):
+                        media_res = self.client.get(f"/api/guides/{tg_id}/media")
+                        self.assertEqual(media_res.status_code, 200)
+                        self.assertEqual(media_res.headers.get("content-type"), "video/mp4")
+                        self.assertEqual(media_res.content, b"\x00\x00\x00\x18ftypmp42")
+
+                # 3. /api/guides public list includes media_url
+                guides_res = self.client.get("/api/guides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(guides_res.status_code, 200)
+                items = guides_res.json()["guides"]
+                tg_guide = next(item for item in items if item["id"] == tg_id)
+                self.assertEqual(tg_guide["media_url"], f"/api/guides/{tg_id}/media")
+
+
 
 if __name__ == "__main__":
     unittest.main()

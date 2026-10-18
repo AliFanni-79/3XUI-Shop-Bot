@@ -25,6 +25,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
+import mimetypes
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -32,11 +34,13 @@ from urllib.parse import parse_qsl, unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import VERSION, core, storage, trial, ops
+from . import VERSION, core, storage, trial, ops, db
+
+logger = logging.getLogger("speedybot.api")
 
 # ---------------------------------------------------------------------------
 # App instance
@@ -552,6 +556,7 @@ async def get_app_config():
     return {
         "webapp_title": app_title,
         "version": VERSION,
+        "guides_enabled": core.connection_guides_enabled(),
     }
 
 
@@ -575,6 +580,7 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
         "app_title": app_title,
         "webapp_title": app_title,
         "version": VERSION,
+        "guides_enabled": core.connection_guides_enabled(),
     }
 
 
@@ -1046,10 +1052,124 @@ async def get_guides(_user: Dict[str, Any] = Depends(get_current_user)):
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
                 "file_id": r["file_id"],
+                "media_url": f"/api/guides/{r['id']}/media" if r["file_id"] else "",
             }
             for r in rows
         ]
     }
+
+
+@app.get("/api/guides/{guide_id}/media")
+async def get_guide_media(guide_id: int):
+    """Serve photo or video media for a guide item, caching Telegram files locally."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT id, media_type, file_id FROM guide_items WHERE id = ?",
+        (guide_id,),
+    ).fetchone()
+    conn.close()
+    if not row or not row["file_id"]:
+        raise HTTPException(status_code=404, detail="رسانه‌ای برای این راهنما یافت نشد.")
+
+    file_id = str(row["file_id"]).strip()
+    media_type = str(row["media_type"] or "PHOTO").upper()
+
+    # External HTTP(S) URL
+    if file_id.startswith(("http://", "https://")):
+        return RedirectResponse(url=file_id, status_code=307)
+
+    cache_dir = os.path.join(os.path.dirname(db.get_db_path()), "media_cache")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception:
+        pass
+
+    file_hash = hashlib.sha256(file_id.encode("utf-8")).hexdigest()[:24]
+
+    # Check cache first
+    if os.path.exists(cache_dir):
+        for fname in os.listdir(cache_dir):
+            if fname.startswith(file_hash):
+                cached_path = os.path.join(cache_dir, fname)
+                ctype, _ = mimetypes.guess_type(cached_path)
+                if not ctype:
+                    ctype = "image/jpeg" if media_type == "PHOTO" else "video/mp4"
+                return FileResponse(
+                    cached_path,
+                    media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=604800"},
+                )
+
+    # Fetch from Telegram
+    try:
+        if not hasattr(core.bot, "get_file") or not hasattr(core.bot, "download_file"):
+            raise ValueError("Telegram Bot not configured for downloading files")
+        file_info = core.bot.get_file(file_id)
+        raw_path = getattr(file_info, "file_path", None)
+        if not raw_path:
+            raise ValueError("No file path returned by Telegram")
+        ext = os.path.splitext(raw_path)[1].lower()
+        if not ext:
+            ext = ".jpg" if media_type == "PHOTO" else ".mp4"
+        file_bytes = core.bot.download_file(raw_path)
+        if not file_bytes:
+            raise ValueError("Empty file content")
+        cached_path = os.path.join(cache_dir, f"{file_hash}{ext}")
+        with open(cached_path, "wb") as f:
+            f.write(file_bytes)
+        ctype, _ = mimetypes.guess_type(cached_path)
+        if not ctype:
+            ctype = "image/jpeg" if media_type == "PHOTO" else "video/mp4"
+        return FileResponse(
+            cached_path,
+            media_type=ctype,
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch Telegram media for guide %s: %s", guide_id, e)
+        raise HTTPException(status_code=404, detail="دانلود رسانه از تلگرام امکان‌پذیر نبود.")
+
+
+@app.get("/api/media/telegram/{file_id}")
+async def get_telegram_media(file_id: str, media_type: str = "PHOTO"):
+    """Serve any Telegram file_id by caching and streaming."""
+    file_id = file_id.strip()
+    if file_id.startswith(("http://", "https://")):
+        return RedirectResponse(url=file_id, status_code=307)
+    cache_dir = os.path.join(os.path.dirname(db.get_db_path()), "media_cache")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception:
+        pass
+    file_hash = hashlib.sha256(file_id.encode("utf-8")).hexdigest()[:24]
+    mtype = media_type.upper()
+    if os.path.exists(cache_dir):
+        for fname in os.listdir(cache_dir):
+            if fname.startswith(file_hash):
+                cached_path = os.path.join(cache_dir, fname)
+                ctype, _ = mimetypes.guess_type(cached_path)
+                if not ctype:
+                    ctype = "image/jpeg" if mtype == "PHOTO" else "video/mp4"
+                return FileResponse(cached_path, media_type=ctype, headers={"Cache-Control": "public, max-age=604800"})
+    try:
+        if not hasattr(core.bot, "get_file") or not hasattr(core.bot, "download_file"):
+            raise ValueError("Telegram Bot not configured for downloading files")
+        file_info = core.bot.get_file(file_id)
+        raw_path = getattr(file_info, "file_path", None)
+        if not raw_path:
+            raise ValueError("No file path returned by Telegram")
+        ext = os.path.splitext(raw_path)[1].lower() or (".jpg" if mtype == "PHOTO" else ".mp4")
+        file_bytes = core.bot.download_file(raw_path)
+        if not file_bytes:
+            raise ValueError("Empty file content")
+        cached_path = os.path.join(cache_dir, f"{file_hash}{ext}")
+        with open(cached_path, "wb") as f:
+            f.write(file_bytes)
+        ctype, _ = mimetypes.guess_type(cached_path) or ("image/jpeg" if mtype == "PHOTO" else "video/mp4")
+        return FileResponse(cached_path, media_type=ctype, headers={"Cache-Control": "public, max-age=604800"})
+    except Exception as e:
+        logger.warning("Failed to fetch Telegram media %s: %s", file_id, e)
+        raise HTTPException(status_code=404, detail="دانلود رسانه از تلگرام امکان‌پذیر نبود.")
 
 
 # ---------------------------------------------------------------------------
@@ -3469,6 +3589,7 @@ async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
                 "media_file_id": r["file_id"] or "",
+                "media_url": f"/api/guides/{r['id']}/media" if r["file_id"] else "",
                 "sort_order": r["sort_order"],
                 "active": bool(r["active"]),
             }
