@@ -398,5 +398,173 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(sec_post.status_code, 200)
 
 
+    def test_admin_version_and_stats(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Version endpoint
+                ver_res = self.client.get("/api/admin/version")
+                self.assertEqual(ver_res.status_code, 200)
+                self.assertEqual(ver_res.json()["version"], "5.4.0")
+
+                # Stats endpoint contains app_version
+                stats_res = self.client.get("/api/admin/stats", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(stats_res.status_code, 200)
+                self.assertEqual(stats_res.json()["app_version"], "5.4.0")
+                self.assertIn("brand_name", stats_res.json())
+
+    def test_admin_trial_features(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # GET trial settings
+                settings_res = self.client.get("/api/admin/trial/settings", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(settings_res.status_code, 200)
+                data = settings_res.json()
+                self.assertIn("enabled", data)
+                self.assertIn("volume_gb", data)
+                self.assertIn("days", data)
+                self.assertIn("ip_limit", data)
+                self.assertIn("stats", data)
+
+                # POST trial settings
+                save_res = self.client.post(
+                    "/api/admin/trial/settings",
+                    json={
+                        "enabled": True,
+                        "volume_gb": 1.5,
+                        "days": 2,
+                        "ip_limit": 1,
+                        "cooldown_days": 30,
+                        "followup_enabled": True,
+                        "followup_delay_hours": 6
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(save_res.status_code, 200)
+
+                # Inbounds toggle & reset for trial
+                tog_res = self.client.post(
+                    "/api/admin/trial/inbounds/toggle",
+                    json={"inbound_id": 999},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(tog_res.status_code, 200)
+                rst_res = self.client.post("/api/admin/trial/inbounds/reset", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(rst_res.status_code, 200)
+
+                # Overrides CRUD
+                save_ov = self.client.post(
+                    "/api/admin/trial/overrides",
+                    json={"user_id": 98765432, "volume_gb": 5.0, "days": 7, "ip_limit": 2, "note": "VIP trial"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(save_ov.status_code, 200)
+
+                get_ov = self.client.get("/api/admin/trial/overrides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(get_ov.status_code, 200)
+                self.assertTrue(any(o["user_id"] == 98765432 for o in get_ov.json()["overrides"]))
+
+                del_ov = self.client.delete("/api/admin/trial/overrides/98765432", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_ov.status_code, 200)
+
+    def test_admin_categories_and_volume_packs(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Categories CRUD
+                c_create = self.client.post(
+                    "/api/admin/categories",
+                    json={"name": "تست دسته‌بندی ویژه", "active": 1, "sort_order": 50},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(c_create.status_code, 200)
+                cat_id = c_create.json()["category_id"]
+
+                c_list = self.client.get("/api/admin/categories", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(c_list.status_code, 200)
+                self.assertTrue(any(c["id"] == cat_id for c in c_list.json()["categories"]))
+
+                c_update = self.client.put(
+                    f"/api/admin/categories/{cat_id}",
+                    json={"name": "تست دسته‌بندی ویرایش شده", "sort_order": 55},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(c_update.status_code, 200)
+
+                c_del = self.client.delete(f"/api/admin/categories/{cat_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(c_del.status_code, 200)
+
+                # Volume Packs CRUD
+                vp_create = self.client.post(
+                    "/api/admin/volume-packs",
+                    json={"name": "۱۰ گیگابایت اضافه", "volume_gb": 10.0, "price": 45000, "active": 1, "sort_order": 20},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(vp_create.status_code, 200)
+                pack_id = vp_create.json()["pack_id"]
+
+                vp_list = self.client.get("/api/admin/volume-packs", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_list.status_code, 200)
+                self.assertTrue(any(p["id"] == pack_id for p in vp_list.json()["volume_packs"]))
+
+                vp_tog = self.client.post(f"/api/admin/volume-packs/{pack_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_tog.status_code, 200)
+
+                vp_del = self.client.delete(f"/api/admin/volume-packs/{pack_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_del.status_code, 200)
+
+    def test_admin_crm_and_guides_and_audit(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # CRM
+                crm_get = self.client.get("/api/admin/crm", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(crm_get.status_code, 200)
+                self.assertIn("sources", crm_get.json())
+                self.assertIn("claims", crm_get.json())
+
+                crm_post = self.client.post(
+                    "/api/admin/crm/settings",
+                    json={"acquisition_survey_enabled": True, "custom_service_names_enabled": True, "existing_service_link_enabled": True},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(crm_post.status_code, 200)
+
+                # Guides
+                g_get = self.client.get("/api/admin/guides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_get.status_code, 200)
+
+                g_create = self.client.post(
+                    "/api/admin/guides",
+                    json={"platform": "ANDROID", "media_type": "TEXT", "body": "راهنمای اتصال v2rayNG", "sort_order": 1},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(g_create.status_code, 200)
+                gid = g_create.json()["item_id"]
+
+                g_del = self.client.delete(f"/api/admin/guides/{gid}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_del.status_code, 200)
+
+                g_tog = self.client.post("/api/admin/guides/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_tog.status_code, 200)
+
+                # Audit
+                audit_get = self.client.get("/api/admin/audit", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(audit_get.status_code, 200)
+
+                audit_post = self.client.post(
+                    "/api/admin/audit/settings",
+                    json={"enabled": True, "chat_id": "-100123456789"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(audit_post.status_code, 200)
+
+                # Notifications check now
+                with patch("speedybot.core.check_service_notifications", return_value={"enabled": True, "tracked": 5, "sent": 0}):
+                    notif_res = self.client.post("/api/admin/notifications/check-now", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(notif_res.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

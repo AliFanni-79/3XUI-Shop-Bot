@@ -175,6 +175,60 @@ export const saveAdminAffiliate = (payload) => client.post('/admin/affiliate/set
 // ─── Admin — Content, Security & Notifications ──────────────────────────────
 export const getAdminContentSecurity = () => client.get('/admin/content-security')
 export const saveAdminContentSecurity = (payload) => client.post('/admin/content-security', payload)
+export const checkAdminNotifications = () => client.post('/admin/notifications/check-now')
+
+// ─── Admin — Plan Inbounds ───────────────────────────────────────────────────
+export const getAdminPlanInbounds = (planId) => client.get(`/admin/plans/${planId}/inbounds`)
+export const toggleAdminPlanInbound = (planId, inboundId) =>
+  client.post(`/admin/plans/${planId}/inbounds/toggle`, { inbound_id: inboundId })
+export const resetAdminPlanInbounds = (planId) => client.post(`/admin/plans/${planId}/inbounds/reset`)
+
+// ─── Admin — Categories ──────────────────────────────────────────────────────
+export const getAdminCategories = () => client.get('/admin/categories')
+export const createAdminCategory = (payload) => client.post('/admin/categories', payload)
+export const updateAdminCategory = (id, payload) => client.put(`/admin/categories/${id}`, payload)
+export const deleteAdminCategory = (id) => client.delete(`/admin/categories/${id}`)
+
+// ─── Admin — Volume Packs ────────────────────────────────────────────────────
+export const getAdminVolumePacks = () => client.get('/admin/volume-packs')
+export const createAdminVolumePack = (payload) => client.post('/admin/volume-packs', payload)
+export const updateAdminVolumePack = (id, payload) => client.put(`/admin/volume-packs/${id}`, payload)
+export const deleteAdminVolumePack = (id) => client.delete(`/admin/volume-packs/${id}`)
+export const toggleAdminVolumePack = (id) => client.post(`/admin/volume-packs/${id}/toggle`)
+
+// ─── Admin — Trial Plan Management ───────────────────────────────────────────
+export const getAdminTrialSettings = () => client.get('/admin/trial/settings')
+export const saveAdminTrialSettings = (payload) => client.post('/admin/trial/settings', payload)
+export const toggleAdminTrialInbound = (inboundId) =>
+  client.post('/admin/trial/inbounds/toggle', { inbound_id: inboundId })
+export const resetAdminTrialInbounds = () => client.post('/admin/trial/inbounds/reset')
+export const getAdminTrialOverrides = () => client.get('/admin/trial/overrides')
+export const saveAdminTrialOverride = (payload) => client.post('/admin/trial/overrides', payload)
+export const deleteAdminTrialOverride = (userId) => client.delete(`/admin/trial/overrides/${userId}`)
+
+// ─── Admin — CRM & Service Claims ────────────────────────────────────────────
+export const getAdminCrm = () => client.get('/admin/crm')
+export const saveAdminCrmSettings = (payload) => client.post('/admin/crm/settings', payload)
+export const approveAdminClaim = (claimId) => client.post(`/admin/crm/claims/${claimId}/approve`)
+export const rejectAdminClaim = (claimId, reason = null) =>
+  client.post(`/admin/crm/claims/${claimId}/reject`, { reason })
+
+// ─── Admin — Guides ──────────────────────────────────────────────────────────
+export const getAdminGuides = () => client.get('/admin/guides')
+export const createAdminGuide = (payload) => client.post('/admin/guides', payload)
+export const deleteAdminGuide = (id) => client.delete(`/admin/guides/${id}`)
+export const toggleAdminGuides = () => client.post('/admin/guides/toggle')
+
+// ─── Admin — Audit Log ───────────────────────────────────────────────────────
+export const getAdminAudit = (limit = 50) => client.get('/admin/audit', { params: { limit } })
+export const saveAdminAuditSettings = (payload) => client.post('/admin/audit/settings', payload)
+
+// ─── Admin — Panel Snapshot ──────────────────────────────────────────────────
+export const getAdminSnapshot = () => client.get('/admin/snapshot')
+export const sendAdminSnapshot = () => client.post('/admin/snapshot/send')
+
+// ─── Admin — App Version ─────────────────────────────────────────────────────
+export const getAdminVersion = () => client.get('/admin/version')
 
 export default client
 

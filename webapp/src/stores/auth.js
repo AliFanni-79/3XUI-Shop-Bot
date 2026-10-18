@@ -7,14 +7,16 @@ import { getMe } from '@/api'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null,       // { id, first_name, username, balance, is_admin, app_title }
+    user: null,       // { id, first_name, username, balance, is_admin, app_title, version }
     appTitle: 'فروشگاه',
+    appVersion: '5.4.0',
     loading: true,
     error: null,
   }),
   getters: {
     isAdmin: (s) => s.user?.is_admin === true,
     balance: (s) => s.user?.balance ?? 0,
+    version: (s) => s.appVersion || s.user?.version || '5.4.0',
   },
   actions: {
     async fetchMe() {
@@ -25,6 +27,9 @@ export const useAuthStore = defineStore('auth', {
         this.user = data
         if (data.app_title) {
           this.setAppTitle(data.app_title)
+        }
+        if (data.version) {
+          this.appVersion = data.version
         }
       } catch (e) {
         this.error = e.response?.data?.detail || 'خطا در احراز هویت'
