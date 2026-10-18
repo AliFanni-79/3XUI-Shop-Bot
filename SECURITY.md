@@ -1,6 +1,6 @@
 # Security Policy
 
-Maintainer: **SudoShayanNA**
+Maintainer: **AliFanni-79**
 
 ## Reporting a vulnerability
 
@@ -8,8 +8,8 @@ Please do **not** publish working credentials, customer subscription URLs, Teleg
 
 For sensitive security reports, contact:
 
-- Email: namayandeshayan@gmail.com
-- Telegram: @SudoShayanNA
+- Telegram: @AliFanni_79
+- Repository: https://github.com/AliFanni-79/SpeedyBot
 
 Include the affected SpeedyBot version, relevant component, reproduction steps, expected/actual behavior and a redacted log if useful.
 

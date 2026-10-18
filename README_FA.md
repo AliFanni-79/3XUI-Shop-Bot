@@ -12,9 +12,9 @@
   <a href="CONTRIBUTING.md">مشارکت</a>
 </p>
 
-> **سازنده و نگهدارنده پروژه: SudoShayanNA**  
-> تلگرام: **@SudoShayanNA** · ایمیل: **namayandeshayan@gmail.com**  
-> سورس رسمی: **https://github.com/roseshayan/SpeedyBot**
+> **سازنده و نگهدارنده پروژه: AliFanni-79**  
+> تلگرام: **@AliFanni_79**  
+> سورس رسمی: **https://github.com/AliFanni-79/SpeedyBot**
 
 SpeedyBot یک راهکار کامل فروش و مدیریت سرویس‌های **3x-ui / Sanaei** در بستر تلگرام است. این نسخه با ترکیب **مینی‌اپ تلگرام (Vue 3 + Tailwind CSS)** و بات تلگرام، امکاناتی نظیر ساخت خودکار کلاینت بعد از خرید، سازنده پلن‌های سفارشی توسط کاربر، اتصال به درگاه‌های پرداخت آنلاین (زیبال و زرین‌پال)، خرید با کیف پول و مدیریت آسان را فراهم می‌سازد.
 
@@ -366,7 +366,7 @@ Subscription URI path: /sub/
 apt update
 apt install -y git
 
-git clone https://github.com/roseshayan/SpeedyBot.git /root/SpeedyBot
+git clone https://github.com/AliFanni-79/SpeedyBot.git /root/SpeedyBot
 cd /root/SpeedyBot
 chmod +x install.sh update.sh
 ./install.sh
@@ -936,10 +936,9 @@ SpeedyBot/
 
 سازنده و Maintainer:
 
-**SudoShayanNA**
+**AliFanni-79**
 
-- Telegram: **@SudoShayanNA**
-- Email: **namayandeshayan@gmail.com**
-- Repository: **https://github.com/roseshayan/SpeedyBot**
+- Telegram: **@AliFanni_79**
+- Repository: **https://github.com/AliFanni-79/SpeedyBot**
 
 اگر پروژه را Fork یا بازنشر می‌کنید، نگه‌داشتن لینک سورس اصلی باعث می‌شود کاربران به مستندات، آپدیت‌های امنیتی و نسخه Maintained دسترسی داشته باشند.

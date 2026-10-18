@@ -1963,7 +1963,7 @@ def custom_name_purchase(call):
     bot.answer_callback_query(call.id)
     msg = bot.send_message(
         call.from_user.id,
-        "✏️ نام دلخواه سرویس را بفرستید.\nمثال: `shayan-phone`\n\nفقط حروف انگلیسی، عدد، `.`, `_`, `-` و ۳ تا ۴۰ کاراکتر.",
+        "✏️ نام دلخواه سرویس را بفرستید.\nمثال: `my-phone`\n\nفقط حروف انگلیسی، عدد، `.`, `_`, `-` و ۳ تا ۴۰ کاراکتر.",
         parse_mode='Markdown', reply_markup=back_menu()
     )
     bot.register_next_step_handler(msg, process_custom_service_name, int(pid), method)

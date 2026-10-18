@@ -12,9 +12,9 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-> **Author / Maintainer:** **SudoShayanNA**  
-> Telegram: **@SudoShayanNA** · Email: **namayandeshayan@gmail.com**  
-> Official repository: **https://github.com/roseshayan/SpeedyBot**
+> **Author / Maintainer:** **AliFanni-79**  
+> Telegram: **@AliFanni_79**  
+> Official repository: **https://github.com/AliFanni-79/SpeedyBot**
 
 SpeedyBot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
 
@@ -925,10 +925,9 @@ See [SECURITY.md](SECURITY.md).
 
 Licensed under the **MIT License**.
 
-Created and maintained by **SudoShayanNA**.
+Created and maintained by **AliFanni-79**.
 
-- Telegram: **@SudoShayanNA**
-- Email: **namayandeshayan@gmail.com**
-- Repository: **https://github.com/roseshayan/SpeedyBot**
+- Telegram: **@AliFanni_79**
+- Repository: **https://github.com/AliFanni-79/SpeedyBot**
 
 If you redistribute or build on SpeedyBot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.

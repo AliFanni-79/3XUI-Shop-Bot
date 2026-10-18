@@ -80,7 +80,7 @@ Before the **first** upgrade to the integrated layout, replace only the updater 
 ```bash
 cd /root/SpeedyBot
 cp -a update.sh update.sh.pre-integrated-v4
-curl -fsSL https://raw.githubusercontent.com/roseshayan/SpeedyBot/main/update.sh -o update.sh
+curl -fsSL https://raw.githubusercontent.com/AliFanni-79/SpeedyBot/main/update.sh -o update.sh
 chmod 700 update.sh
 bash -n update.sh
 ```
