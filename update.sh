@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ==============================================================================
-# SpeedyBot Updater (Phase 1: Fetch Latest Remote Version)
+# VizzPN Shop Bot Updater (Phase 1: Fetch Latest Remote Version)
 # ==============================================================================
 # This launcher fetches the newest version from GitHub and delegates execution
 # to upgrade.sh from the freshly fetched code. This ensures that any improvements,

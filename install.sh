@@ -187,7 +187,7 @@ command -v apt-get >/dev/null 2>&1 || fail "apt-get was not found. Ubuntu/Debian
 [[ -f "$SOURCE_DIR/main.py" ]] || fail "main.py is missing next to install.sh."
 [[ -d "$SOURCE_DIR/speedybot" ]] || fail "speedybot application package is missing."
 
-printf '\n============================================================\n SpeedyBot v5.0.0 Installer\n Telegram Mini App + 3x-ui / Sanaei Automation\n============================================================\n\n'
+printf '\n============================================================\n VizzPN Shop Bot Installer\n Telegram Mini App + 3x-ui / Sanaei Automation\n============================================================\n\n'
 
 # --- System Prerequisites Check ---
 info "Checking system prerequisites..."
@@ -380,7 +380,7 @@ apt-get install -y python3 python3-pip python3-venv curl git ca-certificates rsy
 mkdir -p "$APP_DIR"
 
 if [[ "$SOURCE_DIR" != "$APP_DIR" ]]; then
-  info "Installing the complete SpeedyBot repository..."
+  info "Installing the complete VizzPN Shop Bot repository..."
   rsync -a --delete \
     --exclude '.git/' \
     --exclude '.env' \
@@ -535,7 +535,7 @@ PY
 write_runner
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=SpeedyBot Telegram Bot
+Description=VizzPN Shop Bot Telegram Bot
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -584,7 +584,7 @@ PY
 fi
 
 printf '\n============================================================\n'
-printf ' ✅ SpeedyBot v5.0.0 is running!\n'
+printf ' ✅ VizzPN Shop Bot is running!\n'
 printf '============================================================\n'
 
 if [[ -n "$WEBAPP_URL" ]]; then

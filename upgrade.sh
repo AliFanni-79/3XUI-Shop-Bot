@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ==============================================================================
-# SpeedyBot Upgrade Engine (Phase 2: Execution & Deployment)
+# VizzPN Shop Bot Upgrade Engine (Phase 2: Execution & Deployment)
 # ==============================================================================
 # This script executes the actual upgrade logic from the latest pulled code.
 # It is launched by update.sh (Phase 1) after pulling the newest remote version.
@@ -502,7 +502,7 @@ if systemctl is-active --quiet caddy 2>/dev/null; then
   systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
 fi
 
-ok "SpeedyBot upgrade finished successfully."
+ok "VizzPN Shop Bot upgrade finished successfully."
 ok "Commit: $CLONED_COMMIT"
 ok ".env, SQLite database (app.db), virtualenv and backups were preserved."
 info "Rollback backup: $BACKUP_DIR"

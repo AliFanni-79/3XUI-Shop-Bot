@@ -93,23 +93,45 @@ def init_db():
         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", (k, v))
 
     # Synchronize brand_name and webapp_title into a single unified reference
-    c.execute("UPDATE settings SET value='Shop' WHERE key='webapp_title' AND (value='SpeedyBot' OR value='speedybot')")
-    c.execute("UPDATE settings SET value='Shop' WHERE key='brand_name' AND (value='SpeedyBot' OR value='speedybot')")
+    c.execute("UPDATE settings SET value='VizzPN Shop Bot' WHERE key='webapp_title' AND (value='SpeedyBot' OR value='speedybot' OR value='Shop' OR value='SpeedPing' OR value='SpeedPing Bot')")
+    c.execute("UPDATE settings SET value='VizzPN Shop Bot' WHERE key='brand_name' AND (value='SpeedyBot' OR value='speedybot' OR value='Shop' OR value='SpeedPing' OR value='SpeedPing Bot')")
     r_brand = c.execute("SELECT value FROM settings WHERE key='brand_name'").fetchone()
     r_title = c.execute("SELECT value FROM settings WHERE key='webapp_title'").fetchone()
     b_val = str(r_brand[0]).strip() if r_brand and r_brand[0] else ""
     t_val = str(r_title[0]).strip() if r_title and r_title[0] else ""
-    if b_val and b_val.lower() != "speedybot" and (not t_val or t_val.lower() in ("", "speedybot", "Shop")):
+    if b_val and b_val.lower() not in ("speedybot", "speedping") and (not t_val or t_val.lower() in ("", "speedybot", "speedping", "shop")):
         c.execute("UPDATE settings SET value=? WHERE key='webapp_title'", (b_val,))
-    elif t_val and t_val.lower() != "speedybot" and (not b_val or b_val.lower() in ("", "speedybot", "Shop")):
+    elif t_val and t_val.lower() not in ("speedybot", "speedping") and (not b_val or b_val.lower() in ("", "speedybot", "speedping", "shop")):
         c.execute("UPDATE settings SET value=? WHERE key='brand_name'", (t_val,))
 
     legacy_welcome = "سلام به ربات فروش خودکار **SpeedPing** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
-    neutral_welcome = "سلام به **Shop** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
+    legacy_welcome2 = "سلام به **Shop** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
+    legacy_welcome3 = "سلام به ربات فروش خودکار **SpeedyBot** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
+    neutral_welcome = "سلام به **VizzPN Shop Bot** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."
     legacy_faq = "📚 **راهنمای SpeedPing**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
-    neutral_faq = "📚 **راهنمای Shop**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
-    c.execute("UPDATE settings SET value=? WHERE key='welcome_text' AND (value=? OR value=?)", (neutral_welcome, legacy_welcome, "سلام به **فروشگاه** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید."))
-    c.execute("UPDATE settings SET value=? WHERE key='faq_text' AND (value=? OR value=?)", (neutral_faq, legacy_faq, "📚 **راهنمای فروشگاه**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."))
+    legacy_faq2 = "📚 **راهنمای Shop**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
+    legacy_faq3 = "📚 **راهنمای SpeedyBot**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
+    neutral_faq = "📚 **راهنمای VizzPN Shop Bot**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید."
+    old_welcomes = (
+        legacy_welcome,
+        legacy_welcome2,
+        legacy_welcome3,
+        "سلام به **فروشگاه** خوش آمدید! 🚀\nاز منوی زیر اقدام به خرید یا مدیریت حساب خود کنید.",
+    )
+    c.execute(
+        f"UPDATE settings SET value=? WHERE key='welcome_text' AND value IN ({','.join(['?']*len(old_welcomes))})",
+        (neutral_welcome, *old_welcomes),
+    )
+    old_faqs = (
+        legacy_faq,
+        legacy_faq2,
+        legacy_faq3,
+        "📚 **راهنمای فروشگاه**\n\n• برای خرید از بخش پلان‌ها استفاده کنید.\n• لینک Subscription را همیشه نگه دارید و برای به‌روزرسانی کانفیگ‌ها Refresh کنید.\n• برای تمدید یا خرید حجم اضافه وارد حساب کاربری شوید.\n• در صورت مشکل از بخش پشتیبانی پیام بدهید.",
+    )
+    c.execute(
+        f"UPDATE settings SET value=? WHERE key='faq_text' AND value IN ({','.join(['?']*len(old_faqs))})",
+        (neutral_faq, *old_faqs),
+    )
 
     c.commit()
     c.close()

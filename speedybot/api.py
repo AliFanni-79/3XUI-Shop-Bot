@@ -46,7 +46,7 @@ logger = logging.getLogger("speedybot.api")
 # App instance
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="SpeedyBot Mini App API", version=VERSION, docs_url="/api/docs")
+app = FastAPI(title="VizzPN Shop Bot Mini App API", version=VERSION, docs_url="/api/docs")
 
 app.add_middleware(
     CORSMiddleware,

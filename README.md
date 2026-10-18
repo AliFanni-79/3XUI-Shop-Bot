@@ -1,4 +1,4 @@
-# SpeedyBot v5.0.0
+# VizzPN Shop Bot v5.4.2
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
@@ -16,11 +16,11 @@
 > Telegram: **@AliFanni_79**  
 > Official repository: **https://github.com/AliFanni-79/SpeedyBot**
 
-SpeedyBot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
+VizzPN Shop Bot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
 
 ## Architecture
 
-SpeedyBot runs as a unified single-process application:
+VizzPN Shop Bot runs as a unified single-process application:
 
 ```text
 main.py
@@ -160,7 +160,7 @@ In addition to preset plans, users can build custom plans dynamically through th
 
 ## Telegram Mini App Setup
 
-SpeedyBot embeds a high-performance Vue 3 Single Page Application directly inside Telegram.
+VizzPN Shop Bot embeds a high-performance Vue 3 Single Page Application directly inside Telegram.
 
 ### Configuration
 In `/root/SpeedyBot/.env`:
@@ -172,7 +172,7 @@ export WEBAPP_URL='https://bot.yourdomain.com'
 
 ### Internet Exposure (No Nginx Required)
 
-Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports multiple zero-Nginx options out of the box during both `install.sh` and `update.sh`:
+Telegram Mini Apps strictly require a public **HTTPS** URL. VizzPN Shop Bot supports multiple zero-Nginx options out of the box during both `install.sh` and `update.sh`:
 
 1. **Option 1: Cloudflare Quick Tunnel (Recommended — No Nginx, No Domain, No Open Ports)**
    - Automatically installs `cloudflared` and runs a background systemd service (`speedybot-tunnel.service`).
@@ -215,7 +215,7 @@ Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports m
 
 ## Online Payment Gateways & Telegram Stars
 
-SpeedyBot natively supports automated online payment gateways, Telegram Stars, manual card-to-card receipts, and internal wallet payments:
+VizzPN Shop Bot natively supports automated online payment gateways, Telegram Stars, manual card-to-card receipts, and internal wallet payments:
 
 1. **Telegram Stars (`XTR`)**
    - Native in-app payment directly inside Telegram using Stars.
@@ -285,7 +285,7 @@ Recommended production setup:
 - Working Subscription service if Subscription URLs are used.
 - Outbound connectivity from the VPS to Telegram and the panel.
 
-SpeedyBot uses Long Polling, so no Telegram webhook port is required.
+VizzPN Shop Bot uses Long Polling, so no Telegram webhook port is required.
 
 ---
 
@@ -529,7 +529,7 @@ admins can:
 - Select exact inbounds independently for each plan.
 - Reset a scope to all active inbounds.
 
-If a scope has no explicit inbound rows, SpeedyBot uses **all active inbounds** for backward compatibility.
+If a scope has no explicit inbound rows, VizzPN Shop Bot uses **all active inbounds** for backward compatibility.
 
 ### Direct config vs Subscription
 
@@ -596,7 +596,7 @@ Telegram `file_id` values are stored instead of copying media binaries into SQLi
 
 ### Acquisition survey
 
-After the first successful paid purchase, SpeedyBot can ask how the user found the service. Default choices include friend recommendation, Telegram search, channel ads, Instagram, web/search, returning customer and other.
+After the first successful paid purchase, VizzPN Shop Bot can ask how the user found the service. Default choices include friend recommendation, Telegram search, channel ads, Instagram, web/search, returning customer and other.
 
 ### Trial follow-up
 
@@ -618,7 +618,7 @@ Rules:
 
 - 3–40 characters.
 - ASCII letters/numbers plus `.`, `_`, `-`.
-- Checked against local SpeedyBot data.
+- Checked against local VizzPN Shop Bot data.
 - Checked against the connected 3x-ui panel before checkout.
 
 ### Link a previously purchased service
@@ -629,7 +629,7 @@ Ownership rules:
 
 - Matching panel `tgId` → automatic claim.
 - Non-matching `tgId` → admin approval required.
-- One panel Client can be linked to only one SpeedyBot account.
+- One panel Client can be linked to only one VizzPN Shop Bot account.
 
 ---
 
@@ -930,4 +930,4 @@ Created and maintained by **AliFanni-79**.
 - Telegram: **@AliFanni_79**
 - Repository: **https://github.com/AliFanni-79/SpeedyBot**
 
-If you redistribute or build on SpeedyBot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.
+If you redistribute or build on VizzPN Shop Bot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.

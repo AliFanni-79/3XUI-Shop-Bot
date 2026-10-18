@@ -103,7 +103,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(C.setting("trial_default_ip_limit", ""), "0")
 
     def test_brand_and_customer_menu_defaults_are_seeded(self):
-        self.assertEqual(C.brand_name(), "Shop")
+        self.assertEqual(C.brand_name(), "VizzPN Shop Bot")
         for key in C.CUSTOMER_MENU_KEYS:
             self.assertTrue(C.menu_visible(key), key)
         C.set_setting("menu_guide_visible", "0")
@@ -235,7 +235,7 @@ class StorageTests(unittest.TestCase):
         # Reset brand settings
         con.execute("DELETE FROM settings WHERE key IN ('webapp_title', 'brand_name')")
         con.commit()
-        self.assertEqual(get_brand_name(conn=con), "Shop")
+        self.assertEqual(get_brand_name(conn=con), "VizzPN Shop Bot")
 
         # Brand name set
         con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_name', 'VizzPN')")

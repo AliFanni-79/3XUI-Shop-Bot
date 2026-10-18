@@ -11,7 +11,7 @@ For sensitive security reports, contact:
 - Telegram: @AliFanni_79
 - Repository: https://github.com/AliFanni-79/SpeedyBot
 
-Include the affected SpeedyBot version, relevant component, reproduction steps, expected/actual behavior and a redacted log if useful.
+Include the affected VizzPN Shop Bot version, relevant component, reproduction steps, expected/actual behavior and a redacted log if useful.
 
 ## Deployment reminders
 

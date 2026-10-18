@@ -1,6 +1,6 @@
-"""SpeedyBot production entrypoint.
+"""VizzPN Shop Bot production entrypoint.
 
-SpeedyBot v4 is a single integrated application. The business core and the
+VizzPN Shop Bot is a single integrated application. The business core and the
 Control Center live in the ``speedybot`` package; this file is the canonical
 runtime entrypoint used by systemd, manual runs, installation and updates.
 
@@ -49,7 +49,7 @@ def run():
         return
 
     speedybot.install(core)
-    print(f"SpeedyBot {speedybot.VERSION} is running...")
+    print(f"VizzPN Shop Bot {speedybot.VERSION} is running...")
     core.bot.remove_webhook()
     core.recover_processing_transactions()
     core.reconcile_missing_referral_commissions()
