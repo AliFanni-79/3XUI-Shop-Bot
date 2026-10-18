@@ -2602,7 +2602,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const appVersion = computed(() => auth.appVersion || stats.value?.version || '5.4.1')
+const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.1.0')
 
 // Navigation Tabs
 const activeTab = ref('orders')

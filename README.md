@@ -1,4 +1,4 @@
-# VizzPN Shop Bot v5.4.2
+# VizzPN Shop Bot v26.1.0
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>

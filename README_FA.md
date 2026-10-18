@@ -1,4 +1,4 @@
-# VizzPN Shop Bot v5.4.2
+# VizzPN Shop Bot v26.1.0
 
 <p align="center">
   <strong>پلتفرم جامع فروش، مینی‌اپ تلگرام و مدیریت اشتراک برای پنل 3x-ui / Sanaei</strong><br>

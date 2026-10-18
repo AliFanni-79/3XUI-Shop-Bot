@@ -407,12 +407,12 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 # Version endpoint
                 ver_res = self.client.get("/api/admin/version")
                 self.assertEqual(ver_res.status_code, 200)
-                self.assertEqual(ver_res.json()["version"], "5.4.1")
+                self.assertEqual(ver_res.json()["version"], "26.1.0")
 
                 # Stats endpoint contains app_version
                 stats_res = self.client.get("/api/admin/stats", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(stats_res.status_code, 200)
-                self.assertEqual(stats_res.json()["app_version"], "5.4.1")
+                self.assertEqual(stats_res.json()["app_version"], "26.1.0")
                 self.assertIn("brand_name", stats_res.json())
 
     def test_admin_trial_features(self):

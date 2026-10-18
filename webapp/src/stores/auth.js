@@ -9,14 +9,14 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,       // { id, first_name, username, balance, is_admin, app_title, version }
     appTitle: 'فروشگاه',
-    appVersion: '5.4.1',
+    appVersion: '26.1.0',
     loading: true,
     error: null,
   }),
   getters: {
     isAdmin: (s) => s.user?.is_admin === true,
     balance: (s) => s.user?.balance ?? 0,
-    version: (s) => s.appVersion || s.user?.version || '5.4.1',
+    version: (s) => s.appVersion || s.user?.version || '26.1.0',
     guidesEnabled: (s) => s.user?.guides_enabled !== false,
   },
   actions: {
