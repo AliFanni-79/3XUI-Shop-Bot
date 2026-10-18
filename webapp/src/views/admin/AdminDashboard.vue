@@ -50,7 +50,7 @@
       </div>
       <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
         <span class="text-tg-hint text-[10px] block">وضعیت سرویس سنائی</span>
-        <span class="text-xs font-bold mt-1 block flex items-center gap-1" :class="serverStatus?.xui?.connected ? 'text-emerald-400' : 'text-rose-400'">
+        <span class="text-xs font-bold mt-1 flex items-center gap-1" :class="serverStatus?.xui?.connected ? 'text-emerald-400' : 'text-rose-400'">
           <span class="w-2 h-2 rounded-full inline-block" :class="serverStatus?.xui?.connected ? 'bg-emerald-400' : 'bg-rose-400'"></span>
           {{ serverStatus?.xui?.connected ? (serverStatus.xui.latency_ms + ' ms') : 'قطع اتصال' }}
         </span>
@@ -871,7 +871,7 @@
 
                 <!-- Media Preview in Admin Panel -->
                 <div v-if="item.media_file_id && item.media_type === 'PHOTO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/40 max-w-sm">
-                  <img :src="getGuideMediaUrl(item)" class="w-full max-h-48 object-contain" loading="lazy" />
+                  <img :src="getGuideMediaUrl(item)" class="w-full max-h-48 object-contain" loading="lazy"/>
                 </div>
                 <div v-else-if="item.media_file_id && item.media_type === 'VIDEO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/60 max-w-sm">
                   <video controls playsinline preload="metadata" :src="getGuideMediaUrl(item)" class="w-full max-h-48 rounded-xl"></video>
@@ -2597,7 +2597,6 @@ import {
   saveAdminAuditSettings,
   getAdminSnapshot,
   sendAdminSnapshot,
-  getAdminVersion,
   checkAdminNotifications
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -2708,11 +2707,11 @@ const filteredGuides = computed(() =>
   guidesList.value.filter(g => (g.platform || '').toLowerCase() === activeGuidePlatform.value.toLowerCase())
 )
 const platformSuggestedApps = {
-  android: ['V2RayNG', 'Hiddify', 'NekoBox', 'Clash Meta', 'Sing-box'],
+  android: ['V2RayNG', 'Hiddify', 'V2Box', 'Clash Meta', 'Sing-box', 'Happ'],
   ios: ['Streisand', 'V2Box', 'FoXray', 'Shadowrocket', 'Sing-box'],
-  windows: ['v2rayN', 'Hiddify', 'Clash Verge', 'NekoRay'],
-  macos: ['V2rayU', 'FoXray', 'Clash Verge', 'Hiddify'],
-  linux: ['v2rayA', 'NekoRay', 'Clash Verge'],
+  windows: ['v2rayN', 'Hiddify', 'Clash Verge', 'NekoRay', 'Happ'],
+  macos: ['V2rayU', 'FoXray', 'Clash Verge', 'Hiddify', 'Happ'],
+  linux: ['v2rayA', 'NekoRay', 'Clash Verge', 'Happ'],
 }
 const showAddGuideModal = ref(false)
 const guideForm = ref({ platform: 'android', app_name: 'V2RayNG', title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 })
@@ -3320,7 +3319,7 @@ const handleToggleGuides = async () => {
 const handlePromptGuideBot = async (platform, appName = null) => {
   promptingBot.value = true
   try {
-    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value, appName || guideForm.value.app_name)
+    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value, appName)
     showNotify(res.data?.message || 'دستور ثبت راهنما به چت تلگرام شما ارسال شد.')
     if (res.data?.bot_username) {
       telegramBotUrl.value = `https://t.me/${res.data.bot_username}`

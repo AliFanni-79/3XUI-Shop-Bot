@@ -2,7 +2,7 @@ import os
 import re
 import secrets
 import sqlite3
-from typing import Any, Optional
+from typing import Optional
 
 
 def _migrate_db_files(directory: str, legacy_name: str = "speedping.db", target_name: str = "app.db") -> str:

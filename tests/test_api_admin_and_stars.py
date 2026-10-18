@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 import os
@@ -262,6 +262,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 res = self.client.post("/api/orders/init-stars", json=payload, headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(res.status_code, 200)
                 data = res.json()
+                self.assertEqual(data.get("invoice_link"), "https://t.me/$invoice_test_link")
+                mock_invoice.assert_called_once()
     def test_admin_plans_group_name(self):
         with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
             with patch("speedybot.api._is_admin", return_value=True):
@@ -702,6 +704,58 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     self.assertTrue(mock_send.called)
                     self.assertIn("نام نرم‌افزار", mock_send.call_args[0][1])
 
+    def test_admin_broadcast(self):
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            with patch("speedybot.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                with patch("speedybot.storage.audiences", return_value=[12345, 67890]):
+                    with patch("speedybot.core.bot.send_message"):
+                        res = self.client.post(
+                            "/api/admin/broadcast",
+                            json={"audience": "all", "message": "Test Announcement"},
+                            headers={"X-Telegram-Init-Data": init_data},
+                        )
+                        self.assertEqual(res.status_code, 200)
+                        data = res.json()
+                        self.assertEqual(data.get("status"), "started")
+                        self.assertEqual(data.get("total"), 2)
+
+    def test_calc_discount_and_stars_checkout(self):
+        from speedybot.api import _calc_discount
+        import sqlite3
+        conn = sqlite3.connect("app.db")
+        conn.execute(
+            "INSERT OR REPLACE INTO discount_codes (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("TEST50", "PERCENT", 50, 0, 100, 10, None, 1, 1000)
+        )
+        conn.commit()
+        conn.close()
+
+        disc = _calc_discount("TEST50", 100000, 888777)
+        self.assertEqual(disc, 50000)
+
+        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 888777, "first_name": "Reza"})
+            with patch("speedybot.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
+                payload = {
+                    "custom_spec": {
+                        "months": 1,
+                        "volume_gb": 20,
+                        "ip_limit": 1
+                    },
+                    "discount_code": "TEST50"
+                }
+                res = self.client.post("/api/orders/init-stars", json=payload, headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                mock_invoice.assert_called_once()
+
+    def test_core_logger_and_plan_alias(self):
+        import logging
+        from speedybot import core
+        self.assertTrue(hasattr(core, "logger"))
+        self.assertIsInstance(core.logger, logging.Logger)
+        self.assertTrue(hasattr(core, "get_plan_by_id"))
+        self.assertEqual(core.get_plan_by_id, core.get_plan)
 
 
 if __name__ == "__main__":

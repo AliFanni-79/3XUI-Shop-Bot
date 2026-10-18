@@ -1,6 +1,6 @@
 import os
+import logging
 import telebot
-from telebot import apihelper
 from telebot import types
 import sqlite3
 import requests
@@ -8,14 +8,14 @@ import time
 import re
 import secrets
 import threading
-import json
-import shutil
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
 from html import escape
-from typing import Optional, Any, Dict, List, Tuple, Union
+from typing import Optional
+
+logger = logging.getLogger("speedybot.core")
 
 try:
     import qrcode
@@ -24,13 +24,7 @@ except ImportError:
 
 from . import env_manager
 from . import backup_manager
-from .db import (
-    get_brand_name,
-    get_brand_slug,
-    get_connection,
-    get_db_path,
-    resolve_unique_service_email,
-)
+from .db import get_brand_name
 env_manager.load_env_file()
 # --- CONFIGURATIONS (READING FROM SYSTEM ENV) ---
 raw_token = os.getenv("BOT_TOKEN")
@@ -409,15 +403,21 @@ init_db()
 
 # --- DATABASE HELPERS ---
 def get_db_setting(key, default_value=""):
+    conn = None
     try:
         conn = _db_connect()
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = cursor.fetchone()
-        conn.close()
         return row[0] if row else default_value
-    except:
+    except Exception:
         return default_value
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def update_db_setting(key, value):
     conn = _db_connect()
@@ -570,6 +570,9 @@ def get_plan(plan_id, include_inactive=True):
     row = conn.execute(sql, (int(plan_id),)).fetchone()
     conn.close()
     return _row_to_plan(row)
+
+
+get_plan_by_id = get_plan
 
 
 def get_active_plans():
@@ -876,7 +879,7 @@ def _channel_membership_ok(user_id):
         if member.status in ('member', 'administrator', 'creator'):
             return True, None
         return False, f"برای خرید باید ابتدا عضو کانال {get_brand_name()} شوید."
-    except Exception as e:
+    except Exception:
         return False, "امکان بررسی عضویت کانال وجود ندارد؛ به پشتیبانی اطلاع دهید."
 
 
@@ -2250,7 +2253,7 @@ def send_xui_status(user_id, user_email, service_tx_id=None):
             bot.send_message(user_id, status_text, parse_mode="Markdown", reply_markup=markup)
         else:
             bot.send_message(user_id, "❌ مشخصات این اکانت روی پنل سرور یافت نشد.")
-    except Exception as e:
+    except Exception:
         bot.send_message(user_id, f"🚨 خطا در خواندن اطلاعات فنی سرور.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('getlinks:'))
@@ -3245,7 +3248,7 @@ def handle_admin_panel_callbacks(call):
                           f"💾 دیسک سرور: `{disk_curr:.2f} GB / {disk_total:.2f} GB`\n" \
                           f"⚙️ وضعیت هسته Xray: *{xray_state} ({xray_ver})*"
                 bot.send_message(admin_chat, srv_txt, parse_mode="Markdown")
-        except Exception as e:
+        except Exception:
             bot.send_message(admin_chat, f"🚨 خطا در ارتباط با وب‌سرویس سرور")
             
     elif action == "broadcast":
@@ -3725,7 +3728,8 @@ def process_admin_broadcast(message):
             bot.copy_message(chat_id=u[0], from_chat_id=message.chat.id, message_id=message.message_id)
             success_count += 1
             time.sleep(0.04)
-        except: continue
+        except Exception:
+            continue
     bot.send_message(message.chat.id, f"✅ تحویل موفق به {success_count} کاربر.")
 
 def process_edit_bank(message, field_type):
@@ -3984,7 +3988,8 @@ def process_delete_panel_sub(message):
         if res.status_code == 200 and res.json().get("success"):
             bot.send_message(message.chat.id, f"✅ اشتراک `{email}` با موفقیت از پنل حذف شد.")
         else: bot.send_message(message.chat.id, f"❌ خطای پنل: {res.text}")
-    except Exception as e: bot.send_message(message.chat.id, f"🚨 خطای ارتباطی")
+    except Exception:
+        bot.send_message(message.chat.id, f"🚨 خطای ارتباطی")
 
 # --- X-UI AUTO CREATION ENGINE ---
 def _xui_headers():
@@ -4340,7 +4345,7 @@ def renew_xui_service(user_id, user_email, days, volume_gb, ip_limit, plan_id=No
         _sync_client_inbounds(user_email, desired)
     target_group = None
     if plan_id:
-        p_row = get_plan_by_id(plan_id, include_inactive=True)
+        p_row = get_plan(plan_id, include_inactive=True)
         if p_row and p_row.get('group_name'):
             target_group = str(p_row['group_name']).strip()
     if not target_group:

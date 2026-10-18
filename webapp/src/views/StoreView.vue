@@ -509,7 +509,7 @@
         <div class="flex justify-between items-center pb-2 border-b border-gray-700/30">
           <h3 class="font-bold text-sm text-tg flex items-center gap-1.5">
             <span>🎁</span>
-            <span>دریافت تست رایگان ۱ روزه</span>
+            <span>دریافت تست رایگان {{ trialInfo?.days ? trialInfo.days + ' روزه' : '' }}</span>
           </h3>
           <button @click="closeTrialModal" class="text-tg-hint hover:text-tg text-sm">✕</button>
         </div>
@@ -518,15 +518,17 @@
           <div class="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 text-xs text-tg space-y-1.5">
             <div class="flex justify-between font-semibold">
               <span>حجم هدیه:</span>
-              <span class="text-emerald-400 font-bold">۳۰۰ مگابایت</span>
+              <span class="text-emerald-400 font-bold">
+                {{ trialInfo?.volume_display || (trialInfo?.volume_gb >= 1 ? trialInfo.volume_gb + ' گیگابایت' : (trialInfo?.volume_gb ? Math.round(trialInfo.volume_gb * 1024) + ' مگابایت' : '۳۰۰ مگابایت')) }}
+              </span>
             </div>
             <div class="flex justify-between font-semibold">
               <span>مدت اعتبار:</span>
-              <span>۱ روز</span>
+              <span>{{ trialInfo?.days ? trialInfo.days + ' روز' : '۱ روز' }}</span>
             </div>
             <div class="flex justify-between font-semibold">
               <span>محدودیت کاربر:</span>
-              <span>نامحدود</span>
+              <span>{{ trialInfo?.ip_limit > 0 ? trialInfo.ip_limit + ' کاربر' : 'نامحدود' }}</span>
             </div>
             <div class="flex justify-between font-semibold pt-1 border-t border-emerald-500/20">
               <span>هزینه:</span>

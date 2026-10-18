@@ -359,7 +359,7 @@ class StorageTests(unittest.TestCase):
         con.close()
 
     def test_trial_override_precedence(self):
-        from speedybot import trial, context as C
+        from speedybot import trial
         con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE IF NOT EXISTS trial_overrides (user_id INTEGER PRIMARY KEY, volume_gb REAL, days INTEGER, ip_limit INTEGER, note TEXT, updated_at INTEGER, updated_by INTEGER)")
         con.execute("DELETE FROM trial_overrides")

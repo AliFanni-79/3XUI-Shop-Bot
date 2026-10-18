@@ -29,16 +29,16 @@ import logging
 import mimetypes
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, unquote
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import VERSION, core, storage, trial, ops, db
+from . import VERSION, core, ops, db
 
 logger = logging.getLogger("speedybot.api")
 
@@ -885,7 +885,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
         (uid,),
     ).fetchall()
 
-    trial = conn.execute(
+    trial_row = conn.execute(
         "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
         (uid,),
     ).fetchone()
@@ -903,19 +903,19 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
         svc["kind"] = "PAID"
         services.append(svc)
 
-    if trial:
-        status_val = trial["status"]
+    if trial_row:
+        status_val = trial_row["status"]
         if status_val in ("ACTIVE", "CREATING", "EXPIRED"):
             svc = {
-                "email": trial["email"],
-                "sub_url": _core.get_client_sub_url(trial["email"], trial["sub_id"]),
+                "email": trial_row["email"],
+                "sub_url": _core.get_client_sub_url(trial_row["email"], trial_row["sub_id"]),
                 "kind": "TRIAL",
                 "status": status_val,
                 "plan_name": "تست رایگان",
                 "days": int(_setting("trial_default_days", "1")),
                 "volume_gb": float(_setting("trial_default_volume_gb", "1")),
                 "ip_limit": int(_setting("trial_default_ip_limit", "1")),
-                "approved_at": trial.get("activated_at"),
+                "approved_at": trial_row.get("activated_at"),
                 "tx_id": None,
             }
             services.append(svc)
@@ -1353,6 +1353,22 @@ async def get_active_gateways(_user: Dict[str, Any] = Depends(get_current_user))
         "stars": stars_enabled,
         "stars_rate": stars_rate,
     }
+
+
+def _calc_discount(code: str, price: int, user_id: int) -> int:
+    """Calculate and return discount amount for a given code and price."""
+    if not code:
+        return 0
+    conn = _db()
+    try:
+        from . import core as _core
+        _core.set_pending_discount(user_id, code)
+        _, discount_amount, _ = _core._calculate_pending_discount(conn, user_id, price)
+        return int(discount_amount or 0)
+    except Exception:
+        return 0
+    finally:
+        conn.close()
 
 
 @app.post("/api/orders/init-stars")
@@ -2795,6 +2811,14 @@ async def admin_broadcast(
                 sent += 1
             except Exception:
                 failed += 1
+
+    t = threading.Thread(target=_send, daemon=True)
+    t.start()
+    return {
+        "status": "started",
+        "total": len(audience_ids),
+        "message": f"ارسال پیام به {len(audience_ids)} کاربر آغاز شد.",
+    }
 
 # ---------------------------------------------------------------------------
 # Admin — Sanaei 3x-ui & Groups Management

@@ -1,5 +1,4 @@
 from html import escape
-import time
 from . import context as C
 from . import ui
 

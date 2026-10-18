@@ -9,7 +9,7 @@ Both adapters can operate in live or sandbox mode and are disabled by default.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional, Tuple
 import requests
 
 logger = logging.getLogger(__name__)

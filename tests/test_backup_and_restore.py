@@ -5,7 +5,6 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import time
-from types import SimpleNamespace
 import unittest
 
 from speedybot import backup_manager

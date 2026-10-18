@@ -1,5 +1,5 @@
 from __future__ import annotations
-import sqlite3, time
+import time
 from html import escape
 from typing import Any, Dict, Optional, Tuple
 

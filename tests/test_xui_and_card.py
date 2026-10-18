@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 try:
-    import telebot
+    import telebot  # noqa: F401
 except ImportError:
     class MockTelebot:
         class TeleBot:
@@ -56,7 +56,7 @@ except ImportError:
     sys.modules['telebot.apihelper'] = m.apihelper
 
 try:
-    import requests
+    import requests  # noqa: F401
 except ImportError:
     import types
     mock_requests = types.ModuleType("requests")
