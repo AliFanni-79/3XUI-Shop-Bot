@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 
 import os
 os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+os.environ.setdefault("XUI_API_URL", "https://panel.example.com:2053")
+os.environ.setdefault("ADMIN_ID", "111222")
 
 from fastapi.testclient import TestClient
 
@@ -17,6 +19,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from xuishop import core, storage
+        core.XUI_API_URL = os.environ.get("XUI_API_URL", "https://panel.example.com:2053")
         core.init_db()
         storage.init_db()
         cls.client = TestClient(app)
@@ -839,27 +842,31 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
 
                 # 3. POST reset traffic
                 with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
-                    with patch("requests.post") as mock_post:
-                        mock_post.return_value.status_code = 200
-                        mock_post.return_value.json.return_value = {"success": True}
-                        res = self.client.post(
-                            "/api/admin/services/test_customer_svc/reset-traffic",
-                            headers={"X-Telegram-Init-Data": init_data}
-                        )
-                        self.assertEqual(res.status_code, 200)
-                        self.assertEqual(res.json()["status"], "ok")
+                    with patch("xuishop.core._xui_url", return_value="https://panel.example.com/reset"):
+                        with patch("xuishop.core._xui_headers", return_value={"Authorization": "Bearer test"}):
+                            with patch("requests.post") as mock_post:
+                                mock_post.return_value.status_code = 200
+                                mock_post.return_value.json.return_value = {"success": True}
+                                res = self.client.post(
+                                    "/api/admin/services/test_customer_svc/reset-traffic",
+                                    headers={"X-Telegram-Init-Data": init_data}
+                                )
+                                self.assertEqual(res.status_code, 200)
+                                self.assertEqual(res.json()["status"], "ok")
 
                 # 4. DELETE service
                 with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
-                    with patch("requests.post") as mock_del_post:
-                        mock_del_post.return_value.status_code = 200
-                        mock_del_post.return_value.json.return_value = {"success": True}
-                        res = self.client.delete(
-                            "/api/admin/services/test_customer_svc",
-                            headers={"X-Telegram-Init-Data": init_data}
-                        )
-                        self.assertEqual(res.status_code, 200)
-                        self.assertEqual(res.json()["status"], "ok")
+                    with patch("xuishop.core._xui_url", return_value="https://panel.example.com/del"):
+                        with patch("xuishop.core._xui_headers", return_value={"Authorization": "Bearer test"}):
+                            with patch("requests.post") as mock_del_post:
+                                mock_del_post.return_value.status_code = 200
+                                mock_del_post.return_value.json.return_value = {"success": True}
+                                res = self.client.delete(
+                                    "/api/admin/services/test_customer_svc",
+                                    headers={"X-Telegram-Init-Data": init_data}
+                                )
+                                self.assertEqual(res.status_code, 200)
+                                self.assertEqual(res.json()["status"], "ok")
 
 
 if __name__ == "__main__":
