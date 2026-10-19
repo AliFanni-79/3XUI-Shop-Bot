@@ -2026,11 +2026,48 @@
         </div>
 
         <div>
-          <span class="font-bold block mb-1">سرویس‌های فعال ({{ selectedUserDetail.services.length }}):</span>
-          <div v-if="selectedUserDetail.services.length" class="space-y-1">
-            <div v-for="s in selectedUserDetail.services" :key="s.id" class="p-2 bg-tg rounded-lg font-mono text-[10px] flex justify-between">
-              <span>{{ s.sub_id || 'سرویس' }}</span>
-              <span class="text-tg-hint">{{ s.status }}</span>
+          <span class="font-bold block mb-1.5">سرویس‌های متصل و فعال ({{ selectedUserDetail.services.length }}):</span>
+          <div v-if="selectedUserDetail.services.length" class="space-y-2">
+            <div
+              v-for="s in selectedUserDetail.services"
+              :key="s.id"
+              class="p-2.5 bg-tg rounded-xl border border-gray-700/30 space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="font-bold text-xs block text-white">{{ s.display_name || s.sub_id || 'سرویس' }}</span>
+                  <span class="text-[10px] font-mono text-tg-hint block">{{ s.email || s.service_email || s.sub_id }}</span>
+                </div>
+                <span class="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold">
+                  {{ s.status || 'فعال' }}
+                </span>
+              </div>
+
+              <div class="flex items-center gap-1.5 pt-1 border-t border-gray-700/30">
+                <button
+                  type="button"
+                  @click="openEditServiceModal(s)"
+                  class="flex-1 py-1.5 px-2 bg-sky-500/20 text-sky-300 rounded-lg text-[10px] font-bold hover:bg-sky-500/30 transition text-center"
+                >
+                  ✏️ ویرایش، انقضا و اینباندها
+                </button>
+                <button
+                  type="button"
+                  @click="handleQuickResetTraffic(s)"
+                  class="py-1.5 px-2 bg-amber-500/20 text-amber-300 rounded-lg text-[10px] font-bold hover:bg-amber-500/30 transition"
+                  title="صفر کردن ترافیک مصرف شده"
+                >
+                  🔄 ریست حجم
+                </button>
+                <button
+                  type="button"
+                  @click="handleDeleteService(s)"
+                  class="py-1.5 px-2 bg-rose-500/20 text-rose-300 rounded-lg text-[10px] font-bold hover:bg-rose-500/30 transition"
+                  title="حذف کامل سرویس از پنل"
+                >
+                  🗑 حذف
+                </button>
+              </div>
             </div>
           </div>
           <div v-else class="text-tg-hint text-[10px]">سرویسی یافت نشد.</div>
@@ -2512,6 +2549,256 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal 14: Customer Service Edit Modal (NEW) -->
+    <div v-if="showServiceModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-lg w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div>
+            <h4 class="font-bold text-sm flex items-center gap-1.5">
+              <span>🛠</span>
+              <span>مدیریت سرویس: {{ serviceEditForm.display_name || serviceEditForm.email }}</span>
+            </h4>
+            <span class="text-[10px] text-tg-hint font-mono">{{ serviceEditForm.email }}</span>
+          </div>
+          <button @click="showServiceModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div v-if="loadingServiceModal" class="py-10 text-center text-tg-hint space-y-2">
+          <div class="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div>در حال دریافت اطلاعات سرویس از پنل سنائی...</div>
+        </div>
+
+        <div v-else class="space-y-3">
+          <!-- Usage Stats Bar -->
+          <div class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2">
+            <div class="flex justify-between items-center text-[11px]">
+              <span>مصرف ترافیک:</span>
+              <span class="font-mono font-bold">
+                {{ serviceEditForm.used_gb }} GB / {{ serviceEditForm.total_gb > 0 ? (serviceEditForm.total_gb + ' GB') : 'نامحدود' }}
+              </span>
+            </div>
+            <!-- Progress bar -->
+            <div v-if="serviceEditForm.total_gb > 0" class="w-full bg-gray-700/50 h-2 rounded-full overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all"
+                :class="serviceUsagePercent >= 90 ? 'bg-rose-500' : (serviceUsagePercent >= 75 ? 'bg-amber-500' : 'bg-emerald-500')"
+                :style="{ width: Math.min(100, serviceUsagePercent) + '%' }"
+              ></div>
+            </div>
+            <div class="flex justify-between items-center text-[10px] text-tg-hint pt-1 border-t border-gray-700/20">
+              <span>وضعیت اتصال:</span>
+              <span :class="serviceEditForm.enable ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'">
+                {{ serviceEditForm.enable ? 'فعال (مجاز به اتصال)' : 'غیرفعال (مسدود شده)' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Volume & IP Limit -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">حجم مجاز (گیگابایت - ۰ برای نامحدود):</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                v-model.number="serviceEditForm.total_gb"
+                placeholder="0 = نامحدود"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">محدودیت IP همزمان (۰ برای نامحدود):</label>
+              <input
+                type="number"
+                min="0"
+                v-model.number="serviceEditForm.limit_ip"
+                placeholder="0 = نامحدود"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <!-- Expiry Date & Time Section -->
+          <div class="bg-tg/50 p-3 rounded-xl border border-gray-700/30 space-y-2">
+            <div class="flex justify-between items-center">
+              <label class="text-[10px] text-tg-hint">تاریخ انقضا:</label>
+              <span class="text-[11px] font-bold text-sky-400">
+                {{ formatServiceExpiry(serviceEditForm.expiry_time) }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input
+                type="date"
+                :value="getExpiryInputDate(serviceEditForm.expiry_time)"
+                @change="onDateInputChange"
+                class="flex-1 bg-tg border border-gray-700/40 rounded-xl px-3 py-1.5 text-xs font-mono"
+              />
+              <button
+                type="button"
+                @click="setServiceExpiryDays(0)"
+                class="px-2.5 py-1.5 bg-gray-700/40 hover:bg-gray-700 text-tg-hint rounded-xl text-[10px] font-bold transition"
+              >
+                نامحدود (بدون انقضا)
+              </button>
+            </div>
+
+            <!-- Quick Extend Buttons -->
+            <div class="flex items-center gap-1.5 flex-wrap pt-1">
+              <span class="text-[9px] text-tg-hint">تمدید سریع:</span>
+              <button
+                type="button"
+                @click="extendServiceExpiry(7)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۷ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(30)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۳۰ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(60)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۶۰ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(90)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۹۰ روز
+              </button>
+            </div>
+          </div>
+
+          <!-- Reset Quota & Enable Toggle -->
+          <div class="space-y-2 pt-1">
+            <label class="flex items-center gap-2 cursor-pointer bg-tg p-2.5 rounded-xl border border-gray-700/30">
+              <input
+                type="checkbox"
+                v-model="serviceEditForm.enable"
+                class="w-4 h-4 rounded text-indigo-500 focus:ring-0"
+              />
+              <div class="flex-1">
+                <span class="font-bold text-xs block">فعال بودن سرویس در سرور</span>
+                <span class="text-[10px] text-tg-hint">در صورت خاموش بودن، اتصال کاربر قطع خواهد شد</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-2 cursor-pointer bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-xl">
+              <input
+                type="checkbox"
+                v-model="serviceEditForm.reset_traffic"
+                class="w-4 h-4 rounded text-amber-500 focus:ring-0"
+              />
+              <div class="flex-1">
+                <span class="font-bold text-xs text-amber-300 block">صفر کردن حجم مصرف شده (Reset Quota)</span>
+                <span class="text-[10px] text-amber-200/70">با ذخیره این فرم، مقادیر دانلود و آپلود کاربر به صفر بازنشانی می‌شود</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Inbounds Selector -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="font-bold text-xs block">اینباندهای مجاز برای این سرویس:</label>
+                <span class="text-[10px] text-tg-hint">اینباند‌هایی که کلاینت روی آنها تنظیم و فعال است</span>
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  type="button"
+                  @click="selectAllServiceInbounds(true)"
+                  class="px-2 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllServiceInbounds(false)"
+                  class="px-2 py-1 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="serviceEditForm.all_inbounds && serviceEditForm.all_inbounds.length" class="space-y-1.5 max-h-48 overflow-y-auto">
+              <div
+                v-for="inb in serviceEditForm.all_inbounds"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px]">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-3 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد یا دریافت نشد.
+            </div>
+          </div>
+
+          <!-- Bottom Action Buttons -->
+          <div class="pt-2 border-t border-gray-700/30 space-y-2">
+            <div class="flex gap-2">
+              <button
+                type="button"
+                @click="handleSaveService"
+                :disabled="savingService"
+                class="flex-1 btn-tg py-2 rounded-xl font-bold flex items-center justify-center gap-1.5"
+              >
+                <div v-if="savingService" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>{{ savingService ? 'در حال ذخیره...' : '💾 ذخیره تغییرات' }}</span>
+              </button>
+              <button
+                type="button"
+                @click="showServiceModal = false"
+                class="px-4 bg-gray-700/40 text-tg hover:bg-gray-700 rounded-xl font-bold"
+              >
+                انصراف
+              </button>
+            </div>
+
+            <div class="flex justify-between items-center pt-1 border-t border-gray-700/20">
+              <button
+                type="button"
+                @click="handleQuickResetTraffic(serviceEditForm.email)"
+                class="text-[10px] text-amber-400 hover:underline flex items-center gap-1"
+              >
+                <span>🔄</span>
+                <span>صفر کردن حجم همین الان</span>
+              </button>
+
+              <button
+                type="button"
+                @click="handleDeleteService(serviceEditForm.email)"
+                class="text-[10px] text-rose-400 hover:underline flex items-center gap-1"
+              >
+                <span>🗑</span>
+                <span>حذف کامل سرویس از پنل</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2564,6 +2851,11 @@ import {
   saveAdminAffiliate,
   getAdminContentSecurity,
   saveAdminContentSecurity,
+  // Customer Services Management
+  getAdminServiceDetails,
+  updateAdminService,
+  resetAdminServiceTraffic,
+  deleteAdminService,
   // NEW API methods
   getAdminPlanInbounds,
   toggleAdminPlanInbound,
@@ -2602,7 +2894,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.1.0')
+const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.2.0')
 
 // Navigation Tabs
 const activeTab = ref('orders')
@@ -2937,7 +3229,13 @@ const loadData = async () => {
         followup_delay_hours: triRes.data.followup_delay_hours ?? 2,
       }
       trialStats.value = triRes.data.stats || { total_trials: 0, active_trials: 0, expired_trials: 0 }
-      trialInbounds.value = triRes.data.inbounds || []
+      const triRaw = triRes.data?.inbounds || triRes.data?.active_inbounds || []
+      const triConfiguredSet = new Set(triRes.data?.configured_inbounds || [])
+      trialInbounds.value = triRaw.map(i => ({
+        ...i,
+        tag: i.tag || i.remark || ('اینباند #' + i.id),
+        selected: typeof i.selected === 'boolean' ? i.selected : triConfiguredSet.has(i.id)
+      }))
     }
 
     if (crmRes?.data) {
@@ -3056,7 +3354,13 @@ const openPlanInboundsModal = async (plan) => {
   loadingPlanInbounds.value = true
   try {
     const res = await getAdminPlanInbounds(plan.id)
-    planInboundsList.value = res.data?.inbounds || []
+    const rawList = res.data?.inbounds || res.data?.active_inbounds || []
+    const configuredSet = new Set(res.data?.configured_inbounds || [])
+    planInboundsList.value = rawList.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: typeof i.selected === 'boolean' ? i.selected : configuredSet.has(i.id)
+    }))
   } catch (err) {
     showNotify('خطا در دریافت اینباندهای پلن', false)
   } finally {
@@ -3486,6 +3790,193 @@ const handleSearchUsers = async () => {
     usersList.value = res.data?.users || []
   } catch (err) {
     showNotify('خطا در جستجوی کاربران', false)
+  }
+}
+
+// ─── Customer Service Management Handlers ────────────────────────────────────
+const showServiceModal = ref(false)
+const loadingServiceModal = ref(false)
+const savingService = ref(false)
+const serviceEditForm = ref({
+  email: '',
+  display_name: '',
+  total_gb: 0,
+  used_gb: 0,
+  limit_ip: 0,
+  expiry_time: 0,
+  enable: true,
+  reset_traffic: false,
+  all_inbounds: [],
+  inbound_ids: []
+})
+
+const serviceUsagePercent = computed(() => {
+  const total = Number(serviceEditForm.value.total_gb) || 0
+  const used = Number(serviceEditForm.value.used_gb) || 0
+  if (total <= 0) return 0
+  return Math.round((used / total) * 100)
+})
+
+const formatServiceExpiry = (ms) => {
+  if (!ms || Number(ms) <= 0) return 'نامحدود / بدون تاریخ انقضا'
+  const d = new Date(Number(ms))
+  if (isNaN(d.getTime())) return '-'
+  const now = Date.now()
+  const daysLeft = Math.round((Number(ms) - now) / (1000 * 3600 * 24))
+  const dateStr = d.toLocaleDateString('fa-IR', { year: 'numeric', month: 'short', day: 'numeric' })
+  if (daysLeft > 0) return `${dateStr} (${daysLeft} روز باقیمانده)`
+  if (daysLeft === 0) return `${dateStr} (امروز منقضی می‌شود)`
+  return `${dateStr} (${Math.abs(daysLeft)} روز گذشته - منقضی شده)`
+}
+
+const getExpiryInputDate = (ms) => {
+  if (!ms || Number(ms) <= 0) return ''
+  const d = new Date(Number(ms))
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const onDateInputChange = (e) => {
+  const val = e.target.value
+  if (!val) {
+    serviceEditForm.value.expiry_time = 0
+    return
+  }
+  const parts = val.split('-').map(Number)
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const dt = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59)
+    serviceEditForm.value.expiry_time = dt.getTime()
+  }
+}
+
+const extendServiceExpiry = (days) => {
+  const now = Date.now()
+  const base = (serviceEditForm.value.expiry_time && Number(serviceEditForm.value.expiry_time) > now)
+    ? Number(serviceEditForm.value.expiry_time)
+    : now
+  serviceEditForm.value.expiry_time = base + (days * 24 * 3600 * 1000)
+}
+
+const setServiceExpiryDays = (days) => {
+  if (days <= 0) {
+    serviceEditForm.value.expiry_time = 0
+  } else {
+    serviceEditForm.value.expiry_time = Date.now() + (days * 24 * 3600 * 1000)
+  }
+}
+
+const selectAllServiceInbounds = (selected) => {
+  if (serviceEditForm.value.all_inbounds) {
+    serviceEditForm.value.all_inbounds.forEach(i => i.selected = selected)
+  }
+}
+
+const openEditServiceModal = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) {
+    showNotify('شناسه یا ایمیل سرویس مشخص نیست.', false)
+    return
+  }
+  showServiceModal.value = true
+  loadingServiceModal.value = true
+  serviceEditForm.value = {
+    email: email,
+    display_name: (typeof s === 'object' && (s.display_name || s.sub_id)) || email,
+    total_gb: 0,
+    used_gb: 0,
+    limit_ip: 0,
+    expiry_time: 0,
+    enable: true,
+    reset_traffic: false,
+    all_inbounds: [],
+    inbound_ids: []
+  }
+
+  try {
+    const res = await getAdminServiceDetails(email)
+    const d = res.data
+    serviceEditForm.value = {
+      email: d.email || email,
+      display_name: (typeof s === 'object' && s.display_name) || d.email || email,
+      total_gb: d.total_gb ?? 0,
+      used_gb: d.used_gb ?? 0,
+      limit_ip: d.limit_ip ?? 0,
+      expiry_time: d.expiry_time ?? 0,
+      enable: d.enable !== false,
+      reset_traffic: false,
+      all_inbounds: (d.all_inbounds || []).map(i => ({ ...i })),
+      inbound_ids: d.inbound_ids || []
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در دریافت جزئیات سرویس از پنل سنائی', false)
+  } finally {
+    loadingServiceModal.value = false
+  }
+}
+
+const handleSaveService = async () => {
+  if (!serviceEditForm.value.email) return
+  savingService.value = true
+  try {
+    const selectedInbounds = (serviceEditForm.value.all_inbounds || [])
+      .filter(i => i.selected)
+      .map(i => i.id)
+
+    await updateAdminService(serviceEditForm.value.email, {
+      volume_gb: Number(serviceEditForm.value.total_gb) || 0,
+      limit_ip: Number(serviceEditForm.value.limit_ip) || 0,
+      expiry_time: Number(serviceEditForm.value.expiry_time) || 0,
+      enable: serviceEditForm.value.enable,
+      reset_traffic: serviceEditForm.value.reset_traffic,
+      inbound_ids: selectedInbounds
+    })
+
+    showNotify('سرویس کاربر با موفقیت در پنل سنائی بروزرسانی شد.')
+    showServiceModal.value = false
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره تغییرات سرویس', false)
+  } finally {
+    savingService.value = false
+  }
+}
+
+const handleQuickResetTraffic = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) return
+  if (!confirm(`آیا از صفر کردن حجم مصرفی سرویس "${email}" اطمینان دارید؟`)) return
+  try {
+    const res = await resetAdminServiceTraffic(email)
+    showNotify(res.data?.message || 'حجم مصرفی سرویس ریست شد.')
+    if (showServiceModal.value && serviceEditForm.value.email === email) {
+      serviceEditForm.value.used_gb = 0
+    }
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ریست حجم سرویس', false)
+  }
+}
+
+const handleDeleteService = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) return
+  if (!confirm(`هشدار: آیا از حذف کامل سرویس "${email}" از پنل سنائی و ربات اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`)) return
+  try {
+    await deleteAdminService(email)
+    showNotify('سرویس با موفقیت حذف شد.')
+    showServiceModal.value = false
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در حذف سرویس', false)
   }
 }
 

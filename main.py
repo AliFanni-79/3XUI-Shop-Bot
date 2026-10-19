@@ -35,6 +35,10 @@ def _start_api_server():
     except ImportError:
         print("⚠️  uvicorn / fastapi not installed — Mini App API disabled.")
         print("   Run: pip install -r requirements.txt")
+    except Exception as exc:
+        print(f"❌ Uvicorn API server error: {exc}")
+        import logging
+        logging.getLogger("xuishop.api").exception("Fatal error in Uvicorn API server:")
 
 
 def run():

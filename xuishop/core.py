@@ -38,9 +38,37 @@ XUI_BEARER_TOKEN = os.getenv("XUI_BEARER_TOKEN")
 XUI_SUB_SERVER_URL = os.getenv("XUI_SUB_SERVER_URL") # مثلا https://sub.example.com:2096
 XUI_SUB_PATH = os.getenv("XUI_SUB_PATH", "/sub/")  # مسیر Subscription در Settings → Subscription
 
+_BaseExceptionHandler = getattr(telebot, "ExceptionHandler", object)
+
+
+class _RateLimitExceptionHandler(_BaseExceptionHandler):
+    def handle(self, exception):
+        api_exc = getattr(telebot, "apihelper", object)
+        api_exc_cls = getattr(api_exc, "ApiException", Exception)
+        if isinstance(exception, api_exc_cls):
+            code = getattr(exception, "error_code", None)
+            err_str = str(exception)
+            if code == 429 or "Too Many Requests" in err_str:
+                retry_after = 15
+                res_json = getattr(exception, "result_json", None)
+                if isinstance(res_json, dict):
+                    retry_after = int(res_json.get("parameters", {}).get("retry_after", 15) or 15)
+                else:
+                    match = re.search(r"retry after (\d+)", err_str, re.IGNORECASE)
+                    if match:
+                        retry_after = int(match.group(1))
+                logger.warning(
+                    "⚠️ Telegram rate limit (HTTP 429 Too Many Requests). Pausing polling for %d seconds as instructed by Telegram...",
+                    retry_after,
+                )
+                time.sleep(retry_after + 2)
+                return True
+        return False
+
+
 DEVELOPMENT_MODE = False
 try:
-    bot = telebot.TeleBot(BOT_TOKEN)
+    bot = telebot.TeleBot(BOT_TOKEN, exception_handler=_RateLimitExceptionHandler())
 except Exception:
     class _MockTeleBot:
         def __getattr__(self, name):
@@ -4094,7 +4122,10 @@ def _get_active_inbound_details(headers, request_proxies):
     data = _safe_json(response)
     if response.status_code != 200 or not data.get('success'):
         raise RuntimeError(_xui_response_error(response, "خطا در دریافت Inboundها از پنل"))
-    return [ib for ib in (data.get('obj') or []) if ib.get('enable', True) and ib.get('id') is not None]
+    raw_list = data.get('obj') or []
+    if isinstance(raw_list, dict):
+        raw_list = list(raw_list.values())
+    return [ib for ib in raw_list if isinstance(ib, dict) and ib.get('enable') is not False and ib.get('enable') != 0 and ib.get('id') is not None]
 
 
 def _get_active_inbound_ids(headers, request_proxies):
@@ -4293,7 +4324,10 @@ def _get_exported_client(email):
         raise RuntimeError(_xui_response_error(response, "خطا در Export کلاینت‌ها"))
     for item in data.get('obj', []) or []:
         client = item.get('client') or {}
-        if str(client.get('email')) == str(email):
+        c_email = str(client.get('email') or '').strip()
+        c_sub = str(client.get('subId') or '').strip()
+        target = str(email or '').strip()
+        if target and (c_email == target or c_sub == target):
             return client, item.get('inboundIds', []) or []
     return None, []
 

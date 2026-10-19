@@ -289,6 +289,28 @@ class XuiAndCardTests(unittest.TestCase):
                                 self.assertEqual(links, ["vless://123"])
                                 self.assertEqual(assigned_groups, [("test_user_email", "VIP_Group")])
 
+    def test_rate_limit_exception_handler(self):
+        handler = core._RateLimitExceptionHandler()
+        # Mock ApiException with 429
+        class MockApiException(Exception):
+            def __init__(self, error_code, result_json=None):
+                self.error_code = error_code
+                self.result_json = result_json
+                msg = f"Error code: {error_code}. Too Many Requests: retry after 5" if error_code == 429 else f"Error code: {error_code}. Bad Request"
+                super().__init__(msg)
+
+        with patch("telebot.apihelper.ApiException", MockApiException):
+            exc = MockApiException(429, {"parameters": {"retry_after": 5}})
+            with patch("time.sleep") as mock_sleep:
+                handled = handler.handle(exc)
+                self.assertTrue(handled)
+                mock_sleep.assert_called_once_with(7)  # 5 + 2
+
+        # Non-429 exception should not be handled
+        with patch("telebot.apihelper.ApiException", MockApiException):
+            exc_other = MockApiException(400)
+            self.assertFalse(handler.handle(exc_other))
+
 
 if __name__ == "__main__":
     unittest.main()

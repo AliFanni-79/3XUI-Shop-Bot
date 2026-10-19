@@ -1,4 +1,4 @@
-# VizzPN Shop Bot v26.1.0
+# VizzPN Shop Bot v26.2.0
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
@@ -34,7 +34,7 @@ The application package is located in `xuishop/` and the compiled single-page fr
 ## Table of contents
 
 - [Features](#features)
-- [What's New in v26.1.0](#whats-new-in-v2610)
+- [What's New in v26.2.0](#whats-new-in-v2620)
 - [Default plans](#default-plans)
 - [Telegram Mini App Setup](#telegram-mini-app-setup)
 - [Online Payment Gateways](#online-payment-gateways)
@@ -105,6 +105,29 @@ From `/sudoadmin` or the Mini App Admin Dashboard:
 - Targeted user broadcasts.
 - Comprehensive audit log.
 - Automated backup creation and safe restoration.
+
+---
+
+## What's New in v26.2.0
+
+### 1. Customer Service Management & Interactive Controls
+- Complete management modal directly in the Customer Details profile inside the Web Admin Dashboard.
+- **Traffic Quota Management**: Edit quota (`totalGB`), reset downloaded/uploaded bytes with one click, or set traffic to unlimited.
+- **Concurrent IP Limiter**: Edit and enforce `limitIp` directly in 3x-ui.
+- **Expiry Date & Quick Extension**: View formatted expiration date and remaining days; extend by +7, +30, +60, +90 days, set to unlimited, or choose an exact date.
+- **Per-Service Inbound Routing**: Selectively map or exclude inbounds for specific customer services with one-click toggles.
+- **Instant Client Deletion**: Safely delete clients from the 3x-ui panel (`del/{email}?keepTraffic=0`) while revoking all linked transaction and trial records.
+
+### 2. Plan Inbound Routing Bugfix
+- Fixed a bug where inbounds in the Plans list displayed "No inbound available in the panel".
+- Both backend and frontend now consistently process inbound tags, remarks, protocols, ports, and selection states.
+
+### 3. Telegram API Rate-Limiting Protection (HTTP 429)
+- Implemented an intelligent rate-limit exception handler in `TeleBot.infinity_polling`.
+- When Telegram API returns HTTP 429 ("Too Many Requests: retry after X"), polling automatically pauses for `retry_after + 2` seconds instead of busy-spinning every 250ms.
+
+### 4. Resilient Background Services
+- Added exception catching and detailed logging for the Uvicorn daemon thread in `main.py`.
 
 ---
 
@@ -845,7 +868,7 @@ journalctl -u xui-bot.service -n 150 --no-pager
 Expected active version:
 
 ```text
-26.1.0
+26.2.0
 ```
 
 Runner target:

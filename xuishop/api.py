@@ -29,7 +29,7 @@ import logging
 import mimetypes
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -366,6 +366,15 @@ class AdminTrialOverrideRequest(BaseModel):
 
 class InboundToggleRequest(BaseModel):
     inbound_id: int
+
+
+class AdminUpdateServiceRequest(BaseModel):
+    volume_gb: Optional[float] = None
+    limit_ip: Optional[int] = None
+    expiry_time: Optional[int] = None
+    enable: Optional[bool] = None
+    reset_traffic: Optional[bool] = False
+    inbound_ids: Optional[List[int]] = None
 
 
 class AdminCategoryCreateRequest(BaseModel):
@@ -2361,26 +2370,58 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
         """,
         (user_id,),
     ).fetchall()
+    trial_service = conn.execute(
+        """
+        SELECT user_id, email, status, created_at, activated_at, sub_id
+        FROM trial_services
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
     conn.close()
 
     services_list = []
     for s in tx_services:
+        em = str(s["service_email"] or s["sub_id"] or "").strip()
         services_list.append({
             "id": s["id"],
-            "sub_id": s["display_name"] or s["sub_id"] or s["service_email"] or f"سرویس #{s['id']}",
+            "email": em,
+            "service_email": str(s["service_email"] or "").strip(),
+            "sub_id": s["sub_id"] or em,
+            "display_name": s["display_name"] or em or f"سرویس #{s['id']}",
             "plan_id": None,
             "status": s["status"],
             "created_at": s["created_at"],
             "expires_at": None,
+            "source": "TRANSACTION",
         })
     for ls in linked_services:
+        em = str(ls["email"] or "").strip()
         services_list.append({
             "id": ls["id"],
-            "sub_id": ls["email"],
+            "email": em,
+            "service_email": em,
+            "sub_id": em,
+            "display_name": em,
             "plan_id": None,
             "status": "LINKED",
             "created_at": ls["linked_at"],
             "expires_at": None,
+            "source": "LINKED",
+        })
+    if trial_service:
+        t_em = str(trial_service["email"] or "").strip()
+        services_list.append({
+            "id": f"trial_{user_id}",
+            "email": t_em,
+            "service_email": t_em,
+            "sub_id": trial_service["sub_id"] or t_em,
+            "display_name": f"تست رایگان ({t_em})",
+            "plan_id": None,
+            "status": f"TRIAL_{trial_service['status']}",
+            "created_at": trial_service["created_at"],
+            "expires_at": None,
+            "source": "TRIAL",
         })
 
     return {
@@ -2911,6 +2952,175 @@ async def admin_xui_delete_client(body: DeleteClientRequest, _admin: Dict[str, A
 
 
 # ---------------------------------------------------------------------------
+# Admin — Customer Services Management (Edit, Quota, IPs, Expiry, Inbounds, Delete)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/services/{email}")
+async def admin_get_service_details(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import unquote
+    clean_email = unquote(email).strip()
+    client, inbound_ids = core._get_exported_client(clean_email)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"سرویس '{clean_email}' در پنل سنائی یافت نشد.")
+
+    used_bytes, total_bytes, expiry_ms = core._service_usage(client)
+    real_email = str(client.get("email") or clean_email)
+    sub_id = core._extract_subscription_id(client)
+    sub_url = core.get_client_sub_url(real_email, sub_id)
+
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception as exc:
+        logger.error("Failed to load active inbounds for service %s: %s", clean_email, exc)
+        active_inbounds = []
+
+    inbound_id_set = {int(x) for x in inbound_ids}
+    all_inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in inbound_id_set,
+        }
+        for ib in active_inbounds
+    ]
+
+    return {
+        "email": real_email,
+        "uuid": client.get("id"),
+        "total_gb": round(total_bytes / (1024 ** 3), 2) if total_bytes > 0 else 0,
+        "used_gb": round(used_bytes / (1024 ** 3), 2),
+        "used_bytes": used_bytes,
+        "total_bytes": total_bytes,
+        "limit_ip": int(client.get("limitIp") or 0),
+        "expiry_time": expiry_ms,
+        "enable": bool(client.get("enable", True)),
+        "sub_id": sub_id or "",
+        "sub_url": sub_url or "",
+        "inbound_ids": list(inbound_id_set),
+        "all_inbounds": all_inbounds_list,
+    }
+
+
+@app.post("/api/admin/services/{email}/reset-traffic")
+async def admin_reset_service_traffic(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    real_email = str(client.get("email") or clean_email) if client else clean_email
+    try:
+        res = requests.post(
+            core._xui_url(f"panel/api/clients/resetTraffic/{quote(real_email, safe='')}"),
+            headers=core._xui_headers(),
+            proxies=core._xui_proxies(),
+            timeout=15,
+            verify=not core.DEVELOPMENT_MODE,
+        )
+        data = core._safe_json(res)
+        if res.status_code == 200 and data.get("success"):
+            return {"status": "ok", "message": f"حجم مصرفی سرویس {real_email} با موفقیت ریست شد."}
+        raise RuntimeError(core._xui_response_error(res, "خطا در صفر کردن ترافیک"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/services/{email}")
+async def admin_update_service_details(
+    email: str,
+    body: AdminUpdateServiceRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"سرویس '{clean_email}' در پنل سنائی یافت نشد.")
+
+    real_email = str(client.get("email") or clean_email)
+
+    changes = {}
+    if body.volume_gb is not None:
+        changes["totalGB"] = 0 if float(body.volume_gb) <= 0 else int(float(body.volume_gb) * (1024 ** 3))
+    if body.limit_ip is not None:
+        changes["limitIp"] = max(0, int(body.limit_ip))
+    if body.expiry_time is not None:
+        changes["expiryTime"] = max(0, int(body.expiry_time))
+    if body.enable is not None:
+        changes["enable"] = bool(body.enable)
+
+    if changes:
+        try:
+            core._update_exported_client(real_email, changes)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در به‌روزرسانی سرویس در پنل: {e}")
+
+    if body.reset_traffic:
+        try:
+            res = requests.post(
+                core._xui_url(f"panel/api/clients/resetTraffic/{quote(real_email, safe='')}"),
+                headers=core._xui_headers(),
+                proxies=core._xui_proxies(),
+                timeout=15,
+                verify=not core.DEVELOPMENT_MODE,
+            )
+            data = core._safe_json(res)
+            if res.status_code != 200 or not data.get("success"):
+                raise RuntimeError(core._xui_response_error(res, "خطا در صفر کردن ترافیک"))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در صفر کردن حجم مصرفی: {e}")
+
+    if body.inbound_ids is not None:
+        try:
+            core._sync_client_inbounds(real_email, [int(x) for x in body.inbound_ids])
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در همگام‌سازی اینباندها: {e}")
+
+    return {"status": "ok", "message": "اطلاعات سرویس با موفقیت ذخیره شد."}
+
+
+@app.delete("/api/admin/services/{email}")
+async def admin_delete_service(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    real_email = str(client.get("email") or clean_email) if client else clean_email
+
+    # 1. Delete from 3x-ui panel
+    try:
+        del_url = core._xui_url(f"panel/api/clients/del/{quote(real_email, safe='')}") + "?keepTraffic=0"
+        res = requests.post(
+            del_url,
+            headers=core._xui_headers(),
+            proxies=core._xui_proxies(),
+            timeout=15,
+            verify=not core.DEVELOPMENT_MODE,
+        )
+        data = core._safe_json(res)
+        if res.status_code != 200 or not data.get("success"):
+            logger.warning("Notice on 3x-ui del client %s: %s", real_email, data.get("msg") or res.text)
+    except Exception as e:
+        logger.error("Error deleting client from 3x-ui %s: %s", real_email, e)
+
+    # 2. Update local DB records
+    conn = _db()
+    conn.execute("UPDATE transactions SET status = 'REVOKED' WHERE service_email = ? OR sub_id = ?", (real_email, real_email))
+    conn.execute("DELETE FROM linked_services WHERE email = ?", (real_email,))
+    conn.execute("UPDATE trial_services SET status = 'EXPIRED' WHERE email = ?", (real_email,))
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok", "message": f"سرویس {real_email} با موفقیت از پنل و ربات حذف گردید."}
+
+
+# ---------------------------------------------------------------------------
 # Admin — Rewards (Cashback, Discounts, Gifts)
 # ---------------------------------------------------------------------------
 
@@ -3129,18 +3339,23 @@ async def admin_get_plan_inbounds(plan_id: int, _admin: Dict[str, Any] = Depends
     except Exception:
         active_inbounds = []
     configured = core._configured_inbound_ids('plan', plan_id)
+    configured_set = set(configured)
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in configured_set,
+        }
+        for ib in active_inbounds
+    ]
     return {
         "plan_id": plan_id,
         "configured_inbounds": configured,
-        "active_inbounds": [
-            {
-                "id": int(ib["id"]),
-                "remark": str(ib.get("remark") or ""),
-                "protocol": str(ib.get("protocol") or ""),
-                "port": int(ib.get("port") or 0),
-            }
-            for ib in active_inbounds
-        ],
+        "active_inbounds": inbounds_list,
+        "inbounds": inbounds_list,
     }
 
 
@@ -3358,6 +3573,18 @@ async def admin_get_trial_settings(_admin: Dict[str, Any] = Depends(get_admin_us
     expired_trials = conn.execute("SELECT COUNT(*) FROM trial_services WHERE status = 'EXPIRED'").fetchone()[0]
     conn.close()
 
+    configured_set = set(configured)
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in configured_set,
+        }
+        for ib in active_inbounds
+    ]
     return {
         "enabled": core.trial_enabled(),
         "volume_gb": gb,
@@ -3367,15 +3594,8 @@ async def admin_get_trial_settings(_admin: Dict[str, Any] = Depends(get_admin_us
         "followup_enabled": followup_en,
         "followup_delay_hours": followup_hours,
         "configured_inbounds": configured,
-        "active_inbounds": [
-            {
-                "id": int(ib["id"]),
-                "remark": str(ib.get("remark") or ""),
-                "protocol": str(ib.get("protocol") or ""),
-                "port": int(ib.get("port") or 0),
-            }
-            for ib in active_inbounds
-        ],
+        "active_inbounds": inbounds_list,
+        "inbounds": inbounds_list,
         "stats": {
             "total_trials": total_trials,
             "active_trials": active_trials,

@@ -183,6 +183,12 @@ export const toggleAdminPlanInbound = (planId, inboundId) =>
   client.post(`/admin/plans/${planId}/inbounds/toggle`, { inbound_id: inboundId })
 export const resetAdminPlanInbounds = (planId) => client.post(`/admin/plans/${planId}/inbounds/reset`)
 
+// ─── Admin — Customer Services Management ────────────────────────────────────
+export const getAdminServiceDetails = (email) => client.get(`/admin/services/${encodeURIComponent(email)}`)
+export const updateAdminService = (email, payload) => client.post(`/admin/services/${encodeURIComponent(email)}`, payload)
+export const resetAdminServiceTraffic = (email) => client.post(`/admin/services/${encodeURIComponent(email)}/reset-traffic`)
+export const deleteAdminService = (email) => client.delete(`/admin/services/${encodeURIComponent(email)}`)
+
 // ─── Admin — Categories ──────────────────────────────────────────────────────
 export const getAdminCategories = () => client.get('/admin/categories')
 export const createAdminCategory = (payload) => client.post('/admin/categories', payload)
