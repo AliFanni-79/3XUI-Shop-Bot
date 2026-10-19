@@ -574,8 +574,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import {
   getPlans,
   getBuilderConfig,
@@ -591,6 +591,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 // State
@@ -979,6 +980,59 @@ const claimTrial = async () => {
   }
 }
 
+const applyRouteParams = () => {
+  const query = route.query
+  if (!query || Object.keys(query).length === 0) return
+
+  if (query.mode === 'builder') {
+    activeMode.value = 'builder'
+    if (query.months) {
+      const m = Number(query.months)
+      if ([1, 3, 6, 12].includes(m)) selectedMonths.value = m
+    }
+    if (query.volume !== undefined) {
+      const v = Number(query.volume)
+      if (v === 0) {
+        isUnlimitedTraffic.value = true
+      } else if (v > 0) {
+        isUnlimitedTraffic.value = false
+        selectedGb.value = v
+      }
+    }
+    if (query.ip !== undefined) {
+      const ip = Number(query.ip)
+      if ([0, 1, 2, 3, 4, 5].includes(ip)) selectedUsers.value = ip
+    }
+  } else if (query.mode === 'catalog' || query.plan_id) {
+    activeMode.value = 'catalog'
+    if (query.category_id) {
+      const catId = Number(query.category_id)
+      if (categories.value.some(c => c.id === catId)) {
+        selectedCategoryId.value = catId
+      }
+    }
+    if (query.plan_id) {
+      const targetPid = Number(query.plan_id)
+      for (const cat of categories.value) {
+        const found = (cat.plans || []).find(p => p.id === targetPid)
+        if (found) {
+          selectedCategoryId.value = cat.id
+          openCheckoutModal(found)
+          break
+        }
+      }
+    }
+  }
+}
+
+watch(
+  () => route.query,
+  () => {
+    applyRouteParams()
+  },
+  { deep: true }
+)
+
 onMounted(async () => {
   try {
     const [pRes, bRes, gRes] = await Promise.all([
@@ -999,6 +1053,8 @@ onMounted(async () => {
     if (gRes && gRes.data) {
       activeGateways.value = { ...activeGateways.value, ...gRes.data }
     }
+
+    applyRouteParams()
   } catch (err) {
     console.error('Failed to load store data:', err)
   }

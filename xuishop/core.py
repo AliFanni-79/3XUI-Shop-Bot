@@ -2052,11 +2052,11 @@ def show_account(message):
 
     conn = _db_connect()
     approved_txs = conn.execute(
-        "SELECT id, service_email, payment_method, plan_name_snapshot FROM transactions WHERE user_id = ? AND status = 'APPROVED' AND kind = 'NEW' ORDER BY id DESC",
+        "SELECT id, service_email, payment_method, plan_name_snapshot FROM transactions WHERE user_id = ? AND UPPER(status) = 'APPROVED' AND (kind IS NULL OR UPPER(kind) IN ('NEW', 'CUSTOM', 'SERVICE', '')) ORDER BY id DESC",
         (user_id,)
     ).fetchall()
     active_trial = conn.execute(
-        "SELECT email FROM trial_services WHERE user_id = ? AND status = 'ACTIVE'",
+        "SELECT email FROM trial_services WHERE user_id = ? AND UPPER(status) IN ('ACTIVE', 'TRIAL_ACTIVE')",
         (user_id,)
     ).fetchone()
     linked_services = conn.execute("SELECT id,email FROM linked_services WHERE user_id=? ORDER BY id DESC", (user_id,)).fetchall()
@@ -4411,14 +4411,22 @@ def add_volume_xui_service(user_email, volume_gb):
     return True
 
 
-def _mark_trial(user_id, status, error=None):
+def _mark_trial(user_id, status, error=None, sub_id=None, *args, **kwargs):
+    if sub_id is None and "sub_id" in kwargs:
+        sub_id = kwargs["sub_id"]
     conn = _db_connect()
     cursor = conn.cursor()
     if status == 'ACTIVE':
-        cursor.execute(
-            "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, last_error = NULL WHERE user_id = ?",
-            (int(time.time()), user_id)
-        )
+        if sub_id:
+            cursor.execute(
+                "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, sub_id = ?, last_error = NULL WHERE user_id = ?",
+                (int(time.time()), str(sub_id), user_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, last_error = NULL WHERE user_id = ?",
+                (int(time.time()), user_id)
+            )
     else:
         cursor.execute(
             "UPDATE trial_services SET status = ?, last_error = ? WHERE user_id = ?",
@@ -4484,7 +4492,7 @@ def generate_trial_xui_config(user_id, user_email):
             _xui_assign_group(user_email, get_db_setting('xui_trial_group', 'Trial') or 'Trial')
         except Exception as group_error:
             notify_admins(f"⚠️ تست {user_email} ساخته شد اما عضویت Group Trial خطا داد: {str(group_error)[:350]}")
-        _mark_trial(user_id, 'ACTIVE')
+        _mark_trial(user_id, 'ACTIVE', sub_id=sub_id)
     except Exception as e:
         _mark_trial(user_id, 'FAILED', e)
         try:
@@ -4703,8 +4711,12 @@ def finalize_service_transaction(tx_id, admin_message_id=None, admin_chat_id=Non
         current = conn.execute("SELECT status FROM transactions WHERE id=?", (int(tx_id),)).fetchone()
         if not current or current['status'] == 'APPROVED':
             conn.rollback(); return True
-        conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, last_error=NULL WHERE id=?",
-                     (int(time.time()), user_email, int(tx_id)))
+        if sub_id:
+            conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, sub_id=?, last_error=NULL WHERE id=?",
+                         (int(time.time()), user_email, str(sub_id), int(tx_id)))
+        else:
+            conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, last_error=NULL WHERE id=?",
+                         (int(time.time()), user_email, int(tx_id)))
         conn.commit()
     finally:
         conn.close()

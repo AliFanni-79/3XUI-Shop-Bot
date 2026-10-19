@@ -301,6 +301,139 @@ class TestMiniAppApi(unittest.TestCase):
                         self.assertTrue(mock_wallet_checkout.called)
                         self.assertEqual(mock_wallet_checkout.call_args[1].get("custom_name"), "office_pc")
 
+    def test_get_services_active_and_deactivated_with_rebuy(self):
+        import time
+        from xuishop.api import _db
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            uid = 777123
+            init_data = self._generate_valid_init_data({"id": uid, "first_name": "TestSvcUser"})
+
+            conn = _db()
+            try:
+                now_ts = int(time.time())
+                # Insert test plans
+                conn.execute("INSERT OR REPLACE INTO plan_categories (id, name, active, sort_order, created_at, updated_at) VALUES (99, 'Test Cat', 1, 1, ?, ?)", (now_ts, now_ts))
+                conn.execute("INSERT OR REPLACE INTO plans (id, name, price, volume_gb, days, ip_limit, active, category_id, sort_order, created_at, updated_at) VALUES (901, 'Available Plan', 50000, 20, 30, 1, 1, 99, 1, ?, ?)", (now_ts, now_ts))
+                conn.execute("INSERT OR REPLACE INTO plans (id, name, price, volume_gb, days, ip_limit, active, category_id, sort_order, created_at, updated_at) VALUES (902, 'Archived Plan', 70000, 50, 60, 2, 0, 99, 2, ?, ?)", (now_ts, now_ts))
+
+                # 1. Active bought plan (status APPROVED, kind NEW)
+                conn.execute(
+                    """INSERT OR REPLACE INTO transactions (id, user_id, plan_id, status, price, service_email, sub_id, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at, created_at)
+                       VALUES (9101, ?, 901, 'APPROVED', 50000, 'active_user_svc', 'sub_active_901', 'My Active Config', 'NEW', 'Available Plan', 30, 20, 1, ?, ?)""",
+                    (uid, now_ts - 3600, now_ts - 3600)
+                )
+
+                # 2. Deactivated plan within 30 days (status REVOKED, plan is in catalog -> plan_available=True)
+                conn.execute(
+                    """INSERT OR REPLACE INTO transactions (id, user_id, plan_id, status, price, service_email, sub_id, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at, created_at)
+                       VALUES (9102, ?, 901, 'REVOKED', 50000, 'revoked_recent_svc', 'sub_revoked', 'My Revoked Config', 'NEW', 'Available Plan', 30, 20, 1, ?, ?)""",
+                    (uid, now_ts - (5 * 86400), now_ts - (5 * 86400))
+                )
+
+                # 3. Deactivated custom plan within 30 days (status EXPIRED, plan_id 0 -> plan_available=False)
+                conn.execute(
+                    """INSERT OR REPLACE INTO transactions (id, user_id, plan_id, status, price, service_email, sub_id, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at, created_at)
+                       VALUES (9103, ?, 0, 'EXPIRED', 80000, 'expired_custom_svc', 'sub_custom', 'Custom Config', 'CUSTOM', 'Custom 3M Plan', 90, 60, 2, ?, ?)""",
+                    (uid, now_ts - (15 * 86400), now_ts - (15 * 86400))
+                )
+
+                # 4. Old deactivated plan (older than 30 days -> must be ignored)
+                conn.execute(
+                    """INSERT OR REPLACE INTO transactions (id, user_id, plan_id, status, price, service_email, sub_id, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at, created_at)
+                       VALUES (9104, ?, 901, 'REVOKED', 50000, 'old_revoked_svc', 'sub_old', 'Old Config', 'NEW', 'Available Plan', 30, 20, 1, ?, ?)""",
+                    (uid, now_ts - (45 * 86400), now_ts - (45 * 86400))
+                )
+
+                # 5. Active Trial
+                conn.execute(
+                    "INSERT OR REPLACE INTO trial_services (user_id, email, sub_id, status, created_at, activated_at) VALUES (?, 'trial_svc_email', 'sub_trial_id', 'ACTIVE', ?, ?)",
+                    (uid, now_ts, now_ts)
+                )
+
+                # 6. Linked service
+                conn.execute(
+                    "INSERT OR REPLACE INTO linked_services (id, user_id, email, linked_at, source) VALUES (9105, ?, 'linked_svc_email', ?, 'MANUAL')",
+                    (uid, now_ts)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with patch("xuishop.core._subscription_url", side_effect=lambda sid: f"https://sub.example.com/{sid}"):
+                res = self.client.get("/api/services", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                services = data.get("services", [])
+
+                emails = [s["email"] for s in services]
+                # Old revoked service (> 30 days) must NOT be present
+                self.assertNotIn("old_revoked_svc", emails)
+
+                # Check active service
+                active_svc = next((s for s in services if s["email"] == "active_user_svc"), None)
+                self.assertIsNotNone(active_svc)
+                self.assertTrue(active_svc["is_active"])
+                self.assertEqual(active_svc["status"], "APPROVED")
+                self.assertEqual(active_svc["custom_name"], "My Active Config")
+                self.assertTrue(active_svc["plan_available"])
+                self.assertEqual(active_svc["plan_id"], 901)
+                self.assertEqual(active_svc["sub_url"], "https://sub.example.com/sub_active_901")
+
+                # Check active trial
+                trial_svc = next((s for s in services if s["kind"] == "TRIAL"), None)
+                self.assertIsNotNone(trial_svc)
+                self.assertTrue(trial_svc["is_active"])
+                self.assertEqual(trial_svc["status"], "ACTIVE")
+                self.assertEqual(trial_svc["email"], "trial_svc_email")
+
+                # Check linked service
+                linked_svc = next((s for s in services if s["kind"] == "LINKED"), None)
+                self.assertIsNotNone(linked_svc)
+                self.assertTrue(linked_svc["is_active"])
+                self.assertEqual(linked_svc["status"], "ACTIVE")
+
+                # Check recent revoked service (available in catalog)
+                revoked_svc = next((s for s in services if s["email"] == "revoked_recent_svc"), None)
+                self.assertIsNotNone(revoked_svc)
+                self.assertFalse(revoked_svc["is_active"])
+                self.assertEqual(revoked_svc["status"], "REVOKED")
+                self.assertTrue(revoked_svc["plan_available"])
+                self.assertEqual(revoked_svc["plan_id"], 901)
+                self.assertIsNone(revoked_svc["sub_url"])
+
+                # Check recent expired custom service (not in catalog)
+                expired_svc = next((s for s in services if s["email"] == "expired_custom_svc"), None)
+                self.assertIsNotNone(expired_svc)
+                self.assertFalse(expired_svc["is_active"])
+                self.assertEqual(expired_svc["status"], "EXPIRED")
+                self.assertFalse(expired_svc["plan_available"])
+                self.assertIsNone(expired_svc["plan_id"])
+
+    def test_get_services_expired_trial_excluded(self):
+        import time
+        from xuishop.api import _db
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            uid = 777124
+            init_data = self._generate_valid_init_data({"id": uid, "first_name": "TestTrialUser"})
+
+            conn = _db()
+            try:
+                now_ts = int(time.time())
+                conn.execute(
+                    "INSERT OR REPLACE INTO trial_services (user_id, email, sub_id, status, created_at, activated_at) VALUES (?, 'expired_trial_email', 'sub_t', 'EXPIRED', ?, ?)",
+                    (uid, now_ts, now_ts)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            res = self.client.get("/api/services", headers={"X-Telegram-Init-Data": init_data})
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            # Expired trial must not be returned
+            trials = [s for s in data.get("services", []) if s.get("kind") == "TRIAL"]
+            self.assertEqual(len(trials), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

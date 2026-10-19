@@ -880,70 +880,177 @@ def _format_service(row) -> Dict[str, Any]:
 
 @app.get("/api/services")
 async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
-    """Return all user's VPN services: paid, trial, and linked."""
+    """Return all user's VPN services: active (paid, trial, linked) and
+    deactivated services (expired/revoked non-trial) from at most a month ago.
+    """
     from . import core as _core
     uid = user["id"]
+    now_ts = int(time.time())
+    one_month_ago = now_ts - (30 * 86400)
     conn = _db()
+    try:
+        active_plan_rows = conn.execute(
+            "SELECT id, name, category_id, price, days, volume_gb, ip_limit FROM plans WHERE active = 1"
+        ).fetchall()
+        active_plans_map = {int(p["id"]): dict(p) for p in active_plan_rows}
 
-    paid = conn.execute(
-        """SELECT id, service_email AS email, sub_id, custom_name, kind, status, plan_name_snapshot,
-                  plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at
-           FROM transactions
-           WHERE user_id = ? AND status = 'APPROVED' AND kind = 'NEW'
-           ORDER BY id DESC""",
-        (uid,),
-    ).fetchall()
+        tx_rows = conn.execute(
+            """SELECT id, user_id, plan_id, service_email AS email, sub_id, custom_name, kind, status,
+                      plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot,
+                      created_at, approved_at
+               FROM transactions
+               WHERE user_id = ?
+               ORDER BY id DESC""",
+            (uid,),
+        ).fetchall()
 
-    trial_row = conn.execute(
-        "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
-        (uid,),
-    ).fetchone()
+        trial_row = conn.execute(
+            "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
+            (uid,),
+        ).fetchone()
 
-    linked = conn.execute(
-        "SELECT id, email, linked_at, source FROM linked_services WHERE user_id = ? ORDER BY id DESC",
-        (uid,),
-    ).fetchall()
+        linked = conn.execute(
+            "SELECT id, email, linked_at, source FROM linked_services WHERE user_id = ? ORDER BY id DESC",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
 
-    conn.close()
+    services_by_key = {}
+    for r in tx_rows:
+        row = dict(r)
+        st = str(row.get("status") or "").strip().upper()
+        if st not in ("APPROVED", "ACTIVE", "EXPIRED", "REVOKED", "PROCESSING", "CREATING"):
+            continue
 
-    services = []
-    for row in paid:
-        svc = _format_service(dict(row))
-        svc["kind"] = "PAID"
-        services.append(svc)
+        key = str(row.get("email") or row.get("sub_id") or "").strip()
+        if not key:
+            key = f"tx_{row['id']}"
 
+        if key not in services_by_key:
+            services_by_key[key] = row
+        else:
+            existing = services_by_key[key]
+            for field in (
+                "plan_id",
+                "plan_name_snapshot",
+                "plan_days_snapshot",
+                "plan_volume_gb_snapshot",
+                "plan_ip_limit_snapshot",
+                "sub_id",
+                "custom_name",
+            ):
+                if not existing.get(field) and row.get(field):
+                    existing[field] = row.get(field)
+
+    active_services = []
+    deactivated_services = []
+
+    for row in services_by_key.values():
+        st = str(row.get("status") or "").strip().upper()
+        is_active_svc = st in ("APPROVED", "ACTIVE", "PROCESSING", "CREATING")
+
+        # Deactivated services: only include non-trial if within the last 30 days
+        if not is_active_svc:
+            ts = max(int(row.get("approved_at") or 0), int(row.get("created_at") or 0))
+            if ts < one_month_ago:
+                continue
+
+        email = str(row.get("email") or row.get("sub_id") or "").strip()
+        sub_id = row.get("sub_id")
+        sub_url = _core.get_client_sub_url(email, sub_id) if (is_active_svc and email) else None
+
+        pid = int(row.get("plan_id") or 0)
+        matched_plan = active_plans_map.get(pid)
+        plan_available = bool(matched_plan)
+        category_id = matched_plan.get("category_id") if matched_plan else None
+
+        svc = {
+            "email": email,
+            "custom_name": row.get("custom_name") or email or f"سرویس #{row['id']}",
+            "sub_url": sub_url,
+            "kind": row.get("kind") or "PAID",
+            "status": "APPROVED" if st == "ACTIVE" else st,
+            "is_active": is_active_svc,
+            "plan_id": pid if pid > 0 else None,
+            "plan_available": plan_available,
+            "category_id": category_id,
+            "plan_name": row.get("plan_name_snapshot")
+            or (matched_plan.get("name") if matched_plan else "")
+            or "سرویس اشتراکی",
+            "days": int(row.get("plan_days_snapshot") or (matched_plan.get("days") if matched_plan else 0) or 0),
+            "volume_gb": float(
+                row.get("plan_volume_gb_snapshot") or (matched_plan.get("volume_gb") if matched_plan else 0) or 0
+            ),
+            "ip_limit": int(
+                row.get("plan_ip_limit_snapshot") or (matched_plan.get("ip_limit") if matched_plan else 1) or 1
+            ),
+            "approved_at": row.get("approved_at"),
+            "created_at": row.get("created_at"),
+            "tx_id": row.get("id"),
+        }
+        if is_active_svc:
+            active_services.append(svc)
+        else:
+            deactivated_services.append(svc)
+
+    # Trial service (only show if active; user requirement: "(expired or revoked if not trial)")
     if trial_row:
-        status_val = trial_row["status"]
-        if status_val in ("ACTIVE", "CREATING", "EXPIRED"):
-            svc = {
-                "email": trial_row["email"],
-                "sub_url": _core.get_client_sub_url(trial_row["email"], trial_row["sub_id"]),
+        t_status = str(trial_row["status"] or "").strip().upper()
+        if t_status in ("ACTIVE", "TRIAL_ACTIVE", "CREATING"):
+            t_email = str(trial_row["email"] or "").strip()
+            active_services.append({
+                "email": t_email,
+                "custom_name": t_email or "تست رایگان",
+                "sub_url": _core.get_client_sub_url(t_email, trial_row["sub_id"]) if t_email else None,
                 "kind": "TRIAL",
-                "status": status_val,
+                "status": "ACTIVE",
+                "is_active": True,
+                "plan_id": None,
+                "plan_available": False,
+                "category_id": None,
                 "plan_name": "تست رایگان",
                 "days": int(_setting("trial_default_days", "1")),
                 "volume_gb": float(_setting("trial_default_volume_gb", "1")),
                 "ip_limit": int(_setting("trial_default_ip_limit", "1")),
-                "approved_at": trial_row.get("activated_at"),
+                "approved_at": trial_row["activated_at"],
+                "created_at": trial_row["created_at"],
                 "tx_id": None,
-            }
-            services.append(svc)
+            })
 
+    # Linked services (always active)
     for row in linked:
-        services.append({
-            "email": row["email"],
-            "sub_url": _core.get_client_sub_url(row["email"], None),
+        l_email = str(row["email"] or "").strip()
+        active_services.append({
+            "email": l_email,
+            "custom_name": l_email or "سرویس لینک‌شده",
+            "sub_url": _core.get_client_sub_url(l_email, None) if l_email else None,
             "kind": "LINKED",
             "status": "ACTIVE",
+            "is_active": True,
+            "plan_id": None,
+            "plan_available": False,
+            "category_id": None,
             "plan_name": "سرویس لینک‌شده",
             "days": 0,
             "volume_gb": 0,
             "ip_limit": 0,
-            "approved_at": row.get("linked_at"),
+            "approved_at": row["linked_at"],
+            "created_at": row["linked_at"],
             "tx_id": row["id"],
         })
 
-    return {"services": services}
+    # Active services first (latest approved/created first), then deactivated services (latest first)
+    active_services.sort(
+        key=lambda s: int(s.get("approved_at") or s.get("created_at") or s.get("tx_id") or 0),
+        reverse=True,
+    )
+    deactivated_services.sort(
+        key=lambda s: int(s.get("approved_at") or s.get("created_at") or s.get("tx_id") or 0),
+        reverse=True,
+    )
+
+    return {"services": active_services + deactivated_services}
 
 
 # ---------------------------------------------------------------------------
