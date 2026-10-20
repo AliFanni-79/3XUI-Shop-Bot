@@ -1,4 +1,4 @@
-# VizzPN Shop Bot v26.2.0
+# VizzPN Shop Bot v26.2.1
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
@@ -34,6 +34,7 @@ The application package is located in `xuishop/` and the compiled single-page fr
 ## Table of contents
 
 - [Features](#features)
+- [What's New in v26.2.1](#whats-new-in-v2621)
 - [What's New in v26.2.0](#whats-new-in-v2620)
 - [Default plans](#default-plans)
 - [Telegram Mini App Setup](#telegram-mini-app-setup)
@@ -105,6 +106,34 @@ From `/sudoadmin` or the Mini App Admin Dashboard:
 - Targeted user broadcasts.
 - Comprehensive audit log.
 - Automated backup creation and safe restoration.
+
+---
+
+## What's New in v26.2.1
+
+### 1. Server Profiles & Inbound Selection in Custom Plan Builder
+- **Server Location Step**: Step 4 in the Custom Plan Builder enables customers to pick their desired servers ("سرورها" / Servers) with dynamic price calculation and transparent surcharge summaries.
+- **Server Profile Management**: Dedicated sub-tab in the Admin Dashboard (`🖥 سرورها`) under Plans to configure server profiles, map multiple inbounds to single server names, and assign individual price adjustments.
+- **One-Click Inbound Auto-Grouping**: `⚡️ Auto-group by Inbounds` automatically groups active panel inbounds sharing identical remarks or tags into neat server profiles.
+- **Custom / External Servers**: Admins can offer custom servers that operate outside 3x-ui inbounds with either standard prices or support-only access.
+- **Support-Gated Servers ("برای خرید به پشتیبانی مراجعه فرمایید")**:
+  - Admins can configure the support destination:
+    1. **Built-in Bot Support**: Directs customers into the bot's native support conversation.
+    2. **External Link / Telegram Channel / ID**: Opens Telegram channels, groups, or IDs directly via `openTelegramLink`.
+  - When support-gated servers are chosen in the Custom Builder, online payment buttons convert seamlessly into a direct support action button.
+
+### 2. Preset Plan Inbound Selection & Form Fix
+- Resolved an issue where saving new preset plans stalled due to Persian digit input or unhandled validation errors. Added clear visual error alerts, Persian number normalization, and save spinners.
+- Added direct inbound selection checkboxes with "Select All ✓" and "Deselect All ✕" controls when creating or editing preset plans.
+
+### 3. Active Plans & Deactivated History View with Rebuy
+- Fixed the Customer Services view to reliably display active purchased plans and active free trials.
+- Added a deactivated services section showing plans expired or revoked within the past 30 days (excluding one-off trials).
+- Integrated 1-click **Rebuy**: automatically redirects to checkout if the plan is available in catalog, or pre-fills the Custom Plan Builder if custom parameters were used.
+
+### 4. End-to-End Persistence for Multi-Server Checkouts
+- Added full support for `server_ids` across Card-to-Card, Wallet, Gateway (Zibal & Zarinpal), and Telegram Stars checkout flows.
+- Automatic provisioning assigns generated clients precisely to the inbounds defined in the selected server profiles.
 
 ---
 

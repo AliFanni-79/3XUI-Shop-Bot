@@ -151,6 +151,13 @@
         >
           ➕ بسته‌های حجم اضافه ({{ volumePacksList.length }})
         </button>
+        <button
+          @click="plansSubTab = 'servers'"
+          class="py-1.5 px-3 rounded-xl transition font-medium"
+          :class="plansSubTab === 'servers' ? 'bg-tg-button text-white font-bold' : 'bg-tg-sec text-tg-hint hover:text-tg'"
+        >
+          🖥 سرورها ({{ serverProfilesList.length }})
+        </button>
       </div>
 
       <!-- 2.1 Catalog Plans List -->
@@ -341,6 +348,90 @@
         </div>
         <div v-else class="text-center py-8 bg-tg-sec/40 rounded-xl border border-dashed border-gray-700/30 text-xs text-tg-hint">
           بسته حجم اضافه‌ای تعریف نشده است.
+        </div>
+      </div>
+
+      <!-- 2.4 Server Profiles (Inbounds Grouping & Custom Servers) -->
+      <div v-if="plansSubTab === 'servers'" class="space-y-3">
+        <div class="flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <h3 class="text-xs font-bold text-tg">مدیریت سرورها و لوکیشن‌ها (Servers / Inbounds)</h3>
+            <span class="text-[10px] text-tg-hint">اینباندها را در قالب سرور برای سازنده پلن دلخواه گروه‌بندی یا سرور سفارشی ایجاد کنید</span>
+          </div>
+          <div class="flex gap-1.5">
+            <button
+              @click="handleAutoGroupServers"
+              :disabled="autoGroupingServers"
+              class="px-2.5 py-1.5 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+              title="گروه‌بندی خودکار اینباندهای سنائی بر اساس نام/remark"
+            >
+              <span>⚡</span>
+              <span>{{ autoGroupingServers ? 'در حال ادغام...' : 'ادغام خودکار اینباندها' }}</span>
+            </button>
+            <button @click="openCreateServerModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+              <span>➕</span>
+              <span>افزودن سرور جدید</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="serverProfilesList.length" class="space-y-2">
+          <div
+            v-for="s in serverProfilesList"
+            :key="s.id"
+            class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm">{{ s.name }}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full" :class="s.active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
+                  {{ s.active ? 'فعال' : 'غیرفعال' }}
+                </span>
+                <span v-if="s.contact_support" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                  💬 هماهنگی با پشتیبانی ({{ s.support_target_type === 'link' ? 'آیدی/کانال' : 'ربات داخلی' }})
+                </span>
+                <span v-if="s.is_custom" class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                  🌐 سرور اختصاصی / خارج از پنل
+                </span>
+              </div>
+              <div class="text-[10px] text-tg-hint flex flex-wrap gap-x-3 gap-y-0.5">
+                <span v-if="!s.contact_support">قیمت اضافه: <b class="text-emerald-400 font-mono">{{ s.price > 0 ? Number(s.price).toLocaleString('fa-IR') + ' تومان' : 'رایگان (پایه)' }}</b></span>
+                <span v-else class="text-amber-400">قیمت: توافقی / پشتیبانی</span>
+                <span v-if="!s.is_custom">اینباندهای متصل: <b class="text-white">{{ (s.inbound_ids && s.inbound_ids.length) ? s.inbound_ids.length + ' اینباند' : 'همه اینباندها' }}</b></span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="handleToggleServer(s.id)"
+                class="p-2 rounded-xl text-xs transition"
+                :class="s.active ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'"
+                :title="s.active ? 'غیرفعال‌سازی' : 'فعال‌سازی'"
+              >
+                {{ s.active ? 'خاموش' : 'روشن' }}
+              </button>
+              <button
+                @click="openEditServerModal(s)"
+                class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
+                title="ویرایش"
+              >
+                ✏️
+              </button>
+              <button
+                @click="handleDeleteServer(s.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
+                title="حذف"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-8 bg-tg-sec/40 rounded-xl border border-dashed border-gray-700/30 text-xs text-tg-hint space-y-2">
+          <div>سروری تعریف نشده است.</div>
+          <button @click="handleAutoGroupServers" class="text-indigo-400 text-xs font-bold underline">
+            ادغام خودکار اینباندهای موجود در پنل سنائی ⚡
+          </button>
         </div>
       </div>
     </div>
@@ -1938,10 +2029,16 @@
 
     <!-- Modal 1: Plan Create/Edit Modal -->
     <div v-if="showPlanModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
           <h4 class="font-bold text-sm">{{ isEditingPlan ? 'ویرایش پلان' : 'افزودن پلان جدید' }}</h4>
           <button @click="showPlanModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <!-- Error banner inside modal -->
+        <div v-if="planModalError" class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex justify-between items-center">
+          <span>{{ planModalError }}</span>
+          <button type="button" @click="planModalError = ''" class="opacity-70 hover:opacity-100 text-xs">✕</button>
         </div>
 
         <div class="space-y-2">
@@ -1991,13 +2088,71 @@
               </datalist>
             </div>
           </div>
+
+          <!-- Inbounds (Servers) Selection -->
+          <div class="space-y-1.5 pt-2 border-t border-gray-700/30">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="block text-[11px] font-bold text-white">انتخاب اینباندها / سرورها (Inbounds):</label>
+                <span class="text-[10px] text-tg-hint">کلاینت‌های این پلان روی کدام اینباندها ساخته شوند؟</span>
+              </div>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  @click="selectAllPlanInbounds(true)"
+                  class="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold hover:bg-emerald-500/30"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllPlanInbounds(false)"
+                  class="px-2 py-0.5 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold hover:bg-gray-700/60"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="loadingAllInbounds" class="text-center py-3 text-tg-hint text-[10px]">
+              در حال دریافت اینباندها...
+            </div>
+            <div v-else-if="availableInboundsList.length" class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar pr-0.5">
+              <div
+                v-for="inb in availableInboundsList"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px] text-white">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-2 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد.
+            </div>
+          </div>
         </div>
 
         <div class="flex gap-2 pt-2">
-          <button @click="handleSavePlan" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
-            ذخیره پلان 💾
+          <button
+            @click="handleSavePlan"
+            :disabled="isSavingPlan"
+            class="flex-1 btn-tg py-2 rounded-xl font-bold shadow flex items-center justify-center gap-1.5"
+          >
+            <span v-if="isSavingPlan" class="animate-spin text-xs">⏳</span>
+            <span>{{ isSavingPlan ? 'در حال ذخیره...' : 'ذخیره پلان 💾' }}</span>
           </button>
-          <button @click="showPlanModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+          <button @click="showPlanModal = false" :disabled="isSavingPlan" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
             انصراف
           </button>
         </div>
@@ -2367,6 +2522,147 @@
             ذخیره بسته 💾
           </button>
           <button @click="showVolumePackModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Server Profile Create/Edit Modal -->
+    <div v-if="showServerModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm">{{ isEditingServer ? 'ویرایش سرور / لوکیشن' : 'افزودن سرور جدید' }}</h4>
+          <button @click="showServerModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <!-- Error banner inside modal -->
+        <div v-if="serverModalError" class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex justify-between items-center">
+          <span>{{ serverModalError }}</span>
+          <button type="button" @click="serverModalError = ''" class="opacity-70 hover:opacity-100 text-xs">✕</button>
+        </div>
+
+        <div class="space-y-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">نام و پرچم سرور:</label>
+            <input type="text" v-model="serverForm.name" placeholder="مثلاً: 🇩🇪 سرور آلمان VIP" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+          </div>
+
+          <!-- Contact Support Toggle -->
+          <div class="p-2.5 rounded-xl bg-tg border border-gray-700/30 space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="serverForm.contact_support" class="accent-indigo-500" />
+              <span class="font-bold text-xs text-white">برای خرید به پشتیبانی مراجعه فرمایید (عدم پرداخت خودکار)</span>
+            </label>
+
+            <!-- Support target type selection -->
+            <div v-if="serverForm.contact_support" class="pt-2 border-t border-gray-700/30 space-y-2">
+              <span class="text-[10px] text-tg-hint block">محل هدایت کاربر هنگام کلیک روی خرید:</span>
+              <div class="grid grid-cols-2 gap-2">
+                <label
+                  class="p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition"
+                  :class="serverForm.support_target_type === 'bot' ? 'bg-indigo-500/20 border-indigo-500/50 text-white font-bold' : 'bg-tg border-gray-700/30 text-tg-hint'"
+                >
+                  <input type="radio" value="bot" v-model="serverForm.support_target_type" class="hidden" />
+                  <span>📞 پشتیبانی ربات</span>
+                </label>
+                <label
+                  class="p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition"
+                  :class="serverForm.support_target_type === 'link' ? 'bg-indigo-500/20 border-indigo-500/50 text-white font-bold' : 'bg-tg border-gray-700/30 text-tg-hint'"
+                >
+                  <input type="radio" value="link" v-model="serverForm.support_target_type" class="hidden" />
+                  <span>💬 آیدی یا کانال</span>
+                </label>
+              </div>
+
+              <div v-if="serverForm.support_target_type === 'link'">
+                <label class="block text-[10px] text-tg-hint mb-0.5">آیدی یا لینک تلگرام پشتیبانی / کانال:</label>
+                <input
+                  type="text"
+                  v-model="serverForm.support_target_url"
+                  placeholder="مثلاً SupportAdmin@ یا https://t.me/..."
+                  class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <!-- Price input (if not support only) -->
+            <div v-else>
+              <label class="block text-[10px] text-tg-hint mb-0.5">قیمت اضافه این سرور (تومان - 0 برای رایگان/پیش‌فرض):</label>
+              <input type="number" v-model.number="serverForm.price" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+          </div>
+
+          <!-- Custom / External Server toggle -->
+          <div class="p-2.5 rounded-xl bg-tg border border-gray-700/30">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="serverForm.is_custom" class="accent-indigo-500" />
+              <span class="text-xs">سرور سفارشی / خارجی (بدون اتصال مستقیم به اینباندهای ۳x-ui)</span>
+            </label>
+          </div>
+
+          <!-- Inbound Checkboxes (if not custom) -->
+          <div v-if="!serverForm.is_custom" class="space-y-1.5 pt-2 border-t border-gray-700/30">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="block text-[11px] font-bold text-white">اینباندهای متصل به این سرور (ادغام):</label>
+                <span class="text-[10px] text-tg-hint">ترافیک این سرور روی این اینباندها هدایت می‌شود</span>
+              </div>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  @click="selectAllServerInbounds(true)"
+                  class="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllServerInbounds(false)"
+                  class="px-2 py-0.5 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="serverInboundsList.length" class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar pr-0.5">
+              <div
+                v-for="inb in serverInboundsList"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px] text-white">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'انتخاب ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-2 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد.
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button
+            @click="handleSaveServer"
+            :disabled="isSavingServer"
+            class="flex-1 btn-tg py-2 rounded-xl font-bold shadow flex items-center justify-center gap-1.5"
+          >
+            <span v-if="isSavingServer" class="animate-spin text-xs">⏳</span>
+            <span>{{ isSavingServer ? 'در حال ذخیره...' : 'ذخیره سرور 💾' }}</span>
+          </button>
+          <button @click="showServerModal = false" :disabled="isSavingServer" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
             انصراف
           </button>
         </div>
@@ -2857,9 +3153,16 @@ import {
   resetAdminServiceTraffic,
   deleteAdminService,
   // NEW API methods
+  getAdminInbounds,
   getAdminPlanInbounds,
   toggleAdminPlanInbound,
   resetAdminPlanInbounds,
+  getAdminServers,
+  createAdminServer,
+  updateAdminServer,
+  deleteAdminServer,
+  toggleAdminServer,
+  autoGroupAdminServers,
   getAdminCategories,
   createAdminCategory,
   updateAdminCategory,
@@ -2894,7 +3197,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.2.0')
+const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.2.1')
 
 // Navigation Tabs
 const activeTab = ref('orders')
@@ -2940,6 +3243,10 @@ const volumePacksList = ref([])
 const showPlanModal = ref(false)
 const isEditingPlan = ref(false)
 const planForm = ref({ id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '', category_id: null })
+const planModalError = ref('')
+const isSavingPlan = ref(false)
+const availableInboundsList = ref([])
+const loadingAllInbounds = ref(false)
 
 // Categories Modal & Form
 const showCategoryModal = ref(false)
@@ -2950,6 +3257,27 @@ const categoryForm = ref({ id: null, name: '', icon: '📦', description: '', so
 const showVolumePackModal = ref(false)
 const isEditingVolumePack = ref(false)
 const volumePackForm = ref({ id: null, volume_gb: 10, price: 50000, duration_days: 30, is_active: 1 })
+
+// Server Profiles (Inbounds Grouping & Custom Servers)
+const serverProfilesList = ref([])
+const showServerModal = ref(false)
+const isEditingServer = ref(false)
+const serverModalError = ref('')
+const isSavingServer = ref(false)
+const autoGroupingServers = ref(false)
+const serverForm = ref({
+  id: null,
+  name: '',
+  price: 0,
+  inbound_ids: [],
+  is_custom: false,
+  contact_support: false,
+  support_target_type: 'bot',
+  support_target_url: '',
+  active: 1,
+  sort_order: 100
+})
+const serverInboundsList = ref([])
 
 // Plan Inbounds Selector Modal
 const showPlanInboundsModal = ref(false)
@@ -3165,7 +3493,7 @@ const loadData = async () => {
     const [
       stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes,
       bkRes, srvRes, brRes, xuiRes, rewRes, affRes, csRes,
-      catRes, volRes, triRes, crmRes, guiRes, audRes
+      catRes, volRes, triRes, crmRes, guiRes, audRes, srvpRes
     ] = await Promise.all([
       getAdminStats().catch(() => ({ data: {} })),
       getAdminOrders().catch(() => ({ data: { orders: [] } })),
@@ -3188,6 +3516,7 @@ const loadData = async () => {
       getAdminCrm().catch(() => ({ data: null })),
       getAdminGuides().catch(() => ({ data: null })),
       getAdminAudit().catch(() => ({ data: null })),
+      getAdminServers().catch(() => ({ data: { servers: [] } })),
     ])
 
     stats.value = stRes.data || {}
@@ -3216,6 +3545,7 @@ const loadData = async () => {
 
     categoriesList.value = catRes.data?.categories || []
     volumePacksList.value = volRes.data?.packs || []
+    serverProfilesList.value = srvpRes.data?.servers || []
 
     if (triRes?.data) {
       trialSettings.value = {
@@ -3296,32 +3626,150 @@ const handleReject = async (orderId) => {
 }
 
 // ─── Plans Handlers ──────────────────────────────────────────────────────────
+const parseFaNumber = (val) => {
+  if (val === null || val === undefined || val === '') return null
+  const faDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹']
+  const arDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  let str = String(val).trim()
+  for (let i = 0; i < 10; i++) {
+    str = str.replace(new RegExp(faDigits[i], 'g'), String(i))
+    str = str.replace(new RegExp(arDigits[i], 'g'), String(i))
+  }
+  const n = Number(str)
+  return isNaN(n) ? null : n
+}
+
+const loadAvailableInboundsForPlan = async (planId) => {
+  loadingAllInbounds.value = true
+  try {
+    const res = await getAdminInbounds()
+    const all = res.data?.inbounds || []
+    let configuredIds = []
+    if (planId) {
+      const pRes = await getAdminPlanInbounds(planId)
+      configuredIds = pRes.data?.configured_inbounds || []
+    }
+    const configuredSet = new Set(configuredIds)
+    const hasConfig = configuredIds.length > 0
+
+    availableInboundsList.value = all.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: planId ? (hasConfig ? configuredSet.has(i.id) : true) : true
+    }))
+  } catch (err) {
+    console.error('Failed to load inbounds:', err)
+  } finally {
+    loadingAllInbounds.value = false
+  }
+}
+
+const selectAllPlanInbounds = (select) => {
+  availableInboundsList.value.forEach(i => {
+    i.selected = select
+  })
+}
+
 const openCreatePlanModal = () => {
   isEditingPlan.value = false
-  planForm.value = { id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '', category_id: null }
+  planModalError.value = ''
+  planForm.value = {
+    id: null,
+    name: '',
+    price: 100000,
+    days: 30,
+    volume_gb: 0,
+    ip_limit: 1,
+    active: 1,
+    sort_order: 100,
+    group_name: '',
+    category_id: categoriesList.value?.[0]?.id || null
+  }
   showPlanModal.value = true
+  loadAvailableInboundsForPlan(null)
 }
 
 const openEditPlanModal = (plan) => {
   isEditingPlan.value = true
-  planForm.value = { ...plan, group_name: plan.group_name || '', category_id: plan.category_id || null }
+  planModalError.value = ''
+  planForm.value = {
+    ...plan,
+    group_name: plan.group_name || '',
+    category_id: plan.category_id || null
+  }
   showPlanModal.value = true
+  loadAvailableInboundsForPlan(plan.id)
 }
 
 const handleSavePlan = async () => {
+  planModalError.value = ''
+
+  const name = String(planForm.value.name || '').trim()
+  if (!name) {
+    planModalError.value = 'لطفاً نام پلان را وارد کنید.'
+    return
+  }
+
+  const price = parseFaNumber(planForm.value.price)
+  if (price === null || isNaN(price) || price < 0) {
+    planModalError.value = 'لطفاً قیمت معتبر وارد کنید.'
+    return
+  }
+
+  const days = parseFaNumber(planForm.value.days)
+  if (days === null || isNaN(days) || days < 1) {
+    planModalError.value = 'مدت زمان باید حداقل ۱ روز باشد.'
+    return
+  }
+
+  const volume_gb = parseFaNumber(planForm.value.volume_gb) ?? 0
+  const ip_limit = parseFaNumber(planForm.value.ip_limit) ?? 1
+  const sort_order = parseFaNumber(planForm.value.sort_order) ?? 100
+
+  const selectedInboundIds = availableInboundsList.value
+    .filter(i => i.selected)
+    .map(i => i.id)
+
+  const payload = {
+    name,
+    price,
+    days,
+    volume_gb,
+    ip_limit,
+    sort_order,
+    active: planForm.value.active ? 1 : 0,
+    group_name: (planForm.value.group_name || '').trim() || null,
+    category_id: planForm.value.category_id || null,
+    inbound_ids: selectedInboundIds
+  }
+
+  isSavingPlan.value = true
   try {
     if (isEditingPlan.value) {
-      await updateAdminPlan(planForm.value.id, planForm.value)
+      await updateAdminPlan(planForm.value.id, payload)
       showNotify('پلان با موفقیت ویرایش شد.')
     } else {
-      await createAdminPlan(planForm.value)
+      await createAdminPlan(payload)
       showNotify('پلان جدید با موفقیت اضافه شد.')
     }
     showPlanModal.value = false
     const res = await getAdminPlans()
     plansList.value = res.data?.plans || []
   } catch (err) {
-    showNotify(err.response?.data?.detail || 'خطا در ذخیره پلان', false)
+    let errorMsg = 'خطا در ذخیره پلان'
+    if (err.response?.data?.detail) {
+      const d = err.response.data.detail
+      if (typeof d === 'string') {
+        errorMsg = d
+      } else if (Array.isArray(d)) {
+        errorMsg = d.map(item => item.msg || JSON.stringify(item)).join(' | ')
+      } else {
+        errorMsg = JSON.stringify(d)
+      }
+    }
+    planModalError.value = errorMsg
+  } finally {
+    isSavingPlan.value = false
   }
 }
 
@@ -3494,6 +3942,141 @@ const handleDeleteVolumePack = async (packId) => {
     showNotify('بسته حجم حذف شد.')
   } catch (err) {
     showNotify('خطا در حذف بسته حجم', false)
+  }
+}
+
+// ─── Server Profiles Handlers ────────────────────────────────────────────────
+const openCreateServerModal = async () => {
+  isEditingServer.value = false
+  serverModalError.value = ''
+  serverForm.value = {
+    id: null,
+    name: '',
+    price: 0,
+    inbound_ids: [],
+    is_custom: false,
+    contact_support: false,
+    support_target_type: 'bot',
+    support_target_url: '',
+    active: 1,
+    sort_order: 100
+  }
+  showServerModal.value = true
+  await loadServerInbounds([])
+}
+
+const openEditServerModal = async (server) => {
+  isEditingServer.value = true
+  serverModalError.value = ''
+  serverForm.value = {
+    ...server,
+    is_custom: !!server.is_custom,
+    contact_support: !!server.contact_support,
+    support_target_type: server.support_target_type || 'bot',
+    support_target_url: server.support_target_url || ''
+  }
+  showServerModal.value = true
+  await loadServerInbounds(server.inbound_ids || [])
+}
+
+const loadServerInbounds = async (configuredIds = []) => {
+  try {
+    const res = await getAdminInbounds()
+    const all = res.data?.inbounds || []
+    const configuredSet = new Set(configuredIds)
+    serverInboundsList.value = all.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: configuredSet.has(i.id)
+    }))
+  } catch (err) {
+    console.error('Failed to load inbounds:', err)
+  }
+}
+
+const selectAllServerInbounds = (select) => {
+  serverInboundsList.value.forEach(i => {
+    i.selected = select
+  })
+}
+
+const handleSaveServer = async () => {
+  serverModalError.value = ''
+  const name = String(serverForm.value.name || '').trim()
+  if (!name) {
+    serverModalError.value = 'لطفاً نام سرور را وارد کنید.'
+    return
+  }
+  const price = parseFaNumber(serverForm.value.price) ?? 0
+
+  const selectedInbounds = serverInboundsList.value
+    .filter(i => i.selected)
+    .map(i => i.id)
+
+  const payload = {
+    name,
+    price,
+    inbound_ids: serverForm.value.is_custom ? [] : selectedInbounds,
+    is_custom: serverForm.value.is_custom ? 1 : 0,
+    contact_support: serverForm.value.contact_support ? 1 : 0,
+    support_target_type: serverForm.value.support_target_type || 'bot',
+    support_target_url: (serverForm.value.support_target_url || '').trim(),
+    active: serverForm.value.active ? 1 : 0,
+    sort_order: serverForm.value.sort_order ?? 100
+  }
+
+  isSavingServer.value = true
+  try {
+    if (isEditingServer.value) {
+      await updateAdminServer(serverForm.value.id, payload)
+      showNotify('سرور با موفقیت ویرایش شد.')
+    } else {
+      await createAdminServer(payload)
+      showNotify('سرور جدید با موفقیت ایجاد شد.')
+    }
+    showServerModal.value = false
+    const res = await getAdminServers()
+    serverProfilesList.value = res.data?.servers || []
+  } catch (err) {
+    serverModalError.value = err.response?.data?.detail || 'خطا در ذخیره سرور'
+  } finally {
+    isSavingServer.value = false
+  }
+}
+
+const handleDeleteServer = async (id) => {
+  if (!confirm('آیا از حذف این سرور اطمینان دارید؟')) return
+  try {
+    await deleteAdminServer(id)
+    serverProfilesList.value = serverProfilesList.value.filter(s => s.id !== id)
+    showNotify('سرور حذف شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در حذف سرور', false)
+  }
+}
+
+const handleToggleServer = async (id) => {
+  try {
+    const res = await toggleAdminServer(id)
+    const target = serverProfilesList.value.find(s => s.id === id)
+    if (target) target.active = res.data.active
+    showNotify('وضعیت سرور تغییر یافت.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در تغییر وضعیت سرور', false)
+  }
+}
+
+const handleAutoGroupServers = async () => {
+  autoGroupingServers.value = true
+  try {
+    const res = await autoGroupAdminServers()
+    showNotify(res.data?.message || 'ادغام خودکار اینباندها با موفقیت انجام شد.')
+    const sRes = await getAdminServers()
+    serverProfilesList.value = sRes.data?.servers || []
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ادغام خودکار سرورها', false)
+  } finally {
+    autoGroupingServers.value = false
   }
 }
 

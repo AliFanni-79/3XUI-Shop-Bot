@@ -115,7 +115,7 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
             with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
 
-                # Create plan
+                # Create plan with inbound_ids
                 create_res = self.client.post(
                     "/api/admin/plans",
                     json={
@@ -124,24 +124,42 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                         "traffic_gb": 30,
                         "duration_days": 30,
                         "category_id": 1,
-                        "description": "توضیح تستی"
+                        "description": "توضیح تستی",
+                        "inbound_ids": [101, 102]
                     },
                     headers={"X-Telegram-Init-Data": init_data}
                 )
                 self.assertEqual(create_res.status_code, 200)
                 plan_id = create_res.json()["plan_id"]
 
+                # Verify inbound_ids returned in get plans
+                get_plans_res = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(get_plans_res.status_code, 200)
+                found = next((p for p in get_plans_res.json()["plans"] if p["id"] == plan_id), None)
+                self.assertIsNotNone(found)
+                self.assertEqual(set(found["inbound_ids"]), {101, 102})
+
+                # Test get all inbounds endpoint
+                all_ib_res = self.client.get("/api/admin/inbounds", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(all_ib_res.status_code, 200)
+                self.assertIn("inbounds", all_ib_res.json())
+
                 # Toggle
                 toggle_res = self.client.post(f"/api/admin/plans/{plan_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(toggle_res.status_code, 200)
 
-                # Update
+                # Update with new inbound_ids
                 update_res = self.client.put(
                     f"/api/admin/plans/{plan_id}",
-                    json={"name": "پلن ویرایش شده", "price": 105000},
+                    json={"name": "پلن ویرایش شده", "price": 105000, "inbound_ids": [102]},
                     headers={"X-Telegram-Init-Data": init_data}
                 )
                 self.assertEqual(update_res.status_code, 200)
+
+                # Verify updated inbound_ids
+                get_plans_res2 = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                found2 = next((p for p in get_plans_res2.json()["plans"] if p["id"] == plan_id), None)
+                self.assertEqual(found2["inbound_ids"], [102])
 
                 # Delete
                 del_res = self.client.delete(f"/api/admin/plans/{plan_id}", headers={"X-Telegram-Init-Data": init_data})
@@ -867,6 +885,182 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                                 )
                                 self.assertEqual(res.status_code, 200)
                                 self.assertEqual(res.json()["status"], "ok")
+
+    def test_admin_servers_crud_and_auto_group(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+
+                # 1. Create standard server
+                create_res = self.client.post(
+                    "/api/admin/servers",
+                    json={
+                        "name": "سرور آلمان VIP",
+                        "price": 30000,
+                        "inbound_ids": [1, 2],
+                        "is_custom": 0,
+                        "contact_support": 0,
+                        "support_target_type": "bot",
+                        "support_target_url": "",
+                        "active": 1,
+                        "sort_order": 10
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_res.status_code, 200)
+                server_id = create_res.json()["server_id"]
+                self.assertIsInstance(server_id, int)
+
+                # 2. Create support-gated server (channel link)
+                create_sup_res = self.client.post(
+                    "/api/admin/servers",
+                    json={
+                        "name": "سرور اختصاصی گیمینگ",
+                        "price": 0,
+                        "inbound_ids": [],
+                        "is_custom": 1,
+                        "contact_support": 1,
+                        "support_target_type": "link",
+                        "support_target_url": "https://t.me/MySupportChannel",
+                        "active": 1,
+                        "sort_order": 20
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_sup_res.status_code, 200)
+                sup_server_id = create_sup_res.json()["server_id"]
+
+                # 3. List servers
+                list_res = self.client.get("/api/admin/servers", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(list_res.status_code, 200)
+                servers = list_res.json()["servers"]
+                self.assertTrue(any(s["id"] == server_id for s in servers))
+                self.assertTrue(any(s["id"] == sup_server_id for s in servers))
+
+                # 4. Update server
+                upd_res = self.client.put(
+                    f"/api/admin/servers/{server_id}",
+                    json={"price": 35000, "name": "سرور آلمان Pro"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(upd_res.status_code, 200)
+
+                # 5. Toggle active
+                tog_res = self.client.post(f"/api/admin/servers/{server_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(tog_res.status_code, 200)
+                self.assertEqual(tog_res.json()["active"], 0)
+
+                # 6. Delete servers
+                del_res = self.client.delete(f"/api/admin/servers/{server_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_res.status_code, 200)
+                del_sup_res = self.client.delete(f"/api/admin/servers/{sup_server_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_sup_res.status_code, 200)
+
+                # 7. Auto-group
+                fake_inbounds = [
+                    {"id": 101, "remark": "Helsinki-1", "protocol": "vless", "port": 443},
+                    {"id": 102, "remark": "Helsinki-2", "protocol": "vmess", "port": 8443},
+                ]
+                with patch("xuishop.core._get_active_inbound_details", return_value=fake_inbounds):
+                    ag_res = self.client.post("/api/admin/servers/auto-group", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(ag_res.status_code, 200)
+                    self.assertIn("created", ag_res.json())
+
+    def test_builder_with_server_profiles_and_orders(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 111222, "first_name": "User"})
+
+            # Insert test server profiles directly into db
+            from xuishop import core
+            conn = core._db_connect()
+            try:
+                conn.execute(
+                    """INSERT OR REPLACE INTO server_profiles (id, name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+                       VALUES (9001, 'سرور هلند', 20000, '[10]', 0, 0, 'bot', '', 1, 1, 1000, 1000),
+                              (9002, 'سرور آی‌پی ثابت VIP', 0, '[]', 1, 1, 'bot', '', 1, 2, 1000, 1000)"""
+                )
+                # Give user balance for wallet order
+                conn.execute("UPDATE users SET balance = 500000 WHERE id = 111222")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # 1. GET /api/builder/config includes servers
+            cfg_res = self.client.get("/api/builder/config", headers={"X-Telegram-Init-Data": init_data})
+            self.assertEqual(cfg_res.status_code, 200)
+            data = cfg_res.json()
+            self.assertIn("servers", data)
+            server_ids = [s["id"] for s in data["servers"]]
+            self.assertIn(9001, server_ids)
+            self.assertIn(9002, server_ids)
+
+            # 2. POST /api/builder/calculate with standard server
+            calc_res = self.client.post(
+                "/api/builder/calculate",
+                json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                headers={"X-Telegram-Init-Data": init_data}
+            )
+            self.assertEqual(calc_res.status_code, 200)
+            cdata = calc_res.json()
+            self.assertEqual(cdata["servers_price"], 20000)
+            self.assertFalse(cdata["has_support_server"])
+
+            # 3. POST /api/builder/calculate with support-only server
+            calc_sup_res = self.client.post(
+                "/api/builder/calculate",
+                json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9002]},
+                headers={"X-Telegram-Init-Data": init_data}
+            )
+            self.assertEqual(calc_sup_res.status_code, 200)
+            self.assertTrue(calc_sup_res.json()["has_support_server"])
+
+            # 4. Init Custom Card Order with server_ids
+            with patch("xuishop.core._start_card_checkout") as mock_chk:
+                card_res = self.client.post(
+                    "/api/orders/init-custom-card",
+                    json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(card_res.status_code, 200)
+                mock_chk.assert_called_once()
+                plan_passed = mock_chk.call_args[0][2]
+                self.assertEqual(plan_passed["server_ids"], [9001])
+
+            # 5. Init Custom Wallet Order with server_ids
+            with patch("xuishop.core.finalize_service_transaction"):
+                wallet_res = self.client.post(
+                    "/api/orders/init-custom-wallet",
+                    json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(wallet_res.status_code, 200)
+                tx_id = wallet_res.json()["tx_id"]
+
+                # Verify server_ids stored in transactions table
+                conn = core._db_connect()
+                row = conn.execute("SELECT server_ids FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+                conn.close()
+                self.assertIsNotNone(row)
+                self.assertEqual(json.loads(row["server_ids"]), [9001])
+
+            # 6. Init Stars Order with server_ids in custom_spec
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_link"):
+                stars_res = self.client.post(
+                    "/api/orders/init-stars",
+                    json={
+                        "custom_spec": {"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                        "custom_name": "myteststar"
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(stars_res.status_code, 200)
+                tx_id_stars = stars_res.json()["order_id"]
+
+                conn = core._db_connect()
+                srow = conn.execute("SELECT server_ids FROM transactions WHERE id = ?", (tx_id_stars,)).fetchone()
+                conn.close()
+                self.assertIsNotNone(srow)
+                self.assertEqual(json.loads(srow["server_ids"]), [9001])
 
 
 if __name__ == "__main__":

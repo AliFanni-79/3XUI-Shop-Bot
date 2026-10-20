@@ -107,7 +107,7 @@ class XuiAndCardTests(unittest.TestCase):
             "plan_id INTEGER, status TEXT, price INTEGER, payment_method TEXT, wallet_used INTEGER, cash_amount INTEGER, "
             "created_at INTEGER, approved_at INTEGER, service_email TEXT, last_error TEXT, kind TEXT, "
             "plan_name_snapshot TEXT, plan_days_snapshot INTEGER, plan_volume_gb_snapshot REAL, plan_ip_limit_snapshot INTEGER, "
-            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL, sub_id TEXT, custom_name TEXT)"
+            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL, sub_id TEXT, custom_name TEXT, server_ids TEXT)"
         )
         con.execute(
             "CREATE TABLE plans(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, volume_gb REAL, "

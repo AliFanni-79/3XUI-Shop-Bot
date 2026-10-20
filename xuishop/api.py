@@ -293,6 +293,7 @@ class BuilderCalculateRequest(BaseModel):
     volume_gb: int
     ip_limit: int
     discount_code: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitCustomCardOrderRequest(BaseModel):
@@ -301,6 +302,7 @@ class InitCustomCardOrderRequest(BaseModel):
     ip_limit: int
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitCustomWalletOrderRequest(BaseModel):
@@ -309,6 +311,7 @@ class InitCustomWalletOrderRequest(BaseModel):
     ip_limit: int
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitGatewayOrderRequest(BaseModel):
@@ -319,6 +322,31 @@ class InitGatewayOrderRequest(BaseModel):
     ip_limit: Optional[int] = None
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
+
+
+class ServerProfileCreateRequest(BaseModel):
+    name: str
+    price: int = 0
+    inbound_ids: List[int] = []
+    is_custom: int = 0
+    contact_support: int = 0
+    support_target_type: str = "bot"
+    support_target_url: str = ""
+    active: int = 1
+    sort_order: int = 100
+
+
+class ServerProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    price: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
+    is_custom: Optional[int] = None
+    contact_support: Optional[int] = None
+    support_target_type: Optional[str] = None
+    support_target_url: Optional[str] = None
+    active: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 class AdminGatewaySettingsRequest(BaseModel):
@@ -439,6 +467,7 @@ class AdminPlanCreateRequest(BaseModel):
     sort_order: int = 100
     group_name: Optional[str] = None
     category_id: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
 
 
 class AdminPlanUpdateRequest(BaseModel):
@@ -451,6 +480,7 @@ class AdminPlanUpdateRequest(BaseModel):
     sort_order: Optional[int] = None
     group_name: Optional[str] = None
     category_id: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
 
 
 class ReplaceDomainRequest(BaseModel):
@@ -700,6 +730,40 @@ async def claim_trial(
 # ---------------------------------------------------------------------------
 
 def _get_builder_config() -> Dict[str, Any]:
+    conn = _db()
+    servers = []
+    try:
+        s_rows = conn.execute("SELECT * FROM server_profiles WHERE active = 1 ORDER BY sort_order, id").fetchall()
+        for r in s_rows:
+            inbound_ids = []
+            try:
+                inbound_ids = json.loads(r["inbound_ids"] or "[]")
+            except Exception:
+                pass
+            servers.append({
+                "id": r["id"],
+                "name": r["name"],
+                "price": int(r["price"] or 0),
+                "inbound_ids": inbound_ids,
+                "is_custom": bool(r["is_custom"]),
+                "contact_support": bool(r["contact_support"]),
+                "support_target_type": r["support_target_type"] or "bot",
+                "support_target_url": r["support_target_url"] or "",
+            })
+    except Exception:
+        servers = []
+    finally:
+        conn.close()
+
+    bot_username = ""
+    try:
+        from . import core as _core
+        if hasattr(_core, 'bot') and _core.bot:
+            me = _core.bot.get_me()
+            bot_username = me.username if me else ""
+    except Exception:
+        pass
+
     return {
         "enabled": _setting("builder_enabled", "1") == "1",
         "month_price": int(_setting("builder_month_price", "120000")),
@@ -726,6 +790,8 @@ def _get_builder_config() -> Dict[str, Any]:
             0: int(_setting("builder_user_cost_unlimited", "65000")),
         },
         "user_unlimited_safety_ip": int(_setting("builder_user_unlimited_safety_ip", "8")),
+        "servers": servers,
+        "bot_username": bot_username,
     }
 
 
@@ -734,7 +800,8 @@ def _calculate_builder_plan(
     volume_gb: int,
     ip_limit: int,
     discount_code: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    server_ids: Optional[List[int]] = None
 ) -> Dict[str, Any]:
     cfg = _get_builder_config()
 
@@ -784,9 +851,40 @@ def _calculate_builder_plan(
     user_label = "نامحدود" if ip_limit == 0 else f"{ip_limit} کاربر"
     effective_ip = cfg["user_unlimited_safety_ip"] if ip_limit == 0 else ip_limit
 
-    subtotal = duration_price + traffic_price + user_cost
+    # 4. Servers calculation
+    servers_price = 0
+    selected_servers = []
+    has_support_server = False
+    if server_ids:
+        conn = _db()
+        try:
+            placeholders = ','.join('?' for _ in server_ids)
+            s_rows = conn.execute(
+                f"SELECT * FROM server_profiles WHERE id IN ({placeholders}) AND active = 1",
+                [int(x) for x in server_ids]
+            ).fetchall()
+            for sr in s_rows:
+                sp = int(sr["price"] or 0)
+                servers_price += sp
+                is_supp = bool(sr["contact_support"])
+                if is_supp:
+                    has_support_server = True
+                selected_servers.append({
+                    "id": sr["id"],
+                    "name": sr["name"],
+                    "price": sp,
+                    "contact_support": is_supp,
+                    "support_target_type": sr["support_target_type"] or "bot",
+                    "support_target_url": sr["support_target_url"] or ""
+                })
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
-    # 4. Optional discount code check
+    subtotal = duration_price + traffic_price + user_cost + servers_price
+
+    # 5. Optional discount code check
     code_discount = 0
     valid_code = None
     if discount_code and user_id:
@@ -826,6 +924,9 @@ def _calculate_builder_plan(
             "is_unlimited": ip_limit == 0,
             "cost": user_cost,
         },
+        "servers": selected_servers,
+        "servers_price": servers_price,
+        "has_support_server": has_support_server,
         "subtotal": subtotal,
         "discount_code": valid_code,
         "discount_code_amount": code_discount,
@@ -850,7 +951,8 @@ async def calculate_builder_price(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=user["id"]
+        user_id=user["id"],
+        server_ids=body.server_ids
     )
 
 
@@ -1371,7 +1473,8 @@ async def init_custom_card_order(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=uid
+        user_id=uid,
+        server_ids=body.server_ids
     )
 
     custom_plan = {
@@ -1384,6 +1487,7 @@ async def init_custom_card_order(
         "ip_limit": calc["effective_ip_limit"],
         "sort_order": 0,
         "active": True,
+        "server_ids": body.server_ids or None,
     }
 
     if body.discount_code:
@@ -1416,7 +1520,8 @@ async def init_custom_wallet_order(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=uid
+        user_id=uid,
+        server_ids=body.server_ids
     )
 
     custom_plan = {
@@ -1429,6 +1534,7 @@ async def init_custom_wallet_order(
         "ip_limit": calc["effective_ip_limit"],
         "sort_order": 0,
         "active": True,
+        "server_ids": body.server_ids or None,
     }
 
     if body.discount_code:
@@ -1518,10 +1624,12 @@ async def init_stars_order(
         plan_name = p["name"]
         price = int(p["price"])
     elif body.custom_spec:
+        server_ids_input = body.custom_spec.get("server_ids")
         calc = _calculate_builder_plan(
             months=int(body.custom_spec.get("months", 1)),
             volume_gb=int(body.custom_spec.get("volume_gb", 0)),
             ip_limit=int(body.custom_spec.get("ip_limit", 1)),
+            server_ids=server_ids_input,
         )
         plan_name = calc["plan_name"]
         price = calc.get("total_price", calc.get("final_price", 0))
@@ -1549,8 +1657,8 @@ async def init_stars_order(
             INSERT INTO transactions (
                 user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb
-            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb, server_ids
+            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
             """,
             (
                 uid,
@@ -1567,6 +1675,7 @@ async def init_stars_order(
                 int(custom_spec.get("ip_limit", 1)) if custom_spec else 1,
                 body.discount_code,
                 discount_amount,
+                json.dumps(server_ids_input) if server_ids_input else None,
             ),
         )
         tx_id = c.lastrowid
@@ -1641,7 +1750,8 @@ async def init_gateway_order(
             volume_gb=body.volume_gb or 0,
             ip_limit=body.ip_limit if body.ip_limit is not None else 1,
             discount_code=body.discount_code,
-            user_id=uid
+            user_id=uid,
+            server_ids=body.server_ids
         )
         plan = {
             "id": 0,
@@ -1653,6 +1763,7 @@ async def init_gateway_order(
             "ip_limit": calc["effective_ip_limit"],
             "sort_order": 0,
             "active": True,
+            "server_ids": body.server_ids or None,
         }
     else:
         raise HTTPException(status_code=400, detail="مشخصات پلن ارسال نشده است.")
@@ -2621,86 +2732,104 @@ async def admin_toggle_user_status(user_id: int, _admin: Dict[str, Any] = Depend
 @app.get("/api/admin/plans")
 async def admin_plans(_admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    rows = conn.execute(
-        """SELECT p.id, p.name, p.price, p.volume_gb, p.days, p.ip_limit, p.active, p.sort_order, p.group_name, p.category_id,
-                  c.name AS category_name
-           FROM plans p
-           LEFT JOIN plan_categories c ON c.id = p.category_id
-           ORDER BY p.sort_order, p.id"""
-    ).fetchall()
-    conn.close()
-    return {
-        "plans": [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "price": r["price"],
-                "volume_gb": float(r["volume_gb"] or 0),
-                "days": r["days"],
-                "ip_limit": r["ip_limit"],
-                "active": bool(r["active"]),
-                "sort_order": r["sort_order"],
-                "group_name": r["group_name"] or "",
-                "category_id": r["category_id"],
-                "category_name": r["category_name"] or "عمومی",
-            }
-            for r in rows
-        ]
-    }
+    try:
+        rows = conn.execute(
+            """SELECT p.id, p.name, p.price, p.volume_gb, p.days, p.ip_limit, p.active, p.sort_order, p.group_name, p.category_id,
+                      c.name AS category_name
+               FROM plans p
+               LEFT JOIN plan_categories c ON c.id = p.category_id
+               ORDER BY p.sort_order, p.id"""
+        ).fetchall()
+        inbounds_map = {}
+        ib_rows = conn.execute("SELECT plan_id, inbound_id FROM plan_inbounds").fetchall()
+        for ir in ib_rows:
+            inbounds_map.setdefault(ir["plan_id"], []).append(int(ir["inbound_id"]))
+        return {
+            "plans": [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "price": r["price"],
+                    "volume_gb": float(r["volume_gb"] or 0),
+                    "days": r["days"],
+                    "ip_limit": r["ip_limit"],
+                    "active": bool(r["active"]),
+                    "sort_order": r["sort_order"],
+                    "group_name": r["group_name"] or "",
+                    "category_id": r["category_id"],
+                    "category_name": r["category_name"] or "عمومی",
+                    "inbound_ids": inbounds_map.get(r["id"], []),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
 
 
 @app.post("/api/admin/plans")
 async def admin_create_plan(body: AdminPlanCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
     now = int(time.time())
     conn = _db()
-    c = conn.cursor()
-    cat_id = body.category_id
-    if cat_id is None:
-        cat_row = conn.execute("SELECT id FROM plan_categories WHERE active = 1 ORDER BY sort_order, id LIMIT 1").fetchone()
-        cat_id = cat_row["id"] if cat_row else 1
-    c.execute(
-        """
-        INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, group_name, category_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, (body.group_name or "").strip() or None, cat_id, now, now),
-    )
-    plan_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return {"status": "created", "plan_id": plan_id, "message": "پلن جدید با موفقیت اضافه شد."}
+    try:
+        c = conn.cursor()
+        cat_id = body.category_id
+        if cat_id is None:
+            cat_row = conn.execute("SELECT id FROM plan_categories WHERE active = 1 ORDER BY sort_order, id LIMIT 1").fetchone()
+            cat_id = cat_row["id"] if cat_row else 1
+        c.execute(
+            """
+            INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, group_name, category_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, (body.group_name or "").strip() or None, cat_id, now, now),
+        )
+        plan_id = c.lastrowid
+        if body.inbound_ids is not None:
+            c.execute("DELETE FROM plan_inbounds WHERE plan_id = ?", (plan_id,))
+            for iid in body.inbound_ids:
+                c.execute("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)", (plan_id, int(iid)))
+        conn.commit()
+        return {"status": "created", "plan_id": plan_id, "message": "پلن جدید با موفقیت اضافه شد."}
+    finally:
+        conn.close()
 
 
 @app.put("/api/admin/plans/{plan_id}")
 async def admin_update_plan(plan_id: int, body: AdminPlanUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
-    if not plan:
+    try:
+        plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+        if not plan:
+            raise HTTPException(status_code=404, detail="پلن یافت نشد.")
+
+        now = int(time.time())
+        name = body.name.strip() if body.name is not None else plan["name"]
+        price = body.price if body.price is not None else plan["price"]
+        volume_gb = body.volume_gb if body.volume_gb is not None else plan["volume_gb"]
+        days = body.days if body.days is not None else plan["days"]
+        ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
+        active = body.active if body.active is not None else plan["active"]
+        sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
+        group_name = body.group_name.strip() if body.group_name is not None else (plan["group_name"] if "group_name" in plan.keys() else None)
+        category_id = body.category_id if body.category_id is not None else (plan["category_id"] if "category_id" in plan.keys() else None)
+
+        conn.execute(
+            """
+            UPDATE plans
+            SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, group_name = ?, category_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, price, volume_gb, days, ip_limit, active, sort_order, (group_name or "").strip() or None, category_id, now, plan_id),
+        )
+        if body.inbound_ids is not None:
+            conn.execute("DELETE FROM plan_inbounds WHERE plan_id = ?", (plan_id,))
+            for iid in body.inbound_ids:
+                conn.execute("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)", (plan_id, int(iid)))
+        conn.commit()
+        return {"status": "updated", "message": "پلن با موفقیت ویرایش شد."}
+    finally:
         conn.close()
-        raise HTTPException(status_code=404, detail="پلن یافت نشد.")
-
-    now = int(time.time())
-    name = body.name.strip() if body.name is not None else plan["name"]
-    price = body.price if body.price is not None else plan["price"]
-    volume_gb = body.volume_gb if body.volume_gb is not None else plan["volume_gb"]
-    days = body.days if body.days is not None else plan["days"]
-    ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
-    active = body.active if body.active is not None else plan["active"]
-    sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
-    group_name = body.group_name.strip() if body.group_name is not None else (plan["group_name"] if "group_name" in plan.keys() else None)
-    category_id = body.category_id if body.category_id is not None else (plan["category_id"] if "category_id" in plan.keys() else None)
-
-    conn.execute(
-        """
-        UPDATE plans
-        SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, group_name = ?, category_id = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (name, price, volume_gb, days, ip_limit, active, sort_order, (group_name or "").strip() or None, category_id, now, plan_id),
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "updated", "message": "پلن با موفقیت ویرایش شد."}
 
 
 @app.delete("/api/admin/plans/{plan_id}")
@@ -3476,6 +3605,180 @@ async def admin_toggle_plan_inbound(plan_id: int, body: InboundToggleRequest, _a
 async def admin_reset_plan_inbounds(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
     core._clear_inbound_selection('plan', plan_id)
     return {"status": "reset", "message": "تمامی اینباندهای فعال برای این پلان انتخاب شدند."}
+
+
+@app.get("/api/admin/inbounds")
+async def admin_get_all_inbounds(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception:
+        active_inbounds = []
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+        }
+        for ib in active_inbounds
+    ]
+    return {"inbounds": inbounds_list}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Server Profiles (Servers / Inbounds Grouping)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/servers")
+async def admin_get_servers(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        rows = conn.execute("SELECT * FROM server_profiles ORDER BY sort_order, id").fetchall()
+        servers = []
+        for r in rows:
+            inbound_ids = []
+            try:
+                inbound_ids = json.loads(r["inbound_ids"] or "[]")
+            except Exception:
+                pass
+            servers.append({
+                "id": r["id"],
+                "name": r["name"],
+                "price": int(r["price"] or 0),
+                "inbound_ids": inbound_ids,
+                "is_custom": bool(r["is_custom"]),
+                "contact_support": bool(r["contact_support"]),
+                "support_target_type": r["support_target_type"] or "bot",
+                "support_target_url": r["support_target_url"] or "",
+                "active": bool(r["active"]),
+                "sort_order": r["sort_order"],
+            })
+        return {"servers": servers}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers")
+async def admin_create_server(body: ServerProfileCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    conn = _db()
+    try:
+        c = conn.cursor()
+        inbound_ids_json = json.dumps([int(x) for x in body.inbound_ids])
+        c.execute(
+            """
+            INSERT INTO server_profiles (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (body.name.strip(), body.price, inbound_ids_json, body.is_custom, body.contact_support, body.support_target_type.strip(), body.support_target_url.strip(), body.active, body.sort_order, now, now),
+        )
+        server_id = c.lastrowid
+        conn.commit()
+        return {"status": "created", "server_id": server_id, "message": "سرور جدید با موفقیت ایجاد شد."}
+    finally:
+        conn.close()
+
+
+@app.put("/api/admin/servers/{server_id}")
+async def admin_update_server(server_id: int, body: ServerProfileUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        row = conn.execute("SELECT * FROM server_profiles WHERE id = ?", (server_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="سرور یافت نشد.")
+
+        now = int(time.time())
+        name = body.name.strip() if body.name is not None else row["name"]
+        price = body.price if body.price is not None else row["price"]
+        inbound_ids = json.dumps([int(x) for x in body.inbound_ids]) if body.inbound_ids is not None else row["inbound_ids"]
+        is_custom = body.is_custom if body.is_custom is not None else row["is_custom"]
+        contact_support = body.contact_support if body.contact_support is not None else row["contact_support"]
+        support_target_type = body.support_target_type.strip() if body.support_target_type is not None else row["support_target_type"]
+        support_target_url = body.support_target_url.strip() if body.support_target_url is not None else row["support_target_url"]
+        active = body.active if body.active is not None else row["active"]
+        sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
+
+        conn.execute(
+            """
+            UPDATE server_profiles
+            SET name = ?, price = ?, inbound_ids = ?, is_custom = ?, contact_support = ?, support_target_type = ?, support_target_url = ?, active = ?, sort_order = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, now, server_id),
+        )
+        conn.commit()
+        return {"status": "updated", "message": "سرور با موفقیت ویرایش شد."}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/admin/servers/{server_id}")
+async def admin_delete_server(server_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        conn.execute("DELETE FROM server_profiles WHERE id = ?", (server_id,))
+        conn.commit()
+        return {"status": "deleted", "message": "سرور با موفقیت حذف شد."}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers/{server_id}/toggle")
+async def admin_toggle_server(server_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        row = conn.execute("SELECT active FROM server_profiles WHERE id = ?", (server_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="سرور یافت نشد.")
+        new_state = 0 if row["active"] else 1
+        conn.execute("UPDATE server_profiles SET active = ?, updated_at = ? WHERE id = ?", (new_state, int(time.time()), server_id))
+        conn.commit()
+        return {"status": "toggled", "active": bool(new_state)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers/auto-group")
+async def admin_auto_group_servers(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Automatically group active inbounds by remark/tag into server profiles."""
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"خطا در دریافت اینباندها از پنل سنائی: {exc}")
+
+    if not active_inbounds:
+        return {"status": "ok", "created": 0, "message": "اینباند فعالی در پنل یافت نشد."}
+
+    groups: Dict[str, List[int]] = {}
+    for ib in active_inbounds:
+        title = (ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}").strip()
+        groups.setdefault(title, []).append(int(ib["id"]))
+
+    now = int(time.time())
+    conn = _db()
+    created_count = 0
+    try:
+        existing_names = {r["name"] for r in conn.execute("SELECT name FROM server_profiles").fetchall()}
+        c = conn.cursor()
+        order = 10
+        for name, iids in groups.items():
+            if name in existing_names:
+                c.execute("UPDATE server_profiles SET inbound_ids = ?, updated_at = ? WHERE name = ?", (json.dumps(iids), now, name))
+            else:
+                c.execute(
+                    """
+                    INSERT INTO server_profiles (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+                    VALUES (?, 0, ?, 0, 0, 'bot', '', 1, ?, ?, ?)
+                    """,
+                    (name, json.dumps(iids), order, now, now)
+                )
+                created_count += 1
+            order += 10
+        conn.commit()
+        return {"status": "ok", "created": created_count, "total_groups": len(groups), "message": f"{len(groups)} سرور از اینباندهای پنل همگام و گروه‌بندی شد."}
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

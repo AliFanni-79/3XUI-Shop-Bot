@@ -1,6 +1,6 @@
 """X-UI Shop Bot application package."""
 
-VERSION = "26.2.0"
+VERSION = "26.2.1"
 
 
 def install(core):

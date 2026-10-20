@@ -301,7 +301,49 @@
         </div>
       </div>
 
-      <!-- 4. BRIEF SUMMARY & PRICE BREAKDOWN -->
+      <!-- 4. SERVER / INBOUND SELECTION -->
+      <div v-if="builderConfig.servers && builderConfig.servers.length" class="bg-tg-sec rounded-2xl p-4 border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <label class="text-xs font-bold text-tg flex items-center gap-1.5">
+            <span>🌐</span>
+            <span>۴. انتخاب سرورها و موقعیت‌ها (Servers)</span>
+          </label>
+          <span class="text-[10px] text-tg-hint">{{ selectedServerIds.length ? selectedServerIds.length + ' سرور انتخاب شده' : 'پیش‌فرض (همه سرورها)' }}</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="server in builderConfig.servers"
+            :key="server.id"
+            @click="toggleServerSelection(server.id)"
+            class="p-3 rounded-xl border transition cursor-pointer flex items-center justify-between"
+            :class="selectedServerIds.includes(server.id) ? 'bg-tg-button/15 border-tg-button text-tg ring-1 ring-tg-button' : 'bg-tg border-gray-700/40 text-tg-hint hover:text-tg'"
+          >
+            <div class="space-y-0.5">
+              <span class="font-bold text-xs block text-white">{{ server.name }}</span>
+              <span v-if="server.contact_support" class="text-[10px] text-amber-300 font-bold block">
+                💬 برای خرید به پشتیبانی مراجعه فرمایید
+              </span>
+              <span v-else class="text-[10px] text-emerald-400 font-medium block">
+                {{ server.price > 0 ? `+${Number(server.price).toLocaleString('fa-IR')} تومان` : 'شامل پلن (رایگان)' }}
+              </span>
+            </div>
+            <div
+              class="w-5 h-5 rounded-lg border flex items-center justify-center text-xs transition"
+              :class="selectedServerIds.includes(server.id) ? 'bg-tg-button border-tg-button text-white font-bold' : 'border-gray-600 bg-tg/40'"
+            >
+              <span v-if="selectedServerIds.includes(server.id)">✓</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="hasSupportServerSelected" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 flex items-center gap-2">
+          <span>⚠️</span>
+          <span>یکی از سرورهای انتخابی شما نیازمند هماهنگی با پشتیبانی است. امکان پرداخت آنلاین برای این سرور وجود ندارد.</span>
+        </div>
+      </div>
+
+      <!-- 5. BRIEF SUMMARY & PRICE BREAKDOWN -->
       <div class="bg-gradient-to-br from-tg-sec to-tg border border-gray-700/40 rounded-2xl p-4 space-y-3 shadow-md">
         <h3 class="font-bold text-xs flex items-center gap-1.5 border-b border-gray-700/30 pb-2">
           <span>📋</span>
@@ -336,6 +378,13 @@
             </span>
           </div>
 
+          <div v-if="builderConfig.servers && builderConfig.servers.length" class="flex justify-between items-center">
+            <span class="text-tg-hint">سرورهای انتخابی:</span>
+            <span class="font-semibold" :class="hasSupportServerSelected ? 'text-amber-400' : ''">
+              {{ hasSupportServerSelected ? 'نیاز به هماهنگی پشتیبانی' : (calculatedBrief.servers_price === 0 ? 'شامل پلن (رایگان)' : `+${Number(calculatedBrief.servers_price).toLocaleString('fa-IR')} تومان`) }}
+            </span>
+          </div>
+
           <div class="border-t border-gray-700/30 pt-2 flex justify-between items-baseline">
             <span class="font-bold text-xs text-tg">مبلغ کل نهایی:</span>
             <div class="flex items-baseline gap-1">
@@ -347,7 +396,18 @@
           </div>
         </div>
 
+        <div v-if="hasSupportServerSelected" class="pt-2">
+          <button
+            type="button"
+            @click="handleSupportServerAction"
+            class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs py-3 rounded-xl shadow active:scale-95 transition flex items-center justify-center gap-2"
+          >
+            <span>{{ supportServerTarget?.support_target_type === 'link' ? 'ارتباط با پشتیبانی / کانال تلگرام 💬' : 'ارتباط با پشتیبانی داخلی ربات 📞' }}</span>
+            <span>←</span>
+          </button>
+        </div>
         <button
+          v-else
           @click="openCustomCheckoutModal"
           class="w-full btn-tg font-bold text-xs py-3 rounded-xl shadow active:scale-95 transition flex items-center justify-center gap-2 mt-2"
         >
@@ -611,6 +671,7 @@ const selectedMonths = ref(1) // 1, 3, 6, 12
 const isUnlimitedTraffic = ref(false)
 const selectedGb = ref(50) // 5 .. 500
 const selectedUsers = ref(1) // 1, 2, 3, 4, 5, 0 (unlimited)
+const selectedServerIds = ref([])
 
 const builderConfig = ref({
   month_price: 120000,
@@ -623,11 +684,13 @@ const builderConfig = ref({
   ],
   traffic_unlimited_price: 500000,
   traffic_unlimited_cap_gb: 1000,
-  user_costs: { 1: 0, 2: 20000, 3: 35000, 4: 45000, 5: 50000, 0: 65000 }
+  user_costs: { 1: 0, 2: 20000, 3: 35000, 4: 45000, 5: 50000, 0: 65000 },
+  servers: []
 })
 
 // Checkout Modal state
 const activePlan = ref(null)
+const modalPrice = computed(() => Number(activePlan.value?.price || 0))
 const isCustomPlan = ref(false)
 const customServiceName = ref('')
 const discountCode = ref('')
@@ -681,6 +744,23 @@ const userOptions = computed(() => {
   ]
 })
 
+const selectedServersList = computed(() => {
+  const servers = builderConfig.value.servers || []
+  return servers.filter(s => selectedServerIds.value.includes(s.id))
+})
+
+const serversPrice = computed(() => {
+  return selectedServersList.value.reduce((acc, s) => acc + (s.price || 0), 0)
+})
+
+const hasSupportServerSelected = computed(() => {
+  return selectedServersList.value.some(s => s.contact_support)
+})
+
+const supportServerTarget = computed(() => {
+  return selectedServersList.value.find(s => s.contact_support) || null
+})
+
 const calculatedBrief = computed(() => {
   const m = selectedMonths.value
   const mPrice = builderConfig.value.month_price
@@ -712,7 +792,10 @@ const calculatedBrief = computed(() => {
   // Users
   const uCost = builderConfig.value.user_costs[selectedUsers.value] ?? 0
 
-  const total = durFinal + trafFinal + uCost
+  // Servers
+  const sPrice = serversPrice.value
+
+  const total = durFinal + trafFinal + uCost + sPrice
 
   return {
     duration: {
@@ -732,6 +815,7 @@ const calculatedBrief = computed(() => {
       ip_limit: selectedUsers.value,
       cost: uCost
     },
+    servers_price: sPrice,
     total_price: total
   }
 })
@@ -759,11 +843,54 @@ const openCheckoutModal = (plan, isCustom = false) => {
   discountCode.value = ''
 }
 
+const toggleServerSelection = (id) => {
+  const idx = selectedServerIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedServerIds.value.splice(idx, 1)
+  } else {
+    selectedServerIds.value.push(id)
+  }
+}
+
+const handleSupportServerAction = () => {
+  const target = supportServerTarget.value
+  if (!target) return
+  if (target.support_target_type === 'link' && target.support_target_url) {
+    let url = target.support_target_url.trim()
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('tg://')) {
+      if (url.startsWith('@')) {
+        url = `https://t.me/${url.slice(1)}`
+      } else {
+        url = `https://t.me/${url}`
+      }
+    }
+    if (window.Telegram?.WebApp?.openTelegramLink && (url.startsWith('https://t.me/') || url.startsWith('tg://'))) {
+      window.Telegram.WebApp.openTelegramLink(url)
+    } else if (window.Telegram?.WebApp?.openLink) {
+      window.Telegram.WebApp.openLink(url)
+    } else {
+      window.open(url, '_blank')
+    }
+  } else {
+    // Built-in bot support section
+    const botUser = window.Telegram?.WebApp?.initDataUnsafe?.bot_username || ''
+    if (botUser && window.Telegram?.WebApp?.openTelegramLink) {
+      window.Telegram.WebApp.openTelegramLink(`https://t.me/${botUser}?start=support_server_${target.id}`)
+    } else if (window.Telegram?.WebApp?.close) {
+      window.Telegram.WebApp.close()
+    } else {
+      router.push('/support')
+    }
+  }
+}
+
 const openCustomCheckoutModal = () => {
   const brief = calculatedBrief.value
   const trafLabel = brief.traffic.is_unlimited ? 'نامحدود' : `${brief.traffic.volume_gb} گیگ`
   const userLabel = brief.user_limit.ip_limit === 0 ? 'نامحدود' : `${brief.user_limit.ip_limit} کاربر`
-  const planName = `پلن اختصاصی | ${brief.duration.months} ماهه - ${trafLabel} - ${userLabel}`
+  const serverNames = selectedServersList.value.map(s => s.name).join('، ')
+  const serversLabel = serverNames ? ` - سرور: ${serverNames}` : ''
+  const planName = `پلن اختصاصی | ${brief.duration.months} ماهه - ${trafLabel} - ${userLabel}${serversLabel}`
 
   openCheckoutModal({
     id: 0,
@@ -793,7 +920,8 @@ const payCard = async () => {
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
         discountCode.value || null,
-        sName
+        sName,
+        selectedServerIds.value.length ? selectedServerIds.value : null
       )
     } else {
       await initCardOrder(activePlan.value.id, discountCode.value || null, sName)
@@ -824,7 +952,8 @@ const payWallet = async () => {
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
         discountCode.value || null,
-        sName
+        sName,
+        selectedServerIds.value.length ? selectedServerIds.value : null
       )
     } else {
       await initWalletOrder(activePlan.value.id, discountCode.value || null, sName)
@@ -857,7 +986,8 @@ const payGateway = async (gatewayName) => {
         volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
         ip_limit: selectedUsers.value,
         discount_code: discountCode.value || null,
-        custom_name: sName
+        custom_name: sName,
+        server_ids: selectedServerIds.value.length ? selectedServerIds.value : null
       }
     } else {
       payload = {
@@ -898,6 +1028,7 @@ const payStars = async () => {
           months: selectedMonths.value,
           volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
           ip_limit: selectedUsers.value,
+          server_ids: selectedServerIds.value.length ? selectedServerIds.value : null
         },
         discount_code: discountCode.value || null,
         custom_name: sName

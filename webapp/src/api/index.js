@@ -67,22 +67,24 @@ export const calculateBuilderPlan = (months, volumeGb, ipLimit, discountCode = n
     discount_code: discountCode,
   })
 
-export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
+export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null, serverIds = null) =>
   client.post('/orders/init-custom-card', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
     custom_name: customName,
+    server_ids: serverIds,
   })
 
-export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
+export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null, serverIds = null) =>
   client.post('/orders/init-custom-wallet', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
     custom_name: customName,
+    server_ids: serverIds,
   })
 
 // ─── Payment Gateways & Stars ────────────────────────────────────────────────
@@ -178,10 +180,19 @@ export const saveAdminContentSecurity = (payload) => client.post('/admin/content
 export const checkAdminNotifications = () => client.post('/admin/notifications/check-now')
 
 // ─── Admin — Plan Inbounds ───────────────────────────────────────────────────
+export const getAdminInbounds = () => client.get('/admin/inbounds')
 export const getAdminPlanInbounds = (planId) => client.get(`/admin/plans/${planId}/inbounds`)
 export const toggleAdminPlanInbound = (planId, inboundId) =>
   client.post(`/admin/plans/${planId}/inbounds/toggle`, { inbound_id: inboundId })
 export const resetAdminPlanInbounds = (planId) => client.post(`/admin/plans/${planId}/inbounds/reset`)
+
+// ─── Admin — Server Profiles (Servers / Inbounds Grouping) ───────────────────
+export const getAdminServers = () => client.get('/admin/servers')
+export const createAdminServer = (payload) => client.post('/admin/servers', payload)
+export const updateAdminServer = (id, payload) => client.put(`/admin/servers/${id}`, payload)
+export const deleteAdminServer = (id) => client.delete(`/admin/servers/${id}`)
+export const toggleAdminServer = (id) => client.post(`/admin/servers/${id}/toggle`)
+export const autoGroupAdminServers = () => client.post('/admin/servers/auto-group')
 
 // ─── Admin — Customer Services Management ────────────────────────────────────
 export const getAdminServiceDetails = (email) => client.get(`/admin/services/${encodeURIComponent(email)}`)

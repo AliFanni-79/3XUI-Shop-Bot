@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 import telebot
 from telebot import types
 import sqlite3
@@ -163,6 +164,7 @@ def init_db():
         ('extra_volume_gb', 'REAL NOT NULL DEFAULT 0'),
         ('sub_id', 'TEXT'),
         ('custom_name', 'TEXT'),
+        ('server_ids', 'TEXT'),
     ]:
         _ensure_column(cursor, 'transactions', col, definition)
 
@@ -299,6 +301,22 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS trial_inbounds (
         inbound_id INTEGER PRIMARY KEY
     )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS server_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price INTEGER NOT NULL DEFAULT 0,
+        inbound_ids TEXT NOT NULL DEFAULT '[]',
+        is_custom INTEGER NOT NULL DEFAULT 0,
+        contact_support INTEGER NOT NULL DEFAULT 0,
+        support_target_type TEXT NOT NULL DEFAULT 'bot',
+        support_target_url TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )''')
+    _ensure_column(cursor, 'server_profiles', 'support_target_type', "TEXT NOT NULL DEFAULT 'bot'")
+    _ensure_column(cursor, 'server_profiles', 'support_target_url', "TEXT NOT NULL DEFAULT ''")
     cursor.execute('''CREATE TABLE IF NOT EXISTS guide_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL,
@@ -1507,8 +1525,32 @@ def send_welcome(message):
 
     referral_code = None
     parts = (message.text or '').strip().split(maxsplit=1)
-    if len(parts) == 2 and parts[1].startswith('ref_'):
-        referral_code = parts[1][4:]
+    if len(parts) == 2:
+        param = parts[1].strip()
+        if param == 'support':
+            return support_mode(message)
+        if param.startswith('support_server_'):
+            sid = param.replace('support_server_', '').strip()
+            server_name = ""
+            if sid.isdigit():
+                try:
+                    c = _db_connect()
+                    srow = c.execute("SELECT name FROM server_profiles WHERE id = ?", (int(sid),)).fetchone()
+                    if srow:
+                        server_name = srow[0]
+                    c.close()
+                except Exception:
+                    pass
+            USER_STATES[message.chat.id] = 'SUPPORT'
+            from .db import get_brand_name
+            prompt = f"📞 **بخش پشتیبانی {get_brand_name()}**\n\n"
+            if server_name:
+                prompt += f"شما در حال استعلام و هماهنگی برای خرید **{server_name}** هستید.\n"
+            prompt += "لطفاً پیام یا مشخصات مدنظر خود را ارسال کنید. مدیریت به زودی پاسخ خواهد داد."
+            bot.send_message(message.chat.id, prompt, reply_markup=back_menu(), parse_mode="Markdown")
+            return
+        if param.startswith('ref_'):
+            referral_code = param[4:]
 
     bound_referrer = None
     if is_new_user and referral_code:
@@ -1763,6 +1805,9 @@ def _release_stale_checkouts(user_id=None):
 
 
 def _product_snapshot(plan):
+    server_ids = plan.get('server_ids')
+    if isinstance(server_ids, list):
+        server_ids = json.dumps(server_ids)
     return {
         'plan_id': int(plan.get('id', 0)),
         'name': str(plan.get('name') or get_brand_name()),
@@ -1770,6 +1815,7 @@ def _product_snapshot(plan):
         'days': int(plan.get('days') or 0),
         'volume': float(plan.get('volume', plan.get('volume_gb', 0)) or 0),
         'ip_limit': int(plan.get('ip_limit') or 0),
+        'server_ids': server_ids or None,
     }
 
 
@@ -1794,11 +1840,11 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
             """INSERT INTO transactions
                (user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb)
-               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb, server_ids)
+               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(user_id), int(plan['plan_id']), status, int(final_price), payment_method, int(wallet_used), int(cash_amount), now_ts,
              target_service_email, custom_name, kind, plan['name'], int(plan['days']), float(plan['volume']), int(plan['ip_limit']),
-             code, int(discount_amount), float(extra_volume_gb or 0))
+             code, int(discount_amount), float(extra_volume_gb or 0), plan.get('server_ids'))
         )
         tx_id = int(cur.lastrowid)
         if kind == 'NEW' and not target_service_email:
@@ -4570,6 +4616,28 @@ def provision_xui_service(user_id, plan_id, tx_id, user_email):
     request_proxies = _xui_proxies()
 
     desired_inbound_ids = _selected_inbound_ids_for('plan', int(plan_id), headers, request_proxies)
+    server_ids_raw = tx['server_ids'] if 'server_ids' in tx.keys() else None
+    if server_ids_raw:
+        try:
+            s_ids = json.loads(server_ids_raw) if isinstance(server_ids_raw, str) else list(server_ids_raw)
+            if s_ids:
+                s_conn = _db_connect()
+                placeholders = ','.join('?' for _ in s_ids)
+                s_rows = s_conn.execute(f"SELECT inbound_ids FROM server_profiles WHERE id IN ({placeholders})", [int(x) for x in s_ids]).fetchall()
+                s_conn.close()
+                custom_inbound_ids = []
+                for sr in s_rows:
+                    try:
+                        custom_inbound_ids.extend([int(x) for x in json.loads(sr['inbound_ids'] or '[]')])
+                    except Exception:
+                        pass
+                if custom_inbound_ids:
+                    active_ids = {int(x) for x in _get_active_inbound_ids(headers, request_proxies)}
+                    valid_custom_inbounds = [x for x in sorted(set(custom_inbound_ids)) if x in active_ids]
+                    if valid_custom_inbounds:
+                        desired_inbound_ids = valid_custom_inbounds
+        except Exception as e:
+            logger.warning("Failed to resolve custom server inbounds for tx %s: %s", tx_id, e)
     client_data = _get_client_data(user_email, headers, request_proxies)
     if not client_data:
         payload = {
