@@ -5,8 +5,8 @@ import time
 from . import context as C
 
 
-VERSION_URL = "https://raw.githubusercontent.com/AliFanni-79/SpeedyBot/main/VERSION.txt"
-REPOSITORY_URL = "https://github.com/AliFanni-79/SpeedyBot"
+VERSION_URL = "https://raw.githubusercontent.com/AliFanni-79/3XUI-Shop-Bot/main/VERSION.txt"
+REPOSITORY_URL = "https://github.com/AliFanni-79/3XUI-Shop-Bot"
 _UPDATE_THREAD = None
 _UPDATE_LOCK = threading.Lock()
 

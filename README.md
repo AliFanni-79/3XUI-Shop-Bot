@@ -13,7 +13,7 @@
 
 > **Author / Maintainer:** **AliFanni-79**  
 > Telegram: **@AliFanni_79**  
-> Official repository: **https://github.com/AliFanni-79/SpeedyBot**
+> Official repository: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
 VizzPN Shop Bot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
 
@@ -430,7 +430,7 @@ Log in as `root`:
 apt update
 apt install -y git
 
-git clone https://github.com/AliFanni-79/SpeedyBot.git /root/SpeedyBot
+git clone https://github.com/AliFanni-79/3XUI-Shop-Bot.git /root/SpeedyBot
 cd /root/SpeedyBot
 chmod +x install.sh update.sh
 ./install.sh
@@ -1020,6 +1020,6 @@ Licensed under the **MIT License**.
 Created and maintained by **AliFanni-79**.
 
 - Telegram: **@AliFanni_79**
-- Repository: **https://github.com/AliFanni-79/SpeedyBot**
+- Repository: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
 If you redistribute or build on VizzPN Shop Bot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.

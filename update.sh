@@ -11,7 +11,7 @@ set -Eeuo pipefail
 
 SERVICE_NAME="${SPEEDYBOT_SERVICE_NAME:-xui-bot.service}"
 APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
-REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/SpeedyBot.git}"
+REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/3XUI-Shop-Bot.git}"
 BRANCH="${SPEEDYBOT_BRANCH:-main}"
 CURRENT_COMMIT_FILE="$APP_DIR/.deployed_commit"
 CHECK_ONLY=0

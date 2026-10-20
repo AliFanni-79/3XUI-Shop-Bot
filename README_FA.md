@@ -13,7 +13,7 @@
 
 > **سازنده و نگهدارنده پروژه: AliFanni-79**  
 > تلگرام: **@AliFanni_79**  
-> سورس رسمی: **https://github.com/AliFanni-79/SpeedyBot**
+> سورس رسمی: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
 ربات VizzPN Shop Bot یک راهکار کامل فروش و مدیریت سرویس‌های **3x-ui / Sanaei** در بستر تلگرام است. این نسخه با ترکیب **مینی‌اپ تلگرام (Vue 3 + Tailwind CSS)** و بات تلگرام، امکاناتی نظیر ساخت خودکار کلاینت بعد از خرید، سازنده پلن‌های سفارشی توسط کاربر، اتصال به درگاه‌های پرداخت آنلاین (زیبال و زرین‌پال)، خرید با کیف پول و مدیریت آسان را فراهم می‌سازد.
 
@@ -419,7 +419,7 @@ Subscription URI path: /sub/
 apt update
 apt install -y git
 
-git clone https://github.com/AliFanni-79/SpeedyBot.git /root/SpeedyBot
+git clone https://github.com/AliFanni-79/3XUI-Shop-Bot.git /root/SpeedyBot
 cd /root/SpeedyBot
 chmod +x install.sh update.sh
 ./install.sh
@@ -1021,6 +1021,6 @@ SpeedyBot/
 **AliFanni-79**
 
 - Telegram: **@AliFanni_79**
-- Repository: **https://github.com/AliFanni-79/SpeedyBot**
+- Repository: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
 اگر پروژه را Fork یا بازنشر می‌کنید، نگه‌داشتن لینک سورس اصلی باعث می‌شود کاربران به مستندات، آپدیت‌های امنیتی و نسخه Maintained دسترسی داشته باشند.

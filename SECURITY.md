@@ -9,7 +9,7 @@ Please do **not** publish working credentials, customer subscription URLs, Teleg
 For sensitive security reports, contact:
 
 - Telegram: @AliFanni_79
-- Repository: https://github.com/AliFanni-79/SpeedyBot
+- Repository: https://github.com/AliFanni-79/3XUI-Shop-Bot
 
 Include the affected VizzPN Shop Bot version, relevant component, reproduction steps, expected/actual behavior and a redacted log if useful.
 
