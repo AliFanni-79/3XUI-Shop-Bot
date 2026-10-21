@@ -1,6 +1,6 @@
 {
   "name": "xuishop-webapp",
-  "version": "26.2.2",
+  "version": "26.2.2.1",
   "private": true,
   "type": "module",
   "scripts": {
