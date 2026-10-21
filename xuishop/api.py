@@ -4620,6 +4620,16 @@ async def admin_get_version():
 
 _WEBAPP_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webapp", "dist")
 
+_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+_STATIC_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
+
 
 def _mount_static():
     """Mount static assets and handle SPA client-side routing."""
@@ -4631,7 +4641,7 @@ def _mount_static():
     async def spa_root():
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
         return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
     @app.get("/{full_path:path}", include_in_schema=False)
@@ -4641,10 +4651,12 @@ def _mount_static():
             raise HTTPException(status_code=404)
         fp = os.path.join(_WEBAPP_DIST, full_path)
         if os.path.isfile(fp):
-            return FileResponse(fp)
+            if full_path.startswith("assets/"):
+                return FileResponse(fp, headers=_STATIC_CACHE_HEADERS)
+            return FileResponse(fp, headers=_NO_CACHE_HEADERS)
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
         return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
 

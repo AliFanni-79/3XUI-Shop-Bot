@@ -69,14 +69,16 @@ def run():
     try:
         webapp_url = core.get_db_setting("webapp_url", "").strip() or os.getenv("WEBAPP_URL", "").strip()
         if webapp_url and hasattr(core.types, "MenuButtonWebApp"):
+            sep = "&" if "?" in webapp_url else "?"
+            button_url = f"{webapp_url}{sep}v={xuishop.VERSION}"
             core.bot.set_chat_menu_button(
                 menu_button=core.types.MenuButtonWebApp(
                     type="web_app",
                     text="🚀 Enter Shop",
-                    web_app=core.types.WebAppInfo(url=webapp_url)
+                    web_app=core.types.WebAppInfo(url=button_url)
                 )
             )
-            print(f"📱 Telegram Menu Button configured: {webapp_url}")
+            print(f"📱 Telegram Menu Button configured: {button_url}")
     except Exception as exc:
         print(f"ℹ️ Notice on setting menu button: {exc}")
 

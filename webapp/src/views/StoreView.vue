@@ -414,6 +414,9 @@
           <span>تایید و پرداخت</span>
           <span>←</span>
         </button>
+        <p v-if="!hasSupportServerSelected" class="text-[10px] text-tg-hint text-center pt-1">
+          💡 امکان ثبت کد تخفیف یا استفاده از کد هدیه در مرحله نهایی‌سازی پرداخت وجود دارد.
+        </p>
       </div>
     </div>
 

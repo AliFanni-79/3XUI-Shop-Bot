@@ -2645,7 +2645,8 @@ def super_admin_panel(message):
     webapp_url = get_db_setting('webapp_url', '').strip()
     markup = types.InlineKeyboardMarkup(row_width=1)
     if webapp_url:
-        admin_app_url = f"{webapp_url.rstrip('/')}/#/admin"
+        sep = "&" if "?" in webapp_url else "?"
+        admin_app_url = f"{webapp_url.rstrip('/')}/admin{sep}v={VERSION}"
         markup.add(types.InlineKeyboardButton("⚙️ ورود به پنل مدیریت وب (Admin Panel)", web_app=types.WebAppInfo(url=admin_app_url)))
     else:
         markup.add(types.InlineKeyboardButton("⚙️ منوی مدیریت ربات", callback_data="admin:stats"))
