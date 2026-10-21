@@ -297,7 +297,7 @@ def apply():
             try:
                 response = core.requests.get(
                     core._subscription_url(sub_id),
-                    headers={"Accept": "text/plain", "User-Agent": "VizzPNShopBot/26.2.1"},
+                    headers={"Accept": "text/plain", "User-Agent": "VizzPNShopBot/26.2.2"},
                     proxies=request_proxies,
                     timeout=15,
                     verify=not core.DEVELOPMENT_MODE,
