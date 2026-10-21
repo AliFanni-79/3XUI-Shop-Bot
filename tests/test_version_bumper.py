@@ -19,39 +19,31 @@ class TestVersionBumper(unittest.TestCase):
             parse_version("26.2")
 
     def test_compute_prerelease(self):
-        # Adding patch to 3-part version with no prior patch tags
-        self.assertEqual(compute_next_version("26.2.2", "prerelease", override_year=26, tags=[]), "26.2.2.1")
+        # Adding patch to 3-part version
+        self.assertEqual(compute_next_version("26.2.2", "prerelease", override_year=26), "26.2.2.1")
         # Incrementing patch on 4-part version
-        self.assertEqual(compute_next_version("26.2.2.1", "prerelease", override_year=26, tags=[]), "26.2.2.2")
-        self.assertEqual(compute_next_version("26.2.2.9", "prerelease", override_year=26, tags=[]), "26.2.2.10")
-
-    def test_compute_prerelease_from_tags(self):
-        # When tags exist in git even if VERSION.txt on main hasn't been updated
-        tags = ["v26.2.0", "v26.2.1", "v26.2.2.1", "v26.2.2.2"]
-        self.assertEqual(compute_next_version("26.2.2", "prerelease", override_year=26, tags=tags), "26.2.2.3")
+        self.assertEqual(compute_next_version("26.2.2.1", "prerelease", override_year=26), "26.2.2.2")
+        self.assertEqual(compute_next_version("26.2.2.9", "prerelease", override_year=26), "26.2.2.10")
 
     def test_compute_minor_bump(self):
         # From 3-part version
-        self.assertEqual(compute_next_version("26.2.2", "minor", override_year=26, tags=[]), "26.2.3")
+        self.assertEqual(compute_next_version("26.2.2", "minor", override_year=26), "26.2.3")
         # From 4-part prerelease version (removes patch)
-        self.assertEqual(compute_next_version("26.2.2.1", "minor", override_year=26, tags=[]), "26.2.3")
-        self.assertEqual(compute_next_version("26.2.2.15", "minor", override_year=26, tags=[]), "26.2.3")
-        # When tags exist
-        tags = ["v26.2.0", "v26.2.1", "v26.2.2", "v26.2.2.4"]
-        self.assertEqual(compute_next_version("26.2.2", "minor", override_year=26, tags=tags), "26.2.3")
+        self.assertEqual(compute_next_version("26.2.2.1", "minor", override_year=26), "26.2.3")
+        self.assertEqual(compute_next_version("26.2.2.15", "minor", override_year=26), "26.2.3")
 
     def test_compute_major_bump(self):
         # From 3-part version (removes patch, resets minor to 0)
-        self.assertEqual(compute_next_version("26.2.2", "major", override_year=26, tags=[]), "26.3.0")
+        self.assertEqual(compute_next_version("26.2.2", "major", override_year=26), "26.3.0")
         # From 4-part prerelease version (removes patch, resets minor to 0)
-        self.assertEqual(compute_next_version("26.2.2.1", "major", override_year=26, tags=[]), "26.3.0")
-        self.assertEqual(compute_next_version("26.2.2.15", "major", override_year=26, tags=[]), "26.3.0")
+        self.assertEqual(compute_next_version("26.2.2.1", "major", override_year=26), "26.3.0")
+        self.assertEqual(compute_next_version("26.2.2.15", "major", override_year=26), "26.3.0")
 
     def test_automatic_year_rollover(self):
         # In next calendar year 27:
-        self.assertEqual(compute_next_version("26.2.2", "prerelease", override_year=27, tags=[]), "27.2.2.1")
-        self.assertEqual(compute_next_version("26.2.2.3", "minor", override_year=27, tags=[]), "27.2.1")
-        self.assertEqual(compute_next_version("26.2.2.3", "major", override_year=27, tags=[]), "27.1.0")
+        self.assertEqual(compute_next_version("26.2.2", "prerelease", override_year=27), "27.2.2.1")
+        self.assertEqual(compute_next_version("26.2.2.3", "minor", override_year=27), "27.2.3")
+        self.assertEqual(compute_next_version("26.2.2.3", "major", override_year=27), "27.1.0")
 
     def test_update_files(self):
         with tempfile.TemporaryDirectory() as td:

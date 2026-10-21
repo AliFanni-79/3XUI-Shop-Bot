@@ -69,28 +69,28 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Fetch all git tags
-        run: git fetch --tags --force
       - name: Bump Pre-release Version
         run: |
           python scripts/bump_version.py --mode prerelease
-      - name: Create Git Tag and Pre-release
+      - name: Commit and Push Pre-release Version
+        run: |
+          NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
+          TAG="v${NEW_VER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(prerelease): bump to ${TAG} [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+      - name: Create or update Pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           echo "Processing pre-release for ${TAG}..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(prerelease): bump to ${TAG} [skip ci]"
-          fi
-          git tag -f "$TAG"
-          git push origin "$TAG" --force || true
-          git push origin main || echo "::warning::Direct push to protected branch 'main' was declined by repository rules. Release tag $TAG was created."
-
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists, ensuring it is marked as prerelease..."
             gh release edit "$TAG" --prerelease
@@ -118,28 +118,28 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Fetch all git tags
-        run: git fetch --tags --force
       - name: Bump Minor Version and Remove Patch
         run: |
           python scripts/bump_version.py --mode minor
-      - name: Create Git Tag and Official Release
+      - name: Commit and Push Release Version
+        run: |
+          NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
+          TAG="v${NEW_VER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): release ${TAG} [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+      - name: Create Official Latest Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           echo "Creating official latest release for ${TAG}..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): release ${TAG} [skip ci]"
-          fi
-          git tag -f "$TAG"
-          git push origin "$TAG" --force || true
-          git push origin main || echo "::warning::Direct push to protected branch 'main' was declined by repository rules. Release tag $TAG was created."
-
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --latest --prerelease=false --title "$TAG"
           else
@@ -171,28 +171,28 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Fetch all git tags
-        run: git fetch --tags --force
       - name: Bump Major Version and Remove Patch
         run: |
           python scripts/bump_version.py --mode major
-      - name: Create Git Tag and Official Release
+      - name: Commit and Push Release Version
+        run: |
+          NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
+          TAG="v${NEW_VER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): release ${TAG} [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+      - name: Create Official Latest Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           echo "Creating official latest release for ${TAG}..."
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): release ${TAG} [skip ci]"
-          fi
-          git tag -f "$TAG"
-          git push origin "$TAG" --force || true
-          git push origin main || echo "::warning::Direct push to protected branch 'main' was declined by repository rules. Release tag $TAG was created."
-
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --latest --prerelease=false --title "$TAG"
           else

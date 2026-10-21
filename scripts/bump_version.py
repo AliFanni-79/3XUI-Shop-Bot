@@ -7,7 +7,6 @@ Supported version formats:
 
 Modes:
 - prerelease: Adds patch (.1) if missing, or increments existing patch.
-              Inspects existing git tags to guarantee strictly ascending patch numbers.
               Year is updated to current 2-digit year.
 - minor:      Bumps MINOR version, removes patch number.
               Year is updated to current 2-digit year.
@@ -21,27 +20,8 @@ import argparse
 import datetime
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
-
-
-def get_git_tags(repo_root: Path | None = None) -> list[str]:
-    """Return all git tags from repository."""
-    try:
-        cmd = ["git", "tag", "-l"]
-        res = subprocess.run(
-            cmd,
-            cwd=str(repo_root) if repo_root else None,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if res.returncode == 0:
-            return [t.strip() for t in res.stdout.splitlines() if t.strip()]
-    except Exception:
-        pass
-    return []
 
 
 def parse_version(raw: str) -> tuple[int, int, int, int | None]:
@@ -64,52 +44,29 @@ def compute_next_version(
     current: str,
     mode: str,
     override_year: int | None = None,
-    tags: list[str] | None = None,
 ) -> str:
-    """Calculate the next version string based on current version, mode, and git tags."""
+    """Calculate the next version string based on current version and mode."""
     curr_year = (
         override_year
         if override_year is not None
         else int(datetime.datetime.now(datetime.timezone.utc).strftime("%y"))
     )
     year, major, minor, patch = parse_version(current)
-    tag_list = tags if tags is not None else get_git_tags()
 
     if mode == "prerelease":
         new_year = curr_year
         new_major = major
         new_minor = minor
-
-        # Check existing git tags for new_year.new_major.new_minor.*
-        highest_patch = patch if (patch is not None and year == curr_year) else 0
-        prefix = f"{new_year}.{new_major}.{new_minor}."
-        for t in tag_list:
-            clean_t = t.strip().lstrip("vV")
-            if clean_t.startswith(prefix):
-                suffix = clean_t[len(prefix):]
-                if suffix.isdigit():
-                    p_val = int(suffix)
-                    if p_val > highest_patch:
-                        highest_patch = p_val
-
-        new_patch = highest_patch + 1
+        if patch is None:
+            new_patch = 1
+        else:
+            new_patch = patch + 1
         return f"{new_year}.{new_major}.{new_minor}.{new_patch}"
 
     elif mode == "minor":
         new_year = curr_year
         new_major = major
-
-        highest_minor = minor if year == curr_year else 0
-        for t in tag_list:
-            clean_t = t.strip().lstrip("vV")
-            parts = clean_t.split(".")
-            if len(parts) >= 3 and parts[0] == str(new_year) and parts[1] == str(new_major):
-                if parts[2].isdigit():
-                    m_val = int(parts[2])
-                    if m_val > highest_minor:
-                        highest_minor = m_val
-
-        new_minor = highest_minor + 1
+        new_minor = minor + 1
         return f"{new_year}.{new_major}.{new_minor}"
 
     elif mode == "major":
@@ -117,16 +74,7 @@ def compute_next_version(
         if curr_year != year:
             new_major = 1
         else:
-            highest_major = major
-            for t in tag_list:
-                clean_t = t.strip().lstrip("vV")
-                parts = clean_t.split(".")
-                if len(parts) >= 2 and parts[0] == str(new_year):
-                    if parts[1].isdigit():
-                        maj_val = int(parts[1])
-                        if maj_val > highest_major:
-                            highest_major = maj_val
-            new_major = highest_major + 1
+            new_major = major + 1
         new_minor = 0
         return f"{new_year}.{new_major}.{new_minor}"
 
@@ -200,8 +148,7 @@ def main() -> int:
         return 1
 
     current_ver = version_file.read_text(encoding="utf-8").strip()
-    tag_list = get_git_tags(repo_root)
-    next_ver = compute_next_version(current_ver, args.mode, override_year=args.year, tags=tag_list)
+    next_ver = compute_next_version(current_ver, args.mode, override_year=args.year)
 
     if args.dry_run:
         print(next_ver)
