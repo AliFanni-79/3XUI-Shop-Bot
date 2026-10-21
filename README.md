@@ -2,7 +2,6 @@
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
-  Vue 3 Mini App • Custom Plan Builder • Zibal & Zarinpal Gateways • Automated Provisioning • Free Trial • Wallet • Control Center
 </p>
 
 <p align="center">
