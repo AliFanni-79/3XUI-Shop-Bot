@@ -376,8 +376,8 @@ if [[ "$FORCE" -ne 1 && -n "$CURRENT_COMMIT" && "$CURRENT_COMMIT" == "$CLONED_CO
 fi
 
 if [[ "$FORCE" -ne 1 && -f "$APP_DIR/VERSION.txt" && -f "$SOURCE_DIR/VERSION.txt" ]]; then
-  LOCAL_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,2}' "$APP_DIR/VERSION.txt" | head -1 || true)"
-  REMOTE_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,2}' "$SOURCE_DIR/VERSION.txt" | head -1 || true)"
+  LOCAL_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,3}' "$APP_DIR/VERSION.txt" | head -1 || true)"
+  REMOTE_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,3}' "$SOURCE_DIR/VERSION.txt" | head -1 || true)"
   if [[ -n "$LOCAL_VERSION" && -n "$REMOTE_VERSION" ]]; then
     LOWEST="$(printf '%s\n%s\n' "$LOCAL_VERSION" "$REMOTE_VERSION" | sort -V | head -1)"
     if [[ "$LOWEST" == "$REMOTE_VERSION" && "$LOCAL_VERSION" != "$REMOTE_VERSION" ]]; then

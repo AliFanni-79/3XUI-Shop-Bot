@@ -13,7 +13,7 @@ _UPDATE_LOCK = threading.Lock()
 
 def _version_tuple(value):
     text = str(value or "").strip().lstrip("vV")
-    if not re.fullmatch(r"\d+\.\d+\.\d+", text):
+    if not re.fullmatch(r"\d+(\.\d+){2,3}", text):
         return None
     return tuple(int(part) for part in text.split("."))
 
