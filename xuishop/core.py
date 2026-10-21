@@ -1544,7 +1544,6 @@ def send_welcome(message):
                 except Exception:
                     pass
             USER_STATES[message.chat.id] = 'SUPPORT'
-            from .db import get_brand_name
             prompt = f"📞 **بخش پشتیبانی {get_brand_name()}**\n\n"
             if server_name:
                 prompt += f"شما در حال استعلام و هماهنگی برای خرید **{server_name}** هستید.\n"

@@ -475,8 +475,10 @@ SET_ZIBAL_MERCHANT="$ZIBAL_MERCHANT" \
 SET_ZIBAL_SANDBOX="$ZIBAL_SANDBOX" \
 SET_ZARINPAL_MERCHANT="$ZARINPAL_MERCHANT" \
 SET_ZARINPAL_SANDBOX="$ZARINPAL_SANDBOX" \
+PYTHONPATH="$APP_DIR" \
 "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+import sys, os
+sys.path.insert(0, os.environ.get("SET_APP_DIR", "/root/SpeedyBot"))
 import sqlite3
 
 try:
@@ -567,8 +569,9 @@ if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
   if [[ -n "$CF_URL" ]]; then
     WEBAPP_URL="$CF_URL"
     sed -i -E "s|^export WEBAPP_URL=.*|export WEBAPP_URL=$(printf '%q' "$WEBAPP_URL")|" "$ENV_FILE"
-    TARGET_URL="$WEBAPP_URL" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+    TARGET_URL="$WEBAPP_URL" PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import sys, os
+sys.path.insert(0, os.environ.get("SET_APP_DIR", "/root/SpeedyBot"))
 try:
     from xuishop import db
     conn = db.get_connection(timeout=15)

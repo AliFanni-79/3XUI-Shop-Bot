@@ -10,6 +10,7 @@ set -Eeuo pipefail
 
 SERVICE_NAME="${SPEEDYBOT_SERVICE_NAME:-xui-bot.service}"
 APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
+export PYTHONPATH="$APP_DIR${PYTHONPATH:+:$PYTHONPATH}"
 REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/3XUI-Shop-Bot.git}"
 BRANCH="${SPEEDYBOT_BRANCH:-main}"
 SOURCE_DIR="${SPEEDYBOT_SOURCE_DIR:-}"
@@ -289,8 +290,9 @@ configure_mini_app_exposure(){
     if [[ -n "$new_url" ]]; then
       set_env_var "WEBAPP_URL" "$new_url" "$APP_DIR/.env"
       ok "Updated WEBAPP_URL in .env: $new_url"
-      TARGET_URL="$new_url" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+      TARGET_URL="$new_url" PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import sys, os
+sys.path.insert(0, os.environ.get("SPEEDYBOT_APP_DIR", "/root/SpeedyBot"))
 try:
     from xuishop import db
     conn = db.get_connection(timeout=15)
@@ -311,6 +313,7 @@ write_runner(){
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$APP_DIR"
+export PYTHONPATH="$APP_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
 source "$APP_DIR/.env"
 exec "$APP_DIR/.venv/bin/python3" "$APP_DIR/main.py"
 EOF
@@ -474,10 +477,10 @@ printf '%s\n' "$CLONED_COMMIT" > "$CURRENT_COMMIT_FILE"
 write_runner
 
 info "Running database schema migrations..."
-"$APP_DIR/.venv/bin/python3" -c "from xuishop import storage, db; storage.init_db()" || rollback
+PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" -c "import sys; sys.path.insert(0, '$APP_DIR'); from xuishop import storage, db; storage.init_db()" || rollback
 
 info "Validating deployed application..."
-"$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/xuishop/*.py || rollback
+PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/xuishop/*.py || rollback
 bash -n "$APP_DIR/update.sh" || rollback
 bash -n "$APP_DIR/upgrade.sh" || rollback
 [[ ! -f "$APP_DIR/install.sh" ]] || bash -n "$APP_DIR/install.sh" || rollback
