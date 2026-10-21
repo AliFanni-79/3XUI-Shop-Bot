@@ -1,5 +1,3 @@
-"""X-UI Shop Bot application package."""
-
 VERSION = "26.2.2"
 
 
