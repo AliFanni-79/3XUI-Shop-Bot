@@ -67,7 +67,17 @@ def run():
 
     # Configure Telegram Chat Menu Button to open Mini App if WEBAPP_URL is set
     try:
-        webapp_url = core.get_db_setting("webapp_url", "").strip() or os.getenv("WEBAPP_URL", "").strip()
+        env_webapp_url = os.getenv("WEBAPP_URL", "").strip()
+        db_webapp_url = core.get_db_setting("webapp_url", "").strip()
+        # Environment variable / .env takes precedence over stale DB settings
+        webapp_url = env_webapp_url or db_webapp_url
+
+        if env_webapp_url and env_webapp_url != db_webapp_url:
+            try:
+                core.update_db_setting("webapp_url", env_webapp_url)
+            except Exception:
+                pass
+
         if webapp_url and hasattr(core.types, "MenuButtonWebApp"):
             sep = "&" if "?" in webapp_url else "?"
             button_url = f"{webapp_url}{sep}v={xuishop.VERSION}"

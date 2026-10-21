@@ -92,6 +92,16 @@ install_cloudflared(){
   fi
 }
 
+stop_cf_quick_tunnel(){
+  if systemctl is-active --quiet speedybot-tunnel.service 2>/dev/null || systemctl list-unit-files speedybot-tunnel.service &>/dev/null; then
+    info "Stopping and disabling previous Cloudflare Quick Tunnel (speedybot-tunnel.service)..."
+    systemctl stop speedybot-tunnel.service 2>/dev/null || true
+    systemctl disable speedybot-tunnel.service 2>/dev/null || true
+    rm -f /etc/systemd/system/speedybot-tunnel.service 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+}
+
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
@@ -423,11 +433,15 @@ bash -n install.sh
 
 # --- Configure Internet Tunnel / Reverse Proxy ---
 if [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+  stop_cf_quick_tunnel
   info "Configuring Cloudflare Tunnel service..."
   setup_cf_token_tunnel "$CF_TUNNEL_TOKEN" || true
 elif [[ "$EXPOSE_METHOD" == "3" && -n "$CADDY_DOMAIN" ]]; then
+  stop_cf_quick_tunnel
   info "Configuring Caddy web server..."
   setup_caddy_proxy "$CADDY_DOMAIN" "$WEBAPP_PORT" || true
+elif [[ "$EXPOSE_METHOD" == "2" || "$EXPOSE_METHOD" == "4" ]]; then
+  stop_cf_quick_tunnel
 fi
 
 cat > "$ENV_FILE" <<EOF
@@ -604,6 +618,9 @@ if [[ -n "$WEBAPP_URL" ]]; then
   elif [[ "$EXPOSE_METHOD" == "3" ]]; then
     printf '\n   [Caddy Web Server Active]\n'
     printf '   • Service: caddy.service (Auto Let'\''s Encrypt SSL active)\n'
+  elif [[ "$EXPOSE_METHOD" == "2" ]]; then
+    printf '\n   [Custom Domain / Reverse Proxy Active]\n'
+    printf '   • Proxying HTTPS requests to port %s\n' "$WEBAPP_PORT"
   fi
 
   printf '\n📱 Configure Telegram Menu Button in @BotFather:\n'

@@ -129,6 +129,16 @@ install_cloudflared(){
   fi
 }
 
+stop_cf_quick_tunnel(){
+  if systemctl is-active --quiet speedybot-tunnel.service 2>/dev/null || systemctl list-unit-files speedybot-tunnel.service &>/dev/null; then
+    info "Stopping and disabling previous Cloudflare Quick Tunnel (speedybot-tunnel.service)..."
+    systemctl stop speedybot-tunnel.service 2>/dev/null || true
+    systemctl disable speedybot-tunnel.service 2>/dev/null || true
+    rm -f /etc/systemd/system/speedybot-tunnel.service 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+}
+
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
@@ -228,6 +238,11 @@ configure_mini_app_exposure(){
     set_env_var "WEBAPP_HOST" "0.0.0.0" "$APP_DIR/.env"
   fi
 
+  # Auto-cleanup obsolete trycloudflare tunnel service if current URL is a custom reverse proxy / domain
+  if [[ -n "$current_url" && ! "$current_url" =~ \.trycloudflare\.com ]]; then
+    stop_cf_quick_tunnel
+  fi
+
   if [[ ! -t 0 ]]; then
     return 0
   fi
@@ -267,22 +282,30 @@ configure_mini_app_exposure(){
         fi
         ;;
       2)
+        stop_cf_quick_tunnel
         local cf_token; cf_token="$(prompt "Cloudflare Tunnel Token (starts with eyJh...)")"
         local raw_url; raw_url="$(prompt "Public HTTPS hostname you routed in Cloudflare (e.g. https://shop.example.com)")"
         new_url="$(normalize_webapp_url "$raw_url")"
         setup_cf_token_tunnel "$cf_token" || true
         ;;
       3)
+        stop_cf_quick_tunnel
         local caddy_domain; caddy_domain="$(prompt "Your domain name pointing to this server IP (e.g. shop.example.com)")"
         caddy_domain="$(printf '%s' "$caddy_domain" | sed -E 's#^https?://##; s#/.*$##')"
         new_url="https://$caddy_domain"
         setup_caddy_proxy "$caddy_domain" "$port" || true
         ;;
       4)
+        stop_cf_quick_tunnel
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+          systemctl stop caddy 2>/dev/null || true
+          systemctl disable caddy 2>/dev/null || true
+        fi
         local raw_url; raw_url="$(prompt_optional "Public HTTPS URL (e.g. https://shop.example.com)" "")"
         new_url="$(normalize_webapp_url "$raw_url")"
         ;;
       *)
+        stop_cf_quick_tunnel
         info "Skipping internet tunnel configuration. Mini App runs locally on port $port."
         ;;
     esac
@@ -304,6 +327,9 @@ try:
 except Exception:
     pass
 PY
+      info "Restarting bot service to apply updated Mini App URL..."
+      systemctl restart "$SERVICE_NAME" || true
+      sleep 3
     fi
   fi
 }
@@ -520,6 +546,8 @@ if [[ -n "$FINAL_WEBAPP_URL" ]]; then
     printf '   • Cloudflare Tunnel service: cloudflared.service\n'
   elif systemctl is-active --quiet caddy 2>/dev/null; then
     printf '   • Caddy web server: caddy.service\n'
+  else
+    printf '   • Reverse proxy / custom HTTPS URL: active\n'
   fi
   printf '\n📱 Remember to set this URL in @BotFather via /setmenubutton\n\n'
 fi

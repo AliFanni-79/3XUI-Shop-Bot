@@ -2642,7 +2642,7 @@ def super_admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ شما به این منو دسترسی ندارید.")
         return
-    webapp_url = get_db_setting('webapp_url', '').strip()
+    webapp_url = os.getenv('WEBAPP_URL', '').strip() or get_db_setting('webapp_url', '').strip()
     markup = types.InlineKeyboardMarkup(row_width=1)
     if webapp_url:
         sep = "&" if "?" in webapp_url else "?"

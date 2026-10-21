@@ -1868,7 +1868,7 @@ async def init_gateway_order(
 
     # 3. Determine base URL for callback
     base_url = str(request.base_url).rstrip("/")
-    configured_url = _setting("webapp_url", "").strip() or os.getenv("WEBAPP_URL", "").strip()
+    configured_url = os.getenv("WEBAPP_URL", "").strip() or _setting("webapp_url", "").strip()
     if configured_url:
         base_url = configured_url.rstrip("/")
 
