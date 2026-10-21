@@ -35,6 +35,10 @@ export const getServices = () => client.get('/services')
 // ─── Wallet ──────────────────────────────────────────────────────────────────
 export const getWallet = () => client.get('/wallet')
 
+// ─── Codes (Discounts & Gifts) ───────────────────────────────────────────────
+export const applyOrCheckCode = (code, price = null) =>
+  client.post('/codes/apply', { code, price })
+
 // ─── Referral ────────────────────────────────────────────────────────────────
 export const getReferral = () => client.get('/referral')
 

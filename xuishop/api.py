@@ -279,6 +279,11 @@ class InitWalletOrderRequest(BaseModel):
     custom_name: Optional[str] = None
 
 
+class ApplyCodeRequest(BaseModel):
+    code: str
+    price: Optional[int] = None
+
+
 class BroadcastRequest(BaseModel):
     message: str
     audience: str = "all"  # all | customers | trial | expired_trial | never_bought
@@ -1190,6 +1195,107 @@ async def get_wallet(user: Dict[str, Any] = Depends(get_current_user)):
     }
 
 
+@app.post("/api/codes/apply")
+async def apply_or_check_code(
+    body: ApplyCodeRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Validate and apply a discount code or redeem a gift code."""
+    uid = user["id"]
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="لطفاً کد را وارد کنید.")
+
+    # 1. Check if it's a gift code
+    conn = _db()
+    gift = conn.execute("SELECT * FROM gift_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+    if gift:
+        conn.close()
+        from . import core as _core  # noqa: PLC0415
+        ok, msg = _core.redeem_gift_code(uid, code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        conn = _db()
+        u_row = conn.execute("SELECT balance FROM users WHERE id = ?", (uid,)).fetchone()
+        new_balance = int(u_row["balance"] or 0) if u_row else 0
+        conn.close()
+        return {
+            "type": "gift",
+            "code": str(gift["code"]),
+            "amount": int(gift["amount"]),
+            "new_balance": new_balance,
+            "message": f"کد هدیه با موفقیت اعمال شد و مبلغ {int(gift['amount']):,} تومان به موجودی کیف پول شما افزوده شد.",
+        }
+
+    # 2. Check if it's a discount code
+    disc = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+    if disc:
+        now_ts = int(time.time())
+        if not int(disc["active"] or 0):
+            conn.close()
+            raise HTTPException(status_code=400, detail="این کد تخفیف غیرفعال شده است.")
+        if disc["expires_at"] and int(disc["expires_at"]) <= now_ts:
+            conn.close()
+            raise HTTPException(status_code=400, detail="اعتبار این کد تخفیف به پایان رسیده است.")
+
+        # If price was not provided (e.g. checked in Wallet view)
+        if body.price is None or int(body.price) <= 0:
+            conn.close()
+            return {
+                "type": "discount",
+                "code": str(disc["code"]),
+                "is_discount_only": True,
+                "message": "این کد یک کد تخفیف است و فقط در منوی خرید قابل استفاده می‌باشد.",
+            }
+
+        price = int(body.price)
+        min_p = int(disc["min_purchase"] or 0)
+        if price < min_p:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"حداقل مبلغ خرید برای استفاده از این کد تخفیف {min_p:,} تومان است.",
+            )
+
+        used_total = conn.execute(
+            "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')",
+            (disc["code"],),
+        ).fetchone()["c"]
+        if int(disc["max_uses"] or 0) > 0 and int(used_total) >= int(disc["max_uses"]):
+            conn.close()
+            raise HTTPException(status_code=400, detail="ظرفیت استفاده از این کد تخفیف تکمیل شده است.")
+
+        used_user = conn.execute(
+            "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND user_id = ? AND status IN ('RESERVED','APPLIED')",
+            (disc["code"], int(uid)),
+        ).fetchone()["c"]
+        if int(disc["per_user_limit"] or 0) > 0 and int(used_user) >= int(disc["per_user_limit"]):
+            conn.close()
+            raise HTTPException(status_code=400, detail="شما قبلاً از این کد تخفیف استفاده کرده‌اید.")
+
+        conn.close()
+
+        if str(disc["discount_type"]).upper() == "PERCENT":
+            discount_amount = int(round(price * float(disc["value"]) / 100.0))
+        else:
+            discount_amount = int(round(float(disc["value"])))
+        discount_amount = max(0, min(discount_amount, price))
+        final_price = max(0, price - discount_amount)
+
+        return {
+            "type": "discount",
+            "code": str(disc["code"]),
+            "discount_type": disc["discount_type"],
+            "discount_value": disc["value"],
+            "discount_amount": discount_amount,
+            "final_price": final_price,
+            "message": f"کد تخفیف {disc['code']} با موفقیت اعمال شد ({discount_amount:,} تومان تخفیف).",
+        }
+
+    conn.close()
+    raise HTTPException(status_code=400, detail="کد وارد شده معتبر نیست یا وجود ندارد.")
+
+
 # ---------------------------------------------------------------------------
 # Referral
 # ---------------------------------------------------------------------------
@@ -1410,15 +1516,10 @@ async def init_card_order(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
 
-    # Optionally pre-load a discount code
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
-
     # Use existing core function to create the transaction and trigger the bot message
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, plan, custom_name=body.custom_name)
+        _core._start_card_checkout(uid, uid, plan, custom_name=body.custom_name, discount_code=body.discount_code)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -1441,12 +1542,8 @@ async def init_wallet_order(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
 
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
-
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name, discount_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی ناکافی")
 
@@ -1490,13 +1587,9 @@ async def init_custom_card_order(
         "server_ids": body.server_ids or None,
     }
 
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
-
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, custom_plan, custom_name=body.custom_name)
+        _core._start_card_checkout(uid, uid, custom_plan, custom_name=body.custom_name, discount_code=body.discount_code)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -1537,12 +1630,8 @@ async def init_custom_wallet_order(
         "server_ids": body.server_ids or None,
     }
 
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
-
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name, discount_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی کیف پول ناکافی است")
 
@@ -1768,13 +1857,9 @@ async def init_gateway_order(
     else:
         raise HTTPException(status_code=400, detail="مشخصات پلن ارسال نشده است.")
 
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
-
     # 2. Create pending transaction
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper(), custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper(), custom_name=body.custom_name, discount_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "خطا در ایجاد تراکنش درگاه")
 
@@ -1943,6 +2028,7 @@ async def payment_callback_zibal(
     if not is_verified:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error=? WHERE id=?", (err or "Zibal verify failed", int(order_id)))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -2003,6 +2089,7 @@ async def payment_callback_zarinpal(
     if str(Status).upper() != "OK" or not Authority:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error='Zarinpal cancelled by user' WHERE id=?", (int(order_id),))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -2023,6 +2110,7 @@ async def payment_callback_zarinpal(
     if not is_verified:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error=? WHERE id=?", (err or "Zarinpal verify failed", int(order_id)))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -2562,8 +2650,17 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
 
     transactions = conn.execute(
         """
-        SELECT id, plan_name_snapshot, price, status, payment_method, created_at, approved_at
-        FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 20
+        SELECT id, plan_name_snapshot, price, status, payment_method, created_at, approved_at,
+               discount_code, discount_amount, wallet_used, cash_amount, kind
+        FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 50
+        """,
+        (user_id,),
+    ).fetchall()
+
+    wallet_transactions = conn.execute(
+        """
+        SELECT id, amount, balance_after, type, description, related_tx_id, created_at
+        FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 50
         """,
         (user_id,),
     ).fetchall()
@@ -2657,10 +2754,27 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
                 "price": int(t["price"] or 0),
                 "status": t["status"],
                 "method": t["payment_method"],
+                "kind": t["kind"],
+                "discount_code": t["discount_code"],
+                "discount_amount": int(t["discount_amount"] or 0),
+                "wallet_used": int(t["wallet_used"] or 0),
+                "cash_amount": int(t["cash_amount"] or 0),
                 "created_at": t["created_at"],
                 "approved_at": t["approved_at"],
             }
             for t in transactions
+        ],
+        "wallet_transactions": [
+            {
+                "id": wt["id"],
+                "amount": int(wt["amount"] or 0),
+                "balance_after": int(wt["balance_after"] or 0),
+                "type": wt["type"],
+                "description": wt["description"] or wt["type"],
+                "related_tx_id": wt["related_tx_id"],
+                "created_at": wt["created_at"],
+            }
+            for wt in wallet_transactions
         ],
         "services": services_list,
     }

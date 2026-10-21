@@ -712,9 +712,11 @@ def set_pending_discount(user_id, code):
     return True, f"کد تخفیف {row['code']} برای خرید بعدی شما ذخیره شد."
 
 
-def _calculate_pending_discount(conn, user_id, base_price):
-    user = conn.execute("SELECT pending_discount_code FROM users WHERE id = ?", (int(user_id),)).fetchone()
-    code = user['pending_discount_code'] if user else None
+def _calculate_pending_discount(conn, user_id, base_price, explicit_code=None):
+    code = (explicit_code or '').strip().upper() if explicit_code else None
+    if not code:
+        user = conn.execute("SELECT pending_discount_code FROM users WHERE id = ?", (int(user_id),)).fetchone()
+        code = user['pending_discount_code'] if user else None
     if not code:
         return None, 0, int(base_price)
     row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
@@ -1581,7 +1583,14 @@ def go_to_main_menu(message):
 @bot.message_handler(func=lambda message: message.text == "🎟 کد هدیه / تخفیف")
 def code_entry_mode(message):
     USER_STATES[message.chat.id] = 'CODE_ENTRY'
-    bot.send_message(message.chat.id, "🎟 کد هدیه یا تخفیف را ارسال کنید.\n\nکد هدیه همان لحظه کیف پول را شارژ می‌کند؛ کد تخفیف روی خرید بعدی اعمال می‌شود.", reply_markup=back_menu())
+    bot.send_message(
+        message.chat.id,
+        "🎟 **ثبت کد هدیه**\n\n"
+        "لطفاً کد هدیه خود را ارسال کنید تا مستقیماً به موجودی کیف پول شما افزوده شود.\n\n"
+        "💡 **توجه:** کدهای تخفیف را تنها می‌توانید هنگام ثبت سفارش در منوی خرید اعمال نمایید.",
+        parse_mode="Markdown",
+        reply_markup=back_menu()
+    )
 
 
 @bot.message_handler(func=lambda message: USER_STATES.get(message.chat.id) == 'CODE_ENTRY' and bool(message.text))
@@ -1589,18 +1598,38 @@ def process_user_code(message):
     if message.text == "🔙 بازگشت به منوی اصلی":
         go_to_main_menu(message); return
     code = (message.text or '').strip().upper()
-    # Gift codes take precedence.
     conn = _db_connect()
     gift = conn.execute("SELECT 1 FROM gift_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
-    conn.close()
     if gift:
+        conn.close()
         ok, text = redeem_gift_code(message.from_user.id, code)
         USER_STATES[message.chat.id] = None
         bot.send_message(message.chat.id, ("✅ " if ok else "❌ ") + text, reply_markup=main_menu())
         return
-    ok, text = set_pending_discount(message.from_user.id, code)
+
+    disc = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+    conn.close()
+    if disc:
+        USER_STATES[message.chat.id] = None
+        now_ts = int(time.time())
+        if not int(disc['active'] or 0):
+            bot.send_message(message.chat.id, "❌ این کد تخفیف غیرفعال است.", reply_markup=main_menu())
+            return
+        if disc['expires_at'] and int(disc['expires_at']) <= now_ts:
+            bot.send_message(message.chat.id, "❌ مهلت استفاده از این کد تخفیف به پایان رسیده است.", reply_markup=main_menu())
+            return
+        bot.send_message(
+            message.chat.id,
+            f"⚠️ **این کد (`{disc['code']}`) یک کد تخفیف است.**\n\n"
+            "کدهای تخفیف را نمی‌توانید در اینجا به کیف پول اضافه کنید؛ این کدها **فقط در منوی خرید** و هنگام نهایی‌سازی سفارش قابل اعمال هستند.\n\n"
+            "برای استفاده، به بخش **🛍 مشاهده و خرید پلان‌ها** مراجعه کرده و هنگام خرید، کد را در بخش کد تخفیف وارد و اعمال فرمایید.",
+            parse_mode="Markdown",
+            reply_markup=main_menu()
+        )
+        return
+
     USER_STATES[message.chat.id] = None
-    bot.send_message(message.chat.id, ("✅ " if ok else "❌ ") + text, reply_markup=main_menu())
+    bot.send_message(message.chat.id, "❌ کد وارد شده نامعتبر است یا وجود ندارد.", reply_markup=main_menu())
 
 
 @bot.message_handler(func=lambda message: message.text == "📲 راهنمای اتصال")
@@ -1819,13 +1848,13 @@ def _product_snapshot(plan):
     }
 
 
-def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
+def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, discount_code=None):
     plan = _product_snapshot(plan)
     _release_stale_checkouts(user_id)
     conn = _db_connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        code, discount_amount, final_price = _calculate_pending_discount(conn, int(user_id), int(plan['price']))
+        code, discount_amount, final_price = _calculate_pending_discount(conn, int(user_id), int(plan['price']), explicit_code=discount_code)
         wallet_used = final_price if payment_method == 'WALLET' else 0
         cash_amount = final_price if payment_method == 'CARD' else 0
         if payment_method == 'WALLET':
@@ -1920,8 +1949,8 @@ def _send_receipt_to_admins(tx_id, photo_id):
             continue
 
 
-def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
-    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name)
+def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, discount_code=None):
+    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name, discount_code=discount_code)
     if not result:
         bot.send_message(chat_id, f"❌ خطا در ایجاد تراکنش: {error}", reply_markup=main_menu())
         return

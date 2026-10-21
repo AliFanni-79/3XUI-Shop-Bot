@@ -432,9 +432,17 @@
             <span class="text-tg-hint">پلن انتخابی:</span>
             <span class="font-bold">{{ activePlan.name }}</span>
           </div>
-          <div class="flex justify-between">
+          <div v-if="appliedDiscount" class="flex justify-between">
+            <span class="text-tg-hint">مبلغ اولیه:</span>
+            <span class="line-through text-gray-500">{{ Number(activePlan.price).toLocaleString('fa-IR') }} تومان</span>
+          </div>
+          <div v-if="appliedDiscount" class="flex justify-between text-emerald-400">
+            <span>تخفیف اعمال‌شده ({{ appliedDiscount.code }}):</span>
+            <span class="font-bold">-{{ Number(appliedDiscount.discount_amount).toLocaleString('fa-IR') }} تومان</span>
+          </div>
+          <div class="flex justify-between" :class="appliedDiscount ? 'border-t border-gray-700/30 pt-1' : ''">
             <span class="text-tg-hint">مبلغ قابل پرداخت:</span>
-            <span class="font-bold text-emerald-400">{{ Number(activePlan.price).toLocaleString('fa-IR') }} تومان</span>
+            <span class="font-bold text-emerald-400 text-sm">{{ Number(finalPayablePrice).toLocaleString('fa-IR') }} تومان</span>
           </div>
         </div>
 
@@ -450,16 +458,45 @@
           />
         </div>
 
-        <!-- Discount Code Input -->
+        <!-- Discount Code / Gift Code Input -->
         <div>
-          <label class="block text-xs text-tg-hint mb-1">کد تخفیف (اختیاری):</label>
-          <input
-            v-model="discountCode"
-            type="text"
-            dir="ltr"
-            placeholder="DISCOUNT_CODE"
-            class="w-full bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center uppercase tracking-wider focus:outline-none focus:border-tg-button"
-          />
+          <label class="block text-xs text-tg-hint mb-1">کد تخفیف یا هدیه (اختیاری):</label>
+          <div class="flex gap-2">
+            <input
+              v-model="discountCode"
+              :disabled="appliedDiscount != null"
+              type="text"
+              dir="ltr"
+              placeholder="کد تخفیف یا هدیه"
+              class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center uppercase tracking-wider focus:outline-none focus:border-tg-button disabled:opacity-50"
+              @keyup.enter="handleApplyCode"
+            />
+            <button
+              v-if="!appliedDiscount"
+              type="button"
+              @click="handleApplyCode"
+              :disabled="!discountCode.trim() || checkingCode"
+              class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 shrink-0"
+              :class="discountCode.trim() && !checkingCode ? 'btn-tg shadow active:scale-95' : 'bg-gray-700/30 text-gray-500 cursor-not-allowed'"
+            >
+              <span v-if="checkingCode" class="w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin"></span>
+              <span v-else>اعمال</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              @click="handleRemoveDiscount"
+              class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition shrink-0"
+            >
+              حذف ✕
+            </button>
+          </div>
+
+          <!-- Code Feedback message -->
+          <div v-if="codeResult" class="mt-2 p-2.5 rounded-xl text-xs flex items-start gap-2 animate-fadeIn" :class="codeResultClass">
+            <span class="text-sm shrink-0">{{ codeResultIcon }}</span>
+            <span class="leading-relaxed">{{ codeResult.message }}</span>
+          </div>
         </div>
 
         <!-- Payment Method Options -->
@@ -646,7 +683,8 @@ import {
   getActiveGateways,
   initGatewayOrder,
   initStarsOrder,
-  claimFreeTrial
+  claimFreeTrial,
+  applyOrCheckCode
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -697,6 +735,77 @@ const discountCode = ref('')
 const submitting = ref(false)
 const message = ref('')
 const isSuccess = ref(false)
+
+const checkingCode = ref(false)
+const appliedDiscount = ref(null)
+const codeResult = ref(null)
+
+const finalPayablePrice = computed(() => {
+  const base = Number(activePlan.value?.price || 0)
+  if (appliedDiscount.value?.discount_amount) {
+    return Math.max(0, base - appliedDiscount.value.discount_amount)
+  }
+  return base
+})
+
+const codeResultClass = computed(() => {
+  if (!codeResult.value) return ''
+  if (codeResult.value.type === 'error') return 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+  if (codeResult.value.type === 'gift') return 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+  return 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+})
+
+const codeResultIcon = computed(() => {
+  if (!codeResult.value) return ''
+  if (codeResult.value.type === 'error') return '❌'
+  if (codeResult.value.type === 'gift') return '🎁'
+  return '🏷'
+})
+
+const handleApplyCode = async () => {
+  const code = discountCode.value.trim()
+  if (!code || checkingCode.value) return
+
+  checkingCode.value = true
+  codeResult.value = null
+
+  try {
+    const res = await applyOrCheckCode(code, activePlan.value?.price || 0)
+    const data = res.data
+    if (data.type === 'gift') {
+      auth.balance = data.new_balance
+      codeResult.value = {
+        type: 'gift',
+        message: data.message || `کد هدیه با موفقیت اعمال شد و مبلغ ${Number(data.amount).toLocaleString('fa-IR')} تومان به کیف پول اضافه شد.`
+      }
+      discountCode.value = ''
+      appliedDiscount.value = null
+    } else if (data.type === 'discount') {
+      appliedDiscount.value = {
+        code: data.code,
+        discount_amount: data.discount_amount,
+        final_price: data.final_price
+      }
+      codeResult.value = {
+        type: 'discount',
+        message: data.message || `کد تخفیف ${data.code} با موفقیت اعمال شد.`
+      }
+    }
+  } catch (err) {
+    codeResult.value = {
+      type: 'error',
+      message: err.response?.data?.detail || 'کد وارد شده معتبر نیست یا منقضی شده است.'
+    }
+  } finally {
+    checkingCode.value = false
+  }
+}
+
+const handleRemoveDiscount = () => {
+  appliedDiscount.value = null
+  discountCode.value = ''
+  codeResult.value = null
+}
 
 // ---------------------------------------------------------------------------
 // Computed: Catalog
@@ -841,6 +950,9 @@ const openCheckoutModal = (plan, isCustom = false) => {
   isCustomPlan.value = isCustom
   message.value = ''
   discountCode.value = ''
+  appliedDiscount.value = null
+  codeResult.value = null
+  checkingCode.value = false
 }
 
 const toggleServerSelection = (id) => {
@@ -907,6 +1019,9 @@ const closeModal = () => {
   submitting.value = false
   customServiceName.value = ''
   discountCode.value = ''
+  appliedDiscount.value = null
+  codeResult.value = null
+  checkingCode.value = false
 }
 
 const payCard = async () => {
@@ -914,17 +1029,18 @@ const payCard = async () => {
   message.value = ''
   try {
     const sName = customServiceName.value.trim() || null
+    const effCode = appliedDiscount.value ? appliedDiscount.value.code : (discountCode.value.trim() || null)
     if (isCustomPlan.value) {
       await initCustomCardOrder(
         selectedMonths.value,
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
-        discountCode.value || null,
+        effCode,
         sName,
         selectedServerIds.value.length ? selectedServerIds.value : null
       )
     } else {
-      await initCardOrder(activePlan.value.id, discountCode.value || null, sName)
+      await initCardOrder(activePlan.value.id, effCode, sName)
     }
     isSuccess.value = true
     message.value = '✅ پیام پرداخت و شماره کارت در چت تلگرام شما ارسال شد. لطفاً تصویر فیش را در چت ارسال فرمایید.'
@@ -946,17 +1062,18 @@ const payWallet = async () => {
   message.value = ''
   try {
     const sName = customServiceName.value.trim() || null
+    const effCode = appliedDiscount.value ? appliedDiscount.value.code : (discountCode.value.trim() || null)
     if (isCustomPlan.value) {
       await initCustomWalletOrder(
         selectedMonths.value,
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
-        discountCode.value || null,
+        effCode,
         sName,
         selectedServerIds.value.length ? selectedServerIds.value : null
       )
     } else {
-      await initWalletOrder(activePlan.value.id, discountCode.value || null, sName)
+      await initWalletOrder(activePlan.value.id, effCode, sName)
     }
     isSuccess.value = true
     message.value = '🎉 پرداخت با کیف پول موفق بود و سرویس شما ثبت شد.'
@@ -978,6 +1095,7 @@ const payGateway = async (gatewayName) => {
   isSuccess.value = true
   try {
     const sName = customServiceName.value.trim() || null
+    const effCode = appliedDiscount.value ? appliedDiscount.value.code : (discountCode.value.trim() || null)
     let payload
     if (isCustomPlan.value) {
       payload = {
@@ -985,7 +1103,7 @@ const payGateway = async (gatewayName) => {
         months: selectedMonths.value,
         volume_gb: isUnlimitedTraffic.value ? 0 : selectedGb.value,
         ip_limit: selectedUsers.value,
-        discount_code: discountCode.value || null,
+        discount_code: effCode,
         custom_name: sName,
         server_ids: selectedServerIds.value.length ? selectedServerIds.value : null
       }
@@ -993,7 +1111,7 @@ const payGateway = async (gatewayName) => {
       payload = {
         gateway: gatewayName,
         plan_id: activePlan.value.id,
-        discount_code: discountCode.value || null,
+        discount_code: effCode,
         custom_name: sName
       }
     }
@@ -1021,6 +1139,7 @@ const payStars = async () => {
   isSuccess.value = true
   try {
     const sName = customServiceName.value.trim() || null
+    const effCode = appliedDiscount.value ? appliedDiscount.value.code : (discountCode.value.trim() || null)
     let payload
     if (isCustomPlan.value) {
       payload = {
@@ -1030,13 +1149,13 @@ const payStars = async () => {
           ip_limit: selectedUsers.value,
           server_ids: selectedServerIds.value.length ? selectedServerIds.value : null
         },
-        discount_code: discountCode.value || null,
+        discount_code: effCode,
         custom_name: sName
       }
     } else {
       payload = {
         plan_id: activePlan.value.id,
-        discount_code: discountCode.value || null,
+        discount_code: effCode,
         custom_name: sName
       }
     }

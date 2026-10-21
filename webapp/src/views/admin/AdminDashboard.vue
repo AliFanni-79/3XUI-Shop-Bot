@@ -2228,18 +2228,101 @@
           <div v-else class="text-tg-hint text-[10px]">سرویسی یافت نشد.</div>
         </div>
 
-        <div>
-          <span class="font-bold block mb-1">تاریخچه تراکنش‌ها ({{ selectedUserDetail.transactions.length }}):</span>
-          <div v-if="selectedUserDetail.transactions.length" class="space-y-1">
-            <div v-for="t in selectedUserDetail.transactions" :key="t.id" class="p-2 bg-tg rounded-lg text-[10px] flex justify-between items-center">
-              <div>
-                <span class="font-bold block">{{ t.plan }}</span>
-                <span class="text-tg-hint">#{{ t.id }} | {{ t.method }}</span>
+        <!-- User History: Purchases & Wallet transactions -->
+        <div class="space-y-2 pt-1 border-t border-gray-700/30">
+          <div class="flex items-center gap-1.5 border-b border-gray-700/30 pb-2">
+            <button
+              type="button"
+              @click="userHistoryTab = 'purchases'"
+              class="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold transition text-center"
+              :class="userHistoryTab === 'purchases' ? 'btn-tg shadow text-white' : 'bg-tg text-tg-hint hover:text-tg'"
+            >
+              🛒 خریدها و سفارش‌ها ({{ selectedUserDetail.transactions?.length || 0 }})
+            </button>
+            <button
+              type="button"
+              @click="userHistoryTab = 'wallet'"
+              class="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold transition text-center"
+              :class="userHistoryTab === 'wallet' ? 'btn-tg shadow text-white' : 'bg-tg text-tg-hint hover:text-tg'"
+            >
+              👛 تراکنش‌های کیف پول ({{ selectedUserDetail.wallet_transactions?.length || 0 }})
+            </button>
+          </div>
+
+          <!-- Tab 1: Purchases & Orders (showing plan, price, status, and discounts used!) -->
+          <div v-if="userHistoryTab === 'purchases'">
+            <div v-if="selectedUserDetail.transactions && selectedUserDetail.transactions.length" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+              <div
+                v-for="t in selectedUserDetail.transactions"
+                :key="t.id"
+                class="p-2.5 bg-tg rounded-xl text-[10px] space-y-1.5 border border-gray-700/30"
+              >
+                <div class="flex justify-between items-start">
+                  <div>
+                    <span class="font-bold text-tg text-xs block">{{ t.plan }}</span>
+                    <span class="text-tg-hint">#{{ t.id }} | روش: {{ t.method }}</span>
+                  </div>
+                  <div class="text-left">
+                    <span class="font-bold text-xs" :class="t.status === 'APPROVED' ? 'text-emerald-400' : (t.status === 'REJECTED' || t.status === 'CANCELLED' ? 'text-rose-400' : 'text-amber-400')">
+                      {{ Number(t.price).toLocaleString('fa-IR') }} تومان
+                    </span>
+                    <span class="block text-[9px] text-tg-hint">
+                      {{ t.status === 'APPROVED' ? '✅ تایید شده' : (t.status === 'REJECTED' ? '❌ رد شده' : (t.status === 'CANCELLED' ? '🚫 لغو شده' : '⏳ ' + t.status)) }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Discount used info -->
+                <div v-if="t.discount_amount > 0" class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg text-emerald-300">
+                  <span>🎟</span>
+                  <span>تخفیف استفاده‌شده:</span>
+                  <span class="font-bold">{{ Number(t.discount_amount).toLocaleString('fa-IR') }} تومان</span>
+                  <span v-if="t.discount_code" class="font-mono text-tg-hint">({{ t.discount_code }})</span>
+                </div>
               </div>
-              <span class="text-emerald-400 font-mono font-bold">{{ Number(t.price).toLocaleString('fa-IR') }} تومان</span>
+            </div>
+            <div v-else class="text-tg-hint text-[10px] py-4 text-center bg-tg/40 rounded-xl border border-dashed border-gray-700/30">
+              خرید یا سفارشی برای این کاربر ثبت نشده است.
             </div>
           </div>
-          <div v-else class="text-tg-hint text-[10px]">تراکنشی ثبت نشده است.</div>
+
+          <!-- Tab 2: Wallet transactions (Balance ups and downs unrelated to purchases, e.g. Gift codes, Admin Adjust) -->
+          <div v-if="userHistoryTab === 'wallet'">
+            <div v-if="selectedUserDetail.wallet_transactions && selectedUserDetail.wallet_transactions.length" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+              <div
+                v-for="wt in selectedUserDetail.wallet_transactions"
+                :key="wt.id"
+                class="p-2.5 bg-tg rounded-xl text-[10px] flex justify-between items-center border border-gray-700/30"
+              >
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="wt.type === 'GIFT_CODE'">🎁</span>
+                    <span v-else-if="wt.type === 'CASHBACK'">💸</span>
+                    <span v-else-if="wt.type === 'COMMISSION'">🤝</span>
+                    <span v-else-if="wt.type === 'PURCHASE'">🛒</span>
+                    <span v-else>⚡️</span>
+                    <span class="font-bold text-tg">{{ wt.description || wt.type }}</span>
+                  </div>
+                  <span class="text-tg-hint text-[9px] block">
+                    موجودی پس از تراکنش: {{ Number(wt.balance_after).toLocaleString('fa-IR') }} تومان
+                  </span>
+                </div>
+
+                <div class="text-left">
+                  <span
+                    class="font-mono font-bold text-xs block"
+                    :class="wt.amount > 0 ? 'text-emerald-400' : 'text-rose-400'"
+                  >
+                    {{ wt.amount > 0 ? '+' : '' }}{{ Number(wt.amount).toLocaleString('fa-IR') }}
+                  </span>
+                  <span class="text-[9px] text-tg-hint">تومان</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-tg-hint text-[10px] py-4 text-center bg-tg/40 rounded-xl border border-dashed border-gray-700/30">
+              تراکنشی در کیف پول ثبت نشده است.
+            </div>
+          </div>
         </div>
 
         <button @click="selectedUserDetail = null" class="w-full bg-gray-700/40 text-tg py-2 rounded-xl font-bold">
@@ -3444,6 +3527,7 @@ const savingBuilder = ref(false)
 const usersList = ref([])
 const userSearchQuery = ref('')
 const selectedUserDetail = ref(null)
+const userHistoryTab = ref('purchases')
 const adjustBalanceUser = ref(null)
 const adjustBalanceAmount = ref(0)
 const adjustBalanceReason = ref('')
@@ -4565,6 +4649,7 @@ const handleDeleteService = async (s) => {
 
 const openUserDetailModal = async (userId) => {
   try {
+    userHistoryTab.value = 'purchases'
     const res = await getAdminUserDetail(userId)
     selectedUserDetail.value = res.data
   } catch (err) {
