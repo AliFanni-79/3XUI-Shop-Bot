@@ -1,4 +1,4 @@
-VERSION = "26.2.4"
+VERSION = "26.2.4.1"
 
 
 def install(core):
