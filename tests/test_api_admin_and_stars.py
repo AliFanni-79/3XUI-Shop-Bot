@@ -2,21 +2,24 @@ import hashlib
 import hmac
 import json
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 import os
 os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+os.environ.setdefault("XUI_API_URL", "https://panel.example.com:2053")
+os.environ.setdefault("ADMIN_ID", "111222")
 
 from fastapi.testclient import TestClient
 
-from speedybot.api import app
+from xuishop.api import app
 
 
 class TestAdminEndpointsAndStars(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from speedybot import core, storage
+        from xuishop import core, storage
+        core.XUI_API_URL = os.environ.get("XUI_API_URL", "https://panel.example.com:2053")
         core.init_db()
         storage.init_db()
         cls.client = TestClient(app)
@@ -37,8 +40,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
         return urlencode(data)
 
     def test_admin_server_status(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 response = self.client.get("/api/admin/server-status", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(response.status_code, 200)
@@ -49,8 +52,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIn("xui", data)
 
     def test_admin_builder_defaults(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # GET
                 get_res = self.client.get("/api/admin/builder/defaults", headers={"X-Telegram-Init-Data": init_data})
@@ -84,8 +87,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                     )
 
     def test_admin_payments_settings(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 get_res = self.client.get("/api/admin/payments", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(get_res.status_code, 200)
@@ -108,11 +111,11 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIn(post_res.json()["status"], ["ok", "saved"])
 
     def test_admin_plans_crud(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
 
-                # Create plan
+                # Create plan with inbound_ids
                 create_res = self.client.post(
                     "/api/admin/plans",
                     json={
@@ -121,32 +124,50 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                         "traffic_gb": 30,
                         "duration_days": 30,
                         "category_id": 1,
-                        "description": "توضیح تستی"
+                        "description": "توضیح تستی",
+                        "inbound_ids": [101, 102]
                     },
                     headers={"X-Telegram-Init-Data": init_data}
                 )
                 self.assertEqual(create_res.status_code, 200)
                 plan_id = create_res.json()["plan_id"]
 
+                # Verify inbound_ids returned in get plans
+                get_plans_res = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(get_plans_res.status_code, 200)
+                found = next((p for p in get_plans_res.json()["plans"] if p["id"] == plan_id), None)
+                self.assertIsNotNone(found)
+                self.assertEqual(set(found["inbound_ids"]), {101, 102})
+
+                # Test get all inbounds endpoint
+                all_ib_res = self.client.get("/api/admin/inbounds", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(all_ib_res.status_code, 200)
+                self.assertIn("inbounds", all_ib_res.json())
+
                 # Toggle
                 toggle_res = self.client.post(f"/api/admin/plans/{plan_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(toggle_res.status_code, 200)
 
-                # Update
+                # Update with new inbound_ids
                 update_res = self.client.put(
                     f"/api/admin/plans/{plan_id}",
-                    json={"name": "پلن ویرایش شده", "price": 105000},
+                    json={"name": "پلن ویرایش شده", "price": 105000, "inbound_ids": [102]},
                     headers={"X-Telegram-Init-Data": init_data}
                 )
                 self.assertEqual(update_res.status_code, 200)
+
+                # Verify updated inbound_ids
+                get_plans_res2 = self.client.get("/api/admin/plans", headers={"X-Telegram-Init-Data": init_data})
+                found2 = next((p for p in get_plans_res2.json()["plans"] if p["id"] == plan_id), None)
+                self.assertEqual(found2["inbound_ids"], [102])
 
                 # Delete
                 del_res = self.client.delete(f"/api/admin/plans/{plan_id}", headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(del_res.status_code, 200)
 
     def test_admin_users_and_balance(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Get users
                 res = self.client.get("/api/admin/users", headers={"X-Telegram-Init-Data": init_data})
@@ -163,8 +184,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(adj_res.status_code, 200)
 
     def test_admin_blacklist(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Add to blacklist
                 add_res = self.client.post(
@@ -188,8 +209,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(rem_res.status_code, 200)
 
     def test_admin_admins_management(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Add admin
                 add_res = self.client.post(
@@ -213,8 +234,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(rem_res.status_code, 200)
 
     def test_admin_backups(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Create backup
                 create_res = self.client.post("/api/admin/backups/create", headers={"X-Telegram-Init-Data": init_data})
@@ -227,8 +248,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIsInstance(list_res.json()["backups"], list)
 
     def test_admin_ops_mode(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 post_res = self.client.post(
                     "/api/admin/ops/mode",
@@ -249,9 +270,9 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 )
 
     def test_init_stars_order(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
             init_data = self._generate_valid_init_data({"id": 888777, "first_name": "Reza"})
-            with patch("speedybot.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
                 payload = {
                     "custom_spec": {
                         "months": 1,
@@ -262,9 +283,11 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 res = self.client.post("/api/orders/init-stars", json=payload, headers={"X-Telegram-Init-Data": init_data})
                 self.assertEqual(res.status_code, 200)
                 data = res.json()
+                self.assertEqual(data.get("invoice_link"), "https://t.me/$invoice_test_link")
+                mock_invoice.assert_called_once()
     def test_admin_plans_group_name(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Create with group_name
                 create_res = self.client.post(
@@ -307,27 +330,27 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.client.delete(f"/api/admin/plans/{plan_id}", headers={"X-Telegram-Init-Data": init_data})
 
     def test_admin_xui_endpoints(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
-                with patch("speedybot.core._xui_list_groups", return_value=[{"id": 1, "name": "Customers"}, {"id": 2, "name": "Trial"}]):
+                with patch("xuishop.core._xui_list_groups", return_value=[{"id": 1, "name": "Customers"}, {"id": 2, "name": "Trial"}]):
                     res = self.client.get("/api/admin/xui/groups", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertEqual(res.json()["total"], 2)
 
-                with patch("speedybot.core.reconcile_service_groups", return_value={"updated": 5, "errors": []}):
+                with patch("xuishop.core.reconcile_service_groups", return_value={"updated": 5, "errors": []}):
                     res = self.client.post("/api/admin/xui/groups/reconcile", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertEqual(res.json()["status"], "success")
 
-                with patch("speedybot.core._run_xui_diagnostic", return_value="✅ Inbounds: OK"):
+                with patch("xuishop.core._run_xui_diagnostic", return_value="✅ Inbounds: OK"):
                     res = self.client.get("/api/admin/xui/test", headers={"X-Telegram-Init-Data": init_data})
                     self.assertEqual(res.status_code, 200)
                     self.assertIn("Inbounds", res.json()["result"])
 
     def test_admin_rewards_endpoints(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Cashback
                 cb_res = self.client.post("/api/admin/rewards/cashback", json={"percent": 5.5}, headers={"X-Telegram-Init-Data": init_data})
@@ -370,8 +393,8 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(del_g.status_code, 200)
 
     def test_admin_affiliate_and_content_security(self):
-        with patch("speedybot.api._get_bot_token", return_value=self.bot_token):
-            with patch("speedybot.api._is_admin", return_value=True):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
                 init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
                 # Affiliate GET & POST
                 aff_get = self.client.get("/api/admin/affiliate", headers={"X-Telegram-Init-Data": init_data})
@@ -398,5 +421,648 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertEqual(sec_post.status_code, 200)
 
 
+    def test_admin_version_and_stats(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                from xuishop import VERSION
+                # Version endpoint
+                ver_res = self.client.get("/api/admin/version")
+                self.assertEqual(ver_res.status_code, 200)
+                self.assertEqual(ver_res.json()["version"], VERSION)
+
+                # Stats endpoint contains app_version
+                stats_res = self.client.get("/api/admin/stats", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(stats_res.status_code, 200)
+                self.assertEqual(stats_res.json()["app_version"], VERSION)
+                self.assertIn("brand_name", stats_res.json())
+
+    def test_admin_trial_features(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # GET trial settings
+                settings_res = self.client.get("/api/admin/trial/settings", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(settings_res.status_code, 200)
+                data = settings_res.json()
+                self.assertIn("enabled", data)
+                self.assertIn("volume_gb", data)
+                self.assertIn("days", data)
+                self.assertIn("ip_limit", data)
+                self.assertIn("stats", data)
+
+                # POST trial settings
+                save_res = self.client.post(
+                    "/api/admin/trial/settings",
+                    json={
+                        "enabled": True,
+                        "volume_gb": 1.5,
+                        "days": 2,
+                        "ip_limit": 1,
+                        "cooldown_days": 30,
+                        "followup_enabled": True,
+                        "followup_delay_hours": 6
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(save_res.status_code, 200)
+
+                # Inbounds toggle & reset for trial
+                tog_res = self.client.post(
+                    "/api/admin/trial/inbounds/toggle",
+                    json={"inbound_id": 999},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(tog_res.status_code, 200)
+                rst_res = self.client.post("/api/admin/trial/inbounds/reset", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(rst_res.status_code, 200)
+
+                # Overrides CRUD
+                save_ov = self.client.post(
+                    "/api/admin/trial/overrides",
+                    json={"user_id": 98765432, "volume_gb": 5.0, "days": 7, "ip_limit": 2, "note": "VIP trial"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(save_ov.status_code, 200)
+
+                get_ov = self.client.get("/api/admin/trial/overrides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(get_ov.status_code, 200)
+                self.assertTrue(any(o["user_id"] == 98765432 for o in get_ov.json()["overrides"]))
+
+                del_ov = self.client.delete("/api/admin/trial/overrides/98765432", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_ov.status_code, 200)
+
+    def test_admin_categories_and_volume_packs(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Categories CRUD
+                c_create = self.client.post(
+                    "/api/admin/categories",
+                    json={"name": "تست دسته‌بندی ویژه", "active": 1, "sort_order": 50},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(c_create.status_code, 200)
+                cat_id = c_create.json()["category_id"]
+
+                c_list = self.client.get("/api/admin/categories", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(c_list.status_code, 200)
+                self.assertTrue(any(c["id"] == cat_id for c in c_list.json()["categories"]))
+
+                c_update = self.client.put(
+                    f"/api/admin/categories/{cat_id}",
+                    json={"name": "تست دسته‌بندی ویرایش شده", "sort_order": 55},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(c_update.status_code, 200)
+
+                c_del = self.client.delete(f"/api/admin/categories/{cat_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(c_del.status_code, 200)
+
+                # Volume Packs CRUD
+                vp_create = self.client.post(
+                    "/api/admin/volume-packs",
+                    json={"name": "۱۰ گیگابایت اضافه", "volume_gb": 10.0, "price": 45000, "active": 1, "sort_order": 20},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(vp_create.status_code, 200)
+                pack_id = vp_create.json()["pack_id"]
+
+                vp_list = self.client.get("/api/admin/volume-packs", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_list.status_code, 200)
+                self.assertTrue(any(p["id"] == pack_id for p in vp_list.json()["volume_packs"]))
+
+                vp_tog = self.client.post(f"/api/admin/volume-packs/{pack_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_tog.status_code, 200)
+
+                vp_del = self.client.delete(f"/api/admin/volume-packs/{pack_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(vp_del.status_code, 200)
+
+    def test_admin_crm_and_guides_and_audit(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # CRM
+                crm_get = self.client.get("/api/admin/crm", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(crm_get.status_code, 200)
+                self.assertIn("sources", crm_get.json())
+                self.assertIn("claims", crm_get.json())
+
+                crm_post = self.client.post(
+                    "/api/admin/crm/settings",
+                    json={"acquisition_survey_enabled": True, "custom_service_names_enabled": True, "existing_service_link_enabled": True},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(crm_post.status_code, 200)
+
+                # Guides
+                g_get = self.client.get("/api/admin/guides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_get.status_code, 200)
+
+                g_create = self.client.post(
+                    "/api/admin/guides",
+                    json={"platform": "ANDROID", "media_type": "TEXT", "body": "راهنمای اتصال v2rayNG", "sort_order": 1},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(g_create.status_code, 200)
+                gid = g_create.json()["item_id"]
+
+                g_del = self.client.delete(f"/api/admin/guides/{gid}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_del.status_code, 200)
+
+                g_tog = self.client.post("/api/admin/guides/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(g_tog.status_code, 200)
+
+                # Audit
+                audit_get = self.client.get("/api/admin/audit", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(audit_get.status_code, 200)
+
+                audit_post = self.client.post(
+                    "/api/admin/audit/settings",
+                    json={"enabled": True, "chat_id": "-100123456789"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(audit_post.status_code, 200)
+
+                # Notifications check now
+                with patch("xuishop.core.check_service_notifications", return_value={"enabled": True, "tracked": 5, "sent": 0}):
+                    notif_res = self.client.post("/api/admin/notifications/check-now", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(notif_res.status_code, 200)
+
+    def test_admin_user_detail(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                res = self.client.get("/api/admin/users/111222", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertIn("user", data)
+                self.assertIn("transactions", data)
+                self.assertIn("services", data)
+                self.assertEqual(data["user"]["id"], 111222)
+
+    def test_customer_menu_toggles_and_keyboard(self):
+        from xuishop import ui, context as C, core
+        C.configure(core)
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # Get branding
+                b_get = self.client.get("/api/admin/branding", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(b_get.status_code, 200)
+                self.assertIn("customer_menu", b_get.json())
+
+                # Save branding with toggles
+                b_post = self.client.post(
+                    "/api/admin/branding",
+                    json={
+                        "webapp_title": "My Test Shop",
+                        "customer_menu": {
+                            "buy": True,
+                            "account": True,
+                            "support": False,
+                            "faq": False
+                        }
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(b_post.status_code, 200)
+                menu_data = b_post.json()["customer_menu"]
+                self.assertTrue(menu_data["buy"])
+                self.assertFalse(menu_data["support"])
+
+                # Verify bot reply keyboard respects settings
+                kb = ui.main_menu()
+                button_texts = []
+                for row in kb.keyboard:
+                    for b in row:
+                        button_texts.append(b["text"] if isinstance(b, dict) else b.text)
+                self.assertIn("🛍 مشاهده و خرید پلان‌ها", button_texts)
+                self.assertNotIn("📞 پشتیبانی", button_texts)
+
+                # Restore
+                self.client.post(
+                    "/api/admin/branding",
+                    json={
+                        "webapp_title": "Shop",
+                        "customer_menu": {
+                            "buy": True,
+                            "account": True,
+                            "support": True,
+                            "faq": True
+                        }
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+
+    def test_guide_media_endpoint_and_urls(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                # 1. External URL guide
+                create_ext = self.client.post(
+                    "/api/admin/guides",
+                    json={
+                        "platform": "android",
+                        "media_type": "PHOTO",
+                        "body": "Guide with external photo",
+                        "media_file_id": "https://example.com/screenshot.jpg",
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_ext.status_code, 200)
+                ext_id = create_ext.json()["item_id"]
+
+                # Public media route redirects external URLs
+                redir_res = self.client.get(f"/api/guides/{ext_id}/media", follow_redirects=False)
+                self.assertEqual(redir_res.status_code, 307)
+                self.assertEqual(redir_res.headers.get("location"), "https://example.com/screenshot.jpg")
+
+                # 2. Telegram File ID guide
+                create_tg = self.client.post(
+                    "/api/admin/guides",
+                    json={
+                        "platform": "ios",
+                        "app_name": "Streisand",
+                        "media_type": "VIDEO",
+                        "body": "Video tutorial",
+                        "media_file_id": "BAACAgQAAxkBAAOwatS6V5gkd6jh34UdqgZ0Jc7i8UcAAGcfAAKEkKFsAbPye1xo8no9BA",
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_tg.status_code, 200)
+                tg_id = create_tg.json()["item_id"]
+
+                class MockFile:
+                    file_path = "videos/guide_video.mp4"
+
+                from xuishop import core
+                with patch.object(core.bot, "get_file", return_value=MockFile()):
+                    with patch.object(core.bot, "download_file", return_value=b"\x00\x00\x00\x18ftypmp42"):
+                        media_res = self.client.get(f"/api/guides/{tg_id}/media")
+                        self.assertEqual(media_res.status_code, 200)
+                        self.assertEqual(media_res.headers.get("content-type"), "video/mp4")
+                        self.assertEqual(media_res.content, b"\x00\x00\x00\x18ftypmp42")
+
+                # 3. /api/guides public list includes media_url and app_name
+                guides_res = self.client.get("/api/guides", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(guides_res.status_code, 200)
+                items = guides_res.json()["guides"]
+                tg_guide = next(item for item in items if item["id"] == tg_id)
+                self.assertEqual(tg_guide["media_url"], f"/api/guides/{tg_id}/media")
+                self.assertEqual(tg_guide["app_name"], "Streisand")
+
+                # 4. Prompt bot with explicit app_name
+                with patch.object(core.bot, "send_message") as mock_send:
+                    prompt_res = self.client.post("/api/admin/guides/prompt-bot?platform=android&app_name=V2RayNG", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(prompt_res.status_code, 200)
+                    self.assertTrue(mock_send.called)
+                    self.assertIn("V2RayNG", mock_send.call_args[0][1])
+
+                # 5. Prompt bot without app_name (asks for app name first)
+                with patch.object(core.bot, "send_message") as mock_send:
+                    prompt_res2 = self.client.post("/api/admin/guides/prompt-bot?platform=android", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(prompt_res2.status_code, 200)
+                    self.assertTrue(mock_send.called)
+                    self.assertIn("نام نرم‌افزار", mock_send.call_args[0][1])
+
+    def test_admin_broadcast(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                with patch("xuishop.storage.audiences", return_value=[12345, 67890]):
+                    with patch("xuishop.core.bot.send_message"):
+                        res = self.client.post(
+                            "/api/admin/broadcast",
+                            json={"audience": "all", "message": "Test Announcement"},
+                            headers={"X-Telegram-Init-Data": init_data},
+                        )
+                        self.assertEqual(res.status_code, 200)
+                        data = res.json()
+                        self.assertEqual(data.get("status"), "started")
+                        self.assertEqual(data.get("total"), 2)
+
+    def test_calc_discount_and_stars_checkout(self):
+        from xuishop.api import _calc_discount
+        import sqlite3
+        conn = sqlite3.connect("app.db")
+        conn.execute(
+            "INSERT OR REPLACE INTO discount_codes (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("TEST50", "PERCENT", 50, 0, 100, 10, None, 1, 1000)
+        )
+        conn.commit()
+        conn.close()
+
+        disc = _calc_discount("TEST50", 100000, 888777)
+        self.assertEqual(disc, 50000)
+
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 888777, "first_name": "Reza"})
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_test_link") as mock_invoice:
+                payload = {
+                    "custom_spec": {
+                        "months": 1,
+                        "volume_gb": 20,
+                        "ip_limit": 1
+                    },
+                    "discount_code": "TEST50"
+                }
+                res = self.client.post("/api/orders/init-stars", json=payload, headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                mock_invoice.assert_called_once()
+
+    def test_core_logger_and_plan_alias(self):
+        import logging
+        from xuishop import core
+        self.assertTrue(hasattr(core, "logger"))
+        self.assertIsInstance(core.logger, logging.Logger)
+        self.assertTrue(hasattr(core, "get_plan_by_id"))
+        self.assertEqual(core.get_plan_by_id, core.get_plan)
+
+    def test_admin_plan_inbounds_format(self):
+        from xuishop import core
+        fake_inbounds = [
+            {"id": 1, "remark": "VLESS-WS", "protocol": "vless", "port": 443, "enable": True},
+            {"id": 2, "remark": "VMESS-TCP", "protocol": "vmess", "port": 80, "enable": True},
+        ]
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+                with patch("xuishop.core._get_active_inbound_details", return_value=fake_inbounds):
+                    res = self.client.get("/api/admin/plans/1/inbounds", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(res.status_code, 200)
+                    data = res.json()
+                    self.assertIn("inbounds", data)
+                    self.assertIn("active_inbounds", data)
+                    self.assertEqual(len(data["inbounds"]), 2)
+                    self.assertEqual(data["inbounds"][0]["tag"], "VLESS-WS")
+                    self.assertIn("selected", data["inbounds"][0])
+
+    def test_admin_services_crud_and_reset(self):
+        fake_client = {
+            "id": "uuid-client-123",
+            "email": "test_customer_svc",
+            "total": 21474836480,  # 20 GB
+            "up": 1048576,
+            "down": 2097152,
+            "expiryTime": 1780000000000,
+            "limitIp": 2,
+            "enable": True,
+            "subId": "sub_xyz_789",
+        }
+        fake_inbounds = [
+            {"id": 1, "remark": "VLESS-WS", "protocol": "vless", "port": 443, "enable": True},
+        ]
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+
+                # 1. GET service details
+                with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
+                    with patch("xuishop.core._get_active_inbound_details", return_value=fake_inbounds):
+                        res = self.client.get(
+                            "/api/admin/services/test_customer_svc",
+                            headers={"X-Telegram-Init-Data": init_data}
+                        )
+                        self.assertEqual(res.status_code, 200)
+                        d = res.json()
+                        self.assertEqual(d["email"], "test_customer_svc")
+                        self.assertEqual(d["total_gb"], 20.0)
+                        self.assertEqual(d["limit_ip"], 2)
+                        self.assertTrue(d["enable"])
+                        self.assertIn("all_inbounds", d)
+                        self.assertEqual(len(d["all_inbounds"]), 1)
+                        self.assertTrue(d["all_inbounds"][0]["selected"])
+
+                # 2. POST update service
+                with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
+                    with patch("xuishop.core._update_exported_client") as mock_update:
+                        with patch("xuishop.core._sync_client_inbounds") as mock_sync:
+                            res = self.client.post(
+                                "/api/admin/services/test_customer_svc",
+                                json={
+                                    "volume_gb": 35.0,
+                                    "limit_ip": 3,
+                                    "expiry_time": 1800000000000,
+                                    "enable": True,
+                                    "inbound_ids": [1],
+                                    "reset_traffic": False,
+                                },
+                                headers={"X-Telegram-Init-Data": init_data}
+                            )
+                            self.assertEqual(res.status_code, 200)
+                            mock_update.assert_called_once()
+                            call_args = mock_update.call_args[0]
+                            self.assertEqual(call_args[0], "test_customer_svc")
+                            self.assertEqual(call_args[1]["limitIp"], 3)
+                            self.assertEqual(call_args[1]["expiryTime"], 1800000000000)
+                            mock_sync.assert_called_once_with("test_customer_svc", [1])
+
+                # 3. POST reset traffic
+                with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
+                    with patch("xuishop.core._xui_url", return_value="https://panel.example.com/reset"):
+                        with patch("xuishop.core._xui_headers", return_value={"Authorization": "Bearer test"}):
+                            with patch("requests.post") as mock_post:
+                                mock_post.return_value.status_code = 200
+                                mock_post.return_value.json.return_value = {"success": True}
+                                res = self.client.post(
+                                    "/api/admin/services/test_customer_svc/reset-traffic",
+                                    headers={"X-Telegram-Init-Data": init_data}
+                                )
+                                self.assertEqual(res.status_code, 200)
+                                self.assertEqual(res.json()["status"], "ok")
+
+                # 4. DELETE service
+                with patch("xuishop.core._get_exported_client", return_value=(fake_client, [1])):
+                    with patch("xuishop.core._xui_url", return_value="https://panel.example.com/del"):
+                        with patch("xuishop.core._xui_headers", return_value={"Authorization": "Bearer test"}):
+                            with patch("requests.post") as mock_del_post:
+                                mock_del_post.return_value.status_code = 200
+                                mock_del_post.return_value.json.return_value = {"success": True}
+                                res = self.client.delete(
+                                    "/api/admin/services/test_customer_svc",
+                                    headers={"X-Telegram-Init-Data": init_data}
+                                )
+                                self.assertEqual(res.status_code, 200)
+                                self.assertEqual(res.json()["status"], "ok")
+
+    def test_admin_servers_crud_and_auto_group(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+
+                # 1. Create standard server
+                create_res = self.client.post(
+                    "/api/admin/servers",
+                    json={
+                        "name": "سرور آلمان VIP",
+                        "price": 30000,
+                        "inbound_ids": [1, 2],
+                        "is_custom": 0,
+                        "contact_support": 0,
+                        "support_target_type": "bot",
+                        "support_target_url": "",
+                        "active": 1,
+                        "sort_order": 10
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_res.status_code, 200)
+                server_id = create_res.json()["server_id"]
+                self.assertIsInstance(server_id, int)
+
+                # 2. Create support-gated server (channel link)
+                create_sup_res = self.client.post(
+                    "/api/admin/servers",
+                    json={
+                        "name": "سرور اختصاصی گیمینگ",
+                        "price": 0,
+                        "inbound_ids": [],
+                        "is_custom": 1,
+                        "contact_support": 1,
+                        "support_target_type": "link",
+                        "support_target_url": "https://t.me/MySupportChannel",
+                        "active": 1,
+                        "sort_order": 20
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(create_sup_res.status_code, 200)
+                sup_server_id = create_sup_res.json()["server_id"]
+
+                # 3. List servers
+                list_res = self.client.get("/api/admin/servers", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(list_res.status_code, 200)
+                servers = list_res.json()["servers"]
+                self.assertTrue(any(s["id"] == server_id for s in servers))
+                self.assertTrue(any(s["id"] == sup_server_id for s in servers))
+
+                # 4. Update server
+                upd_res = self.client.put(
+                    f"/api/admin/servers/{server_id}",
+                    json={"price": 35000, "name": "سرور آلمان Pro"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(upd_res.status_code, 200)
+
+                # 5. Toggle active
+                tog_res = self.client.post(f"/api/admin/servers/{server_id}/toggle", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(tog_res.status_code, 200)
+                self.assertEqual(tog_res.json()["active"], 0)
+
+                # 6. Delete servers
+                del_res = self.client.delete(f"/api/admin/servers/{server_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_res.status_code, 200)
+                del_sup_res = self.client.delete(f"/api/admin/servers/{sup_server_id}", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(del_sup_res.status_code, 200)
+
+                # 7. Auto-group
+                fake_inbounds = [
+                    {"id": 101, "remark": "Helsinki-1", "protocol": "vless", "port": 443},
+                    {"id": 102, "remark": "Helsinki-2", "protocol": "vmess", "port": 8443},
+                ]
+                with patch("xuishop.core._get_active_inbound_details", return_value=fake_inbounds):
+                    ag_res = self.client.post("/api/admin/servers/auto-group", headers={"X-Telegram-Init-Data": init_data})
+                    self.assertEqual(ag_res.status_code, 200)
+                    self.assertIn("created", ag_res.json())
+
+    def test_builder_with_server_profiles_and_orders(self):
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            init_data = self._generate_valid_init_data({"id": 111222, "first_name": "User"})
+
+            # Insert test server profiles directly into db
+            from xuishop import core
+            conn = core._db_connect()
+            try:
+                conn.execute(
+                    """INSERT OR REPLACE INTO server_profiles (id, name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+                       VALUES (9001, 'سرور هلند', 20000, '[10]', 0, 0, 'bot', '', 1, 1, 1000, 1000),
+                              (9002, 'سرور آی‌پی ثابت VIP', 0, '[]', 1, 1, 'bot', '', 1, 2, 1000, 1000)"""
+                )
+                # Give user balance for wallet order
+                conn.execute("UPDATE users SET balance = 500000 WHERE id = 111222")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # 1. GET /api/builder/config includes servers
+            cfg_res = self.client.get("/api/builder/config", headers={"X-Telegram-Init-Data": init_data})
+            self.assertEqual(cfg_res.status_code, 200)
+            data = cfg_res.json()
+            self.assertIn("servers", data)
+            server_ids = [s["id"] for s in data["servers"]]
+            self.assertIn(9001, server_ids)
+            self.assertIn(9002, server_ids)
+
+            # 2. POST /api/builder/calculate with standard server
+            calc_res = self.client.post(
+                "/api/builder/calculate",
+                json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                headers={"X-Telegram-Init-Data": init_data}
+            )
+            self.assertEqual(calc_res.status_code, 200)
+            cdata = calc_res.json()
+            self.assertEqual(cdata["servers_price"], 20000)
+            self.assertFalse(cdata["has_support_server"])
+
+            # 3. POST /api/builder/calculate with support-only server
+            calc_sup_res = self.client.post(
+                "/api/builder/calculate",
+                json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9002]},
+                headers={"X-Telegram-Init-Data": init_data}
+            )
+            self.assertEqual(calc_sup_res.status_code, 200)
+            self.assertTrue(calc_sup_res.json()["has_support_server"])
+
+            # 4. Init Custom Card Order with server_ids
+            with patch("xuishop.core._start_card_checkout") as mock_chk:
+                card_res = self.client.post(
+                    "/api/orders/init-custom-card",
+                    json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(card_res.status_code, 200)
+                mock_chk.assert_called_once()
+                plan_passed = mock_chk.call_args[0][2]
+                self.assertEqual(plan_passed["server_ids"], [9001])
+
+            # 5. Init Custom Wallet Order with server_ids
+            with patch("xuishop.core.finalize_service_transaction"):
+                wallet_res = self.client.post(
+                    "/api/orders/init-custom-wallet",
+                    json={"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(wallet_res.status_code, 200)
+                tx_id = wallet_res.json()["tx_id"]
+
+                # Verify server_ids stored in transactions table
+                conn = core._db_connect()
+                row = conn.execute("SELECT server_ids FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+                conn.close()
+                self.assertIsNotNone(row)
+                self.assertEqual(json.loads(row["server_ids"]), [9001])
+
+            # 6. Init Stars Order with server_ids in custom_spec
+            with patch("xuishop.core.bot.create_invoice_link", return_value="https://t.me/$invoice_link"):
+                stars_res = self.client.post(
+                    "/api/orders/init-stars",
+                    json={
+                        "custom_spec": {"months": 1, "volume_gb": 50, "ip_limit": 1, "server_ids": [9001]},
+                        "custom_name": "myteststar"
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(stars_res.status_code, 200)
+                tx_id_stars = stars_res.json()["order_id"]
+
+                conn = core._db_connect()
+                srow = conn.execute("SELECT server_ids FROM transactions WHERE id = ?", (tx_id_stars,)).fetchone()
+                conn.close()
+                self.assertIsNotNone(srow)
+                self.assertEqual(json.loads(srow["server_ids"]), [9001])
+
+
 if __name__ == "__main__":
     unittest.main()
+

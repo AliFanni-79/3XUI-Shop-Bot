@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ==============================================================================
-# SpeedyBot Updater (Phase 1: Fetch Latest Remote Version)
+# VizzPN Shop Bot Updater (Phase 1: Fetch Latest Remote Version)
 # ==============================================================================
 # This launcher fetches the newest version from GitHub and delegates execution
 # to upgrade.sh from the freshly fetched code. This ensures that any improvements,
@@ -11,7 +11,7 @@ set -Eeuo pipefail
 
 SERVICE_NAME="${SPEEDYBOT_SERVICE_NAME:-xui-bot.service}"
 APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
-REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/SpeedyBot.git}"
+REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/3XUI-Shop-Bot.git}"
 BRANCH="${SPEEDYBOT_BRANCH:-main}"
 CURRENT_COMMIT_FILE="$APP_DIR/.deployed_commit"
 CHECK_ONLY=0
@@ -93,4 +93,5 @@ exec env \
   SPEEDYBOT_REPO_URL="$REPO_URL" \
   SPEEDYBOT_BRANCH="$BRANCH" \
   SPEEDYBOT_SERVICE_NAME="$SERVICE_NAME" \
+  PYTHONPATH="$APP_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   bash "$UPGRADE_SCRIPT" "$@"

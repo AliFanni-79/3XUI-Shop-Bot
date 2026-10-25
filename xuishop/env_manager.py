@@ -5,6 +5,7 @@ def find_env_file():
     candidates = [
         os.path.join(os.getcwd(), ".env"),
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+        "/root/xuishop/.env",
         "/root/SpeedyBot/.env",
     ]
     for c in candidates:

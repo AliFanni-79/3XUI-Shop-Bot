@@ -1,5 +1,4 @@
 from html import escape
-import time
 from . import context as C
 from . import ui
 
@@ -22,7 +21,7 @@ def _shop(message):
 def _account(message):
     uid=int(message.from_user.id); c=C.db()
     user=c.execute('SELECT balance FROM users WHERE id=?',(uid,)).fetchone()
-    paid=c.execute("SELECT id,service_email,plan_name_snapshot FROM transactions WHERE user_id=? AND status='APPROVED' AND kind='NEW' ORDER BY id DESC",(uid,)).fetchall()
+    paid=c.execute("SELECT id,service_email,plan_name_snapshot FROM transactions WHERE user_id=? AND UPPER(status)='APPROVED' AND (kind IS NULL OR UPPER(kind) IN ('NEW','CUSTOM','SERVICE','')) ORDER BY id DESC",(uid,)).fetchall()
     trial=c.execute("SELECT email,status FROM trial_services WHERE user_id=? ORDER BY created_at DESC LIMIT 1",(uid,)).fetchone()
     linked=c.execute('SELECT id,email FROM linked_services WHERE user_id=? ORDER BY id DESC',(uid,)).fetchall(); c.close()
     balance=int(user['balance'] or 0) if user else 0
@@ -32,7 +31,7 @@ def _account(message):
     if blocked: lines += ['','🚫 <b>خرید برای این حساب محدود شده است.</b>'+(f'\n{escape(reason)}' if reason else '')]
     lines += ['','👇 برای مدیریت هر سرویس، دکمه مربوط به آن را انتخاب کنید.']
     m=C.CORE.types.InlineKeyboardMarkup(row_width=1)
-    if trial and trial['status']=='ACTIVE': m.add(C.inline('🎁 وضعیت تست رایگان',callback_data='view:trial',style_name='primary'))
+    if trial and str(trial['status']).upper() in ('ACTIVE', 'TRIAL_ACTIVE'): m.add(C.inline('🎁 وضعیت تست رایگان',callback_data='view:trial',style_name='primary'))
     for r in paid:
         label=(r['plan_name_snapshot'] or r['service_email'] or f"سرویس #{r['id']}")[:42]
         m.add(C.inline(f'📦 {label}',callback_data=f"view:status:{r['id']}",style_name='primary'))

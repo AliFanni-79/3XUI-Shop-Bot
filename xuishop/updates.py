@@ -5,15 +5,15 @@ import time
 from . import context as C
 
 
-VERSION_URL = "https://raw.githubusercontent.com/roseshayan/SpeedyBot/main/VERSION.txt"
-REPOSITORY_URL = "https://github.com/roseshayan/SpeedyBot"
+VERSION_URL = "https://raw.githubusercontent.com/AliFanni-79/3XUI-Shop-Bot/main/VERSION.txt"
+REPOSITORY_URL = "https://github.com/AliFanni-79/3XUI-Shop-Bot"
 _UPDATE_THREAD = None
 _UPDATE_LOCK = threading.Lock()
 
 
 def _version_tuple(value):
     text = str(value or "").strip().lstrip("vV")
-    if not re.fullmatch(r"\d+\.\d+\.\d+", text):
+    if not re.fullmatch(r"\d+(\.\d+){2,3}", text):
         return None
     return tuple(int(part) for part in text.split("."))
 
@@ -33,7 +33,7 @@ def check_once():
     try:
         response = C.CORE.requests.get(
             VERSION_URL,
-            headers={"Accept": "text/plain", "User-Agent": f"SpeedyBot/{VERSION}"},
+            headers={"Accept": "text/plain", "User-Agent": f"XUIShopBot/{VERSION}"},
             timeout=10,
         )
         if response.status_code != 200:

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # ==============================================================================
-# SpeedyBot Upgrade Engine (Phase 2: Execution & Deployment)
+# VizzPN Shop Bot Upgrade Engine (Phase 2: Execution & Deployment)
 # ==============================================================================
 # This script executes the actual upgrade logic from the latest pulled code.
 # It is launched by update.sh (Phase 1) after pulling the newest remote version.
@@ -10,7 +10,8 @@ set -Eeuo pipefail
 
 SERVICE_NAME="${SPEEDYBOT_SERVICE_NAME:-xui-bot.service}"
 APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
-REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/SpeedyBot.git}"
+export PYTHONPATH="$APP_DIR${PYTHONPATH:+:$PYTHONPATH}"
+REPO_URL="${SPEEDYBOT_REPO_URL:-https://github.com/AliFanni-79/3XUI-Shop-Bot.git}"
 BRANCH="${SPEEDYBOT_BRANCH:-main}"
 SOURCE_DIR="${SPEEDYBOT_SOURCE_DIR:-}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -128,6 +129,16 @@ install_cloudflared(){
   fi
 }
 
+stop_cf_quick_tunnel(){
+  if systemctl is-active --quiet speedybot-tunnel.service 2>/dev/null || systemctl list-unit-files speedybot-tunnel.service &>/dev/null; then
+    info "Stopping and disabling previous Cloudflare Quick Tunnel (speedybot-tunnel.service)..."
+    systemctl stop speedybot-tunnel.service 2>/dev/null || true
+    systemctl disable speedybot-tunnel.service 2>/dev/null || true
+    rm -f /etc/systemd/system/speedybot-tunnel.service 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+}
+
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
@@ -136,7 +147,7 @@ setup_cf_quick_tunnel(){
   info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
-Description=SpeedyBot Cloudflare Tunnel (No Nginx)
+Description=X-UI Shop Bot Cloudflare Tunnel (No Nginx)
 After=network-online.target xui-bot.service
 Wants=network-online.target
 
@@ -227,6 +238,11 @@ configure_mini_app_exposure(){
     set_env_var "WEBAPP_HOST" "0.0.0.0" "$APP_DIR/.env"
   fi
 
+  # Auto-cleanup obsolete trycloudflare tunnel service if current URL is a custom reverse proxy / domain
+  if [[ -n "$current_url" && ! "$current_url" =~ \.trycloudflare\.com ]]; then
+    stop_cf_quick_tunnel
+  fi
+
   if [[ ! -t 0 ]]; then
     return 0
   fi
@@ -266,22 +282,30 @@ configure_mini_app_exposure(){
         fi
         ;;
       2)
+        stop_cf_quick_tunnel
         local cf_token; cf_token="$(prompt "Cloudflare Tunnel Token (starts with eyJh...)")"
         local raw_url; raw_url="$(prompt "Public HTTPS hostname you routed in Cloudflare (e.g. https://shop.example.com)")"
         new_url="$(normalize_webapp_url "$raw_url")"
         setup_cf_token_tunnel "$cf_token" || true
         ;;
       3)
+        stop_cf_quick_tunnel
         local caddy_domain; caddy_domain="$(prompt "Your domain name pointing to this server IP (e.g. shop.example.com)")"
         caddy_domain="$(printf '%s' "$caddy_domain" | sed -E 's#^https?://##; s#/.*$##')"
         new_url="https://$caddy_domain"
         setup_caddy_proxy "$caddy_domain" "$port" || true
         ;;
       4)
+        stop_cf_quick_tunnel
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+          systemctl stop caddy 2>/dev/null || true
+          systemctl disable caddy 2>/dev/null || true
+        fi
         local raw_url; raw_url="$(prompt_optional "Public HTTPS URL (e.g. https://shop.example.com)" "")"
         new_url="$(normalize_webapp_url "$raw_url")"
         ;;
       *)
+        stop_cf_quick_tunnel
         info "Skipping internet tunnel configuration. Mini App runs locally on port $port."
         ;;
     esac
@@ -289,10 +313,11 @@ configure_mini_app_exposure(){
     if [[ -n "$new_url" ]]; then
       set_env_var "WEBAPP_URL" "$new_url" "$APP_DIR/.env"
       ok "Updated WEBAPP_URL in .env: $new_url"
-      TARGET_URL="$new_url" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+      TARGET_URL="$new_url" PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import sys, os
+sys.path.insert(0, os.environ.get("SPEEDYBOT_APP_DIR", "/root/SpeedyBot"))
 try:
-    from speedybot import db
+    from xuishop import db
     conn = db.get_connection(timeout=15)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -302,6 +327,9 @@ try:
 except Exception:
     pass
 PY
+      info "Restarting bot service to apply updated Mini App URL..."
+      systemctl restart "$SERVICE_NAME" || true
+      sleep 3
     fi
   fi
 }
@@ -311,6 +339,7 @@ write_runner(){
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$APP_DIR"
+export PYTHONPATH="$APP_DIR\${PYTHONPATH:+:\$PYTHONPATH}"
 source "$APP_DIR/.env"
 exec "$APP_DIR/.venv/bin/python3" "$APP_DIR/main.py"
 EOF
@@ -344,7 +373,7 @@ done
 # If SOURCE_DIR not provided via environment, determine or clone it
 if [[ -z "$SOURCE_DIR" || ! -d "$SOURCE_DIR" ]]; then
   LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -f "$LOCAL_DIR/main.py" && -d "$LOCAL_DIR/speedybot" && "$LOCAL_DIR" != "$APP_DIR" ]]; then
+  if [[ -f "$LOCAL_DIR/main.py" && -d "$LOCAL_DIR/xuishop" && "$LOCAL_DIR" != "$APP_DIR" ]]; then
     SOURCE_DIR="$LOCAL_DIR"
   else
     info "Source directory not specified; pulling latest from GitHub..."
@@ -373,8 +402,8 @@ if [[ "$FORCE" -ne 1 && -n "$CURRENT_COMMIT" && "$CURRENT_COMMIT" == "$CLONED_CO
 fi
 
 if [[ "$FORCE" -ne 1 && -f "$APP_DIR/VERSION.txt" && -f "$SOURCE_DIR/VERSION.txt" ]]; then
-  LOCAL_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,2}' "$APP_DIR/VERSION.txt" | head -1 || true)"
-  REMOTE_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,2}' "$SOURCE_DIR/VERSION.txt" | head -1 || true)"
+  LOCAL_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,3}' "$APP_DIR/VERSION.txt" | head -1 || true)"
+  REMOTE_VERSION="$(grep -oE '^[0-9]+(\.[0-9]+){1,3}' "$SOURCE_DIR/VERSION.txt" | head -1 || true)"
   if [[ -n "$LOCAL_VERSION" && -n "$REMOTE_VERSION" ]]; then
     LOWEST="$(printf '%s\n%s\n' "$LOCAL_VERSION" "$REMOTE_VERSION" | sort -V | head -1)"
     if [[ "$LOWEST" == "$REMOTE_VERSION" && "$LOCAL_VERSION" != "$REMOTE_VERSION" ]]; then
@@ -384,10 +413,10 @@ if [[ "$FORCE" -ne 1 && -f "$APP_DIR/VERSION.txt" && -f "$SOURCE_DIR/VERSION.txt
 fi
 
 [[ -f "$SOURCE_DIR/main.py" ]] || fail "main.py is missing from target repository."
-[[ -d "$SOURCE_DIR/speedybot" ]] || fail "speedybot application package is missing from target repository."
+[[ -d "$SOURCE_DIR/xuishop" ]] || fail "xuishop application package is missing from target repository."
 
 info "Validating source code before service downtime..."
-python3 -m py_compile "$SOURCE_DIR/main.py" "$SOURCE_DIR"/speedybot/*.py || fail "Python syntax validation failed."
+python3 -m py_compile "$SOURCE_DIR/main.py" "$SOURCE_DIR"/xuishop/*.py || fail "Python syntax validation failed."
 bash -n "$SOURCE_DIR/update.sh" 2>/dev/null || fail "update.sh syntax validation failed."
 bash -n "$SOURCE_DIR/upgrade.sh" 2>/dev/null || fail "upgrade.sh syntax validation failed."
 [[ ! -f "$SOURCE_DIR/install.sh" ]] || bash -n "$SOURCE_DIR/install.sh" || fail "install.sh syntax validation failed."
@@ -474,10 +503,10 @@ printf '%s\n' "$CLONED_COMMIT" > "$CURRENT_COMMIT_FILE"
 write_runner
 
 info "Running database schema migrations..."
-"$APP_DIR/.venv/bin/python3" -c "from speedybot import storage, db; storage.init_db()" || rollback
+PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" -c "import sys; sys.path.insert(0, '$APP_DIR'); from xuishop import storage, db; storage.init_db()" || rollback
 
 info "Validating deployed application..."
-"$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/speedybot/*.py || rollback
+PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" -m py_compile "$APP_DIR/main.py" "$APP_DIR"/xuishop/*.py || rollback
 bash -n "$APP_DIR/update.sh" || rollback
 bash -n "$APP_DIR/upgrade.sh" || rollback
 [[ ! -f "$APP_DIR/install.sh" ]] || bash -n "$APP_DIR/install.sh" || rollback
@@ -502,7 +531,7 @@ if systemctl is-active --quiet caddy 2>/dev/null; then
   systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
 fi
 
-ok "SpeedyBot upgrade finished successfully."
+ok "VizzPN Shop Bot upgrade finished successfully."
 ok "Commit: $CLONED_COMMIT"
 ok ".env, SQLite database (app.db), virtualenv and backups were preserved."
 info "Rollback backup: $BACKUP_DIR"
@@ -517,6 +546,8 @@ if [[ -n "$FINAL_WEBAPP_URL" ]]; then
     printf '   • Cloudflare Tunnel service: cloudflared.service\n'
   elif systemctl is-active --quiet caddy 2>/dev/null; then
     printf '   • Caddy web server: caddy.service\n'
+  else
+    printf '   • Reverse proxy / custom HTTPS URL: active\n'
   fi
   printf '\n📱 Remember to set this URL in @BotFather via /setmenubutton\n\n'
 fi

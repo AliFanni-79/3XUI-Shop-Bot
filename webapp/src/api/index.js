@@ -40,6 +40,10 @@ export const getWallet = () => client.get('/wallet')
 export const redeemWalletCode = (code) => client.post('/wallet/code/redeem', { code })
 export const getWalletDiscounts = () => client.get('/wallet/discounts')
 
+// ─── Codes (Discounts & Gifts) ───────────────────────────────────────────────
+export const applyOrCheckCode = (code, price = null) =>
+  client.post('/codes/apply', { code, price })
+
 // ─── Referral ────────────────────────────────────────────────────────────────
 export const getReferral = () => client.get('/referral')
 
@@ -72,22 +76,24 @@ export const calculateBuilderPlan = (months, volumeGb, ipLimit, discountCode = n
     discount_code: discountCode,
   })
 
-export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
+export const initCustomCardOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null, serverIds = null) =>
   client.post('/orders/init-custom-card', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
     custom_name: customName,
+    server_ids: serverIds,
   })
 
-export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null) =>
+export const initCustomWalletOrder = (months, volumeGb, ipLimit, discountCode = null, customName = null, serverIds = null) =>
   client.post('/orders/init-custom-wallet', {
     months,
     volume_gb: volumeGb,
     ip_limit: ipLimit,
     discount_code: discountCode,
     custom_name: customName,
+    server_ids: serverIds,
   })
 
 // ─── Payment Gateways & Stars ────────────────────────────────────────────────
@@ -181,6 +187,77 @@ export const saveAdminAffiliate = (payload) => client.post('/admin/affiliate/set
 // ─── Admin — Content, Security & Notifications ──────────────────────────────
 export const getAdminContentSecurity = () => client.get('/admin/content-security')
 export const saveAdminContentSecurity = (payload) => client.post('/admin/content-security', payload)
+export const checkAdminNotifications = () => client.post('/admin/notifications/check-now')
+
+// ─── Admin — Plan Inbounds ───────────────────────────────────────────────────
+export const getAdminInbounds = () => client.get('/admin/inbounds')
+export const getAdminPlanInbounds = (planId) => client.get(`/admin/plans/${planId}/inbounds`)
+export const toggleAdminPlanInbound = (planId, inboundId) =>
+  client.post(`/admin/plans/${planId}/inbounds/toggle`, { inbound_id: inboundId })
+export const resetAdminPlanInbounds = (planId) => client.post(`/admin/plans/${planId}/inbounds/reset`)
+
+// ─── Admin — Server Profiles (Servers / Inbounds Grouping) ───────────────────
+export const getAdminServers = () => client.get('/admin/servers')
+export const createAdminServer = (payload) => client.post('/admin/servers', payload)
+export const updateAdminServer = (id, payload) => client.put(`/admin/servers/${id}`, payload)
+export const deleteAdminServer = (id) => client.delete(`/admin/servers/${id}`)
+export const toggleAdminServer = (id) => client.post(`/admin/servers/${id}/toggle`)
+export const autoGroupAdminServers = () => client.post('/admin/servers/auto-group')
+
+// ─── Admin — Customer Services Management ────────────────────────────────────
+export const getAdminServiceDetails = (email) => client.get(`/admin/services/${encodeURIComponent(email)}`)
+export const updateAdminService = (email, payload) => client.post(`/admin/services/${encodeURIComponent(email)}`, payload)
+export const resetAdminServiceTraffic = (email) => client.post(`/admin/services/${encodeURIComponent(email)}/reset-traffic`)
+export const deleteAdminService = (email) => client.delete(`/admin/services/${encodeURIComponent(email)}`)
+
+// ─── Admin — Categories ──────────────────────────────────────────────────────
+export const getAdminCategories = () => client.get('/admin/categories')
+export const createAdminCategory = (payload) => client.post('/admin/categories', payload)
+export const updateAdminCategory = (id, payload) => client.put(`/admin/categories/${id}`, payload)
+export const deleteAdminCategory = (id) => client.delete(`/admin/categories/${id}`)
+
+// ─── Admin — Volume Packs ────────────────────────────────────────────────────
+export const getAdminVolumePacks = () => client.get('/admin/volume-packs')
+export const createAdminVolumePack = (payload) => client.post('/admin/volume-packs', payload)
+export const updateAdminVolumePack = (id, payload) => client.put(`/admin/volume-packs/${id}`, payload)
+export const deleteAdminVolumePack = (id) => client.delete(`/admin/volume-packs/${id}`)
+export const toggleAdminVolumePack = (id) => client.post(`/admin/volume-packs/${id}/toggle`)
+
+// ─── Admin — Trial Plan Management ───────────────────────────────────────────
+export const getAdminTrialSettings = () => client.get('/admin/trial/settings')
+export const saveAdminTrialSettings = (payload) => client.post('/admin/trial/settings', payload)
+export const toggleAdminTrialInbound = (inboundId) =>
+  client.post('/admin/trial/inbounds/toggle', { inbound_id: inboundId })
+export const resetAdminTrialInbounds = () => client.post('/admin/trial/inbounds/reset')
+export const getAdminTrialOverrides = () => client.get('/admin/trial/overrides')
+export const saveAdminTrialOverride = (payload) => client.post('/admin/trial/overrides', payload)
+export const deleteAdminTrialOverride = (userId) => client.delete(`/admin/trial/overrides/${userId}`)
+
+// ─── Admin — CRM & Service Claims ────────────────────────────────────────────
+export const getAdminCrm = () => client.get('/admin/crm')
+export const saveAdminCrmSettings = (payload) => client.post('/admin/crm/settings', payload)
+export const approveAdminClaim = (claimId) => client.post(`/admin/crm/claims/${claimId}/approve`)
+export const rejectAdminClaim = (claimId, reason = null) =>
+  client.post(`/admin/crm/claims/${claimId}/reject`, { reason })
+
+// ─── Admin — Guides ──────────────────────────────────────────────────────────
+export const getAdminGuides = () => client.get('/admin/guides')
+export const createAdminGuide = (payload) => client.post('/admin/guides', payload)
+export const deleteAdminGuide = (id) => client.delete(`/admin/guides/${id}`)
+export const toggleAdminGuides = () => client.post('/admin/guides/toggle')
+export const promptAdminGuideBot = (platform, app_name = null) =>
+  client.post('/admin/guides/prompt-bot', null, { params: { platform, app_name: app_name || undefined } })
+
+// ─── Admin — Audit Log ───────────────────────────────────────────────────────
+export const getAdminAudit = (limit = 50) => client.get('/admin/audit', { params: { limit } })
+export const saveAdminAuditSettings = (payload) => client.post('/admin/audit/settings', payload)
+
+// ─── Admin — Panel Snapshot ──────────────────────────────────────────────────
+export const getAdminSnapshot = () => client.get('/admin/snapshot')
+export const sendAdminSnapshot = () => client.post('/admin/snapshot/send')
+
+// ─── Admin — App Version ─────────────────────────────────────────────────────
+export const getAdminVersion = () => client.get('/admin/version')
 
 export default client
 

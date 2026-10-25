@@ -1,6 +1,7 @@
 import os
+import logging
+import json
 import telebot
-from telebot import apihelper
 from telebot import types
 import sqlite3
 import requests
@@ -8,14 +9,14 @@ import time
 import re
 import secrets
 import threading
-import json
-import shutil
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
 from html import escape
-from typing import Optional, Any, Dict, List, Tuple, Union
+from typing import Optional
+
+logger = logging.getLogger("xuishop.core")
 
 try:
     import qrcode
@@ -24,13 +25,7 @@ except ImportError:
 
 from . import env_manager
 from . import backup_manager
-from .db import (
-    get_brand_name,
-    get_brand_slug,
-    get_connection,
-    get_db_path,
-    resolve_unique_service_email,
-)
+from .db import get_brand_name
 env_manager.load_env_file()
 # --- CONFIGURATIONS (READING FROM SYSTEM ENV) ---
 raw_token = os.getenv("BOT_TOKEN")
@@ -44,9 +39,37 @@ XUI_BEARER_TOKEN = os.getenv("XUI_BEARER_TOKEN")
 XUI_SUB_SERVER_URL = os.getenv("XUI_SUB_SERVER_URL") # مثلا https://sub.example.com:2096
 XUI_SUB_PATH = os.getenv("XUI_SUB_PATH", "/sub/")  # مسیر Subscription در Settings → Subscription
 
+_BaseExceptionHandler = getattr(telebot, "ExceptionHandler", object)
+
+
+class _RateLimitExceptionHandler(_BaseExceptionHandler):
+    def handle(self, exception):
+        api_exc = getattr(telebot, "apihelper", object)
+        api_exc_cls = getattr(api_exc, "ApiException", Exception)
+        if isinstance(exception, api_exc_cls):
+            code = getattr(exception, "error_code", None)
+            err_str = str(exception)
+            if code == 429 or "Too Many Requests" in err_str:
+                retry_after = 15
+                res_json = getattr(exception, "result_json", None)
+                if isinstance(res_json, dict):
+                    retry_after = int(res_json.get("parameters", {}).get("retry_after", 15) or 15)
+                else:
+                    match = re.search(r"retry after (\d+)", err_str, re.IGNORECASE)
+                    if match:
+                        retry_after = int(match.group(1))
+                logger.warning(
+                    "⚠️ Telegram rate limit (HTTP 429 Too Many Requests). Pausing polling for %d seconds as instructed by Telegram...",
+                    retry_after,
+                )
+                time.sleep(retry_after + 2)
+                return True
+        return False
+
+
 DEVELOPMENT_MODE = False
 try:
-    bot = telebot.TeleBot(BOT_TOKEN)
+    bot = telebot.TeleBot(BOT_TOKEN, exception_handler=_RateLimitExceptionHandler())
 except Exception:
     class _MockTeleBot:
         def __getattr__(self, name):
@@ -141,6 +164,7 @@ def init_db():
         ('extra_volume_gb', 'REAL NOT NULL DEFAULT 0'),
         ('sub_id', 'TEXT'),
         ('custom_name', 'TEXT'),
+        ('server_ids', 'TEXT'),
     ]:
         _ensure_column(cursor, 'transactions', col, definition)
 
@@ -303,6 +327,22 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS trial_inbounds (
         inbound_id INTEGER PRIMARY KEY
     )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS server_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        price INTEGER NOT NULL DEFAULT 0,
+        inbound_ids TEXT NOT NULL DEFAULT '[]',
+        is_custom INTEGER NOT NULL DEFAULT 0,
+        contact_support INTEGER NOT NULL DEFAULT 0,
+        support_target_type TEXT NOT NULL DEFAULT 'bot',
+        support_target_url TEXT NOT NULL DEFAULT '',
+        active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )''')
+    _ensure_column(cursor, 'server_profiles', 'support_target_type', "TEXT NOT NULL DEFAULT 'bot'")
+    _ensure_column(cursor, 'server_profiles', 'support_target_url', "TEXT NOT NULL DEFAULT ''")
     cursor.execute('''CREATE TABLE IF NOT EXISTS guide_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL,
@@ -311,8 +351,19 @@ def init_db():
         file_id TEXT,
         active INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 100,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        app_name TEXT
     )''')
+    try:
+        cursor.execute("ALTER TABLE guide_items ADD COLUMN app_name TEXT")
+    except Exception:
+        pass
+    cursor.execute("UPDATE guide_items SET app_name = 'V2RayNG' WHERE LOWER(platform) = 'android' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'Streisand' WHERE LOWER(platform) = 'ios' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'v2rayN' WHERE LOWER(platform) = 'windows' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'V2rayU' WHERE LOWER(platform) IN ('macos', 'mac') AND (app_name IS NULL OR app_name = '')")
+    cursor.execute("UPDATE guide_items SET app_name = 'v2rayA' WHERE LOWER(platform) = 'linux' AND (app_name IS NULL OR app_name = '')")
+    cursor.execute('UPDATE guide_items SET platform = LOWER(platform) WHERE platform != LOWER(platform)')
     cursor.execute('''CREATE TABLE IF NOT EXISTS user_acquisition (
         user_id INTEGER PRIMARY KEY,
         source TEXT,
@@ -424,15 +475,21 @@ init_db()
 
 # --- DATABASE HELPERS ---
 def get_db_setting(key, default_value=""):
+    conn = None
     try:
         conn = _db_connect()
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = cursor.fetchone()
-        conn.close()
         return row[0] if row else default_value
-    except:
+    except Exception:
         return default_value
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def update_db_setting(key, value):
     conn = _db_connect()
@@ -585,6 +642,9 @@ def get_plan(plan_id, include_inactive=True):
     row = conn.execute(sql, (int(plan_id),)).fetchone()
     conn.close()
     return _row_to_plan(row)
+
+
+get_plan_by_id = get_plan
 
 
 def get_active_plans():
@@ -935,7 +995,6 @@ def save_user_discount(user_id, code, conn=None):
             "INSERT OR REPLACE INTO user_saved_discounts (user_id, code, saved_at) VALUES (?, ?, ?)",
             (int(user_id), row['code'], now_ts)
         )
-        conn.execute("UPDATE users SET pending_discount_code = ? WHERE id = ?", (row['code'], int(user_id)))
         conn.commit()
         return True, "کد تخفیف با موفقیت در پنل شما ذخیره شد.", ev
     finally:
@@ -1315,7 +1374,7 @@ def _channel_membership_ok(user_id):
         if member.status in ('member', 'administrator', 'creator'):
             return True, None
         return False, f"برای خرید باید ابتدا عضو کانال {get_brand_name()} شوید."
-    except Exception as e:
+    except Exception:
         return False, "امکان بررسی عضویت کانال وجود ندارد؛ به پشتیبانی اطلاع دهید."
 
 
@@ -1740,19 +1799,35 @@ def _send_guide_menu(chat_id, text='📲 پلتفرم دستگاه خود را �
 
 
 def _send_platform_guide(chat_id, platform):
-    if platform not in GUIDE_PLATFORMS:
+    platform_key = (platform or '').lower().strip()
+    if platform_key not in GUIDE_PLATFORMS:
         bot.send_message(chat_id, '❌ پلتفرم نامعتبر است.'); return
-    conn = _db_connect(); rows = conn.execute('SELECT * FROM guide_items WHERE platform=? AND active=1 ORDER BY sort_order,id', (platform,)).fetchall(); conn.close()
+    conn = _db_connect(); rows = conn.execute('SELECT * FROM guide_items WHERE LOWER(platform)=? AND active=1 ORDER BY sort_order,id', (platform_key,)).fetchall(); conn.close()
     if not rows:
-        bot.send_message(chat_id, f'📲 برای **{GUIDE_PLATFORMS[platform]}** هنوز راهنمایی ثبت نشده است. با پشتیبانی تماس بگیرید.', parse_mode='Markdown'); return
-    bot.send_message(chat_id, f'📲 **راهنمای اتصال {GUIDE_PLATFORMS[platform]}**', parse_mode='Markdown')
+        bot.send_message(chat_id, f'📲 برای **{GUIDE_PLATFORMS[platform_key]}** هنوز راهنمایی ثبت نشده است. با پشتیبانی تماس بگیرید.', parse_mode='Markdown'); return
+    bot.send_message(chat_id, f'📲 **راهنمای اتصال {GUIDE_PLATFORMS[platform_key]}**', parse_mode='Markdown')
     for row in rows:
+        app_name = row['app_name'] if ('app_name' in row.keys() and row['app_name']) else None
+        app_prefix = f"🔹 **نرم‌افزار {app_name}**\n\n" if app_name else ""
+        text_body = app_prefix + (row['body'] or '-')
+        cap = (app_prefix + row['body']) if row['body'] else (f"🔹 **نرم‌افزار {app_name}**" if app_name else None)
         try:
-            if row['media_type'] == 'TEXT': bot.send_message(chat_id, row['body'] or '-', parse_mode='Markdown')
-            elif row['media_type'] == 'PHOTO': bot.send_photo(chat_id, row['file_id'], caption=row['body'] or None)
-            elif row['media_type'] == 'VIDEO': bot.send_video(chat_id, row['file_id'], caption=row['body'] or None)
+            if row['media_type'] == 'TEXT':
+                bot.send_message(chat_id, text_body, parse_mode='Markdown')
+            elif row['media_type'] == 'PHOTO':
+                bot.send_photo(chat_id, row['file_id'], caption=cap, parse_mode='Markdown')
+            elif row['media_type'] == 'VIDEO':
+                bot.send_video(chat_id, row['file_id'], caption=cap, parse_mode='Markdown')
         except Exception:
-            continue
+            try:
+                if row['media_type'] == 'TEXT':
+                    bot.send_message(chat_id, text_body)
+                elif row['media_type'] == 'PHOTO':
+                    bot.send_photo(chat_id, row['file_id'], caption=cap)
+                elif row['media_type'] == 'VIDEO':
+                    bot.send_video(chat_id, row['file_id'], caption=cap)
+            except Exception:
+                continue
 
 
 def _send_guide_cta(user_id):
@@ -1815,13 +1890,33 @@ def _validate_custom_service_name(value):
 # --- KEYBOARDS ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("🛍 مشاهده و خرید پلان‌ها", "👤 حساب کاربری")
-    if trial_enabled():
-        markup.row("🤝 همکاری در فروش", "🎁 دریافت تست رایگان")
-    else:
-        markup.row("🤝 همکاری در فروش")
-    markup.row("📲 راهنمای اتصال", "📚 راهنما و سوالات")
-    markup.row("🎟 کد هدیه / تخفیف", "📞 پشتیبانی")
+    buttons = []
+
+    def _is_vis(key):
+        return get_db_setting(f"menu_{key}_visible", "1") == "1"
+
+    if _is_vis("buy"):
+        buttons.append("🛍 مشاهده و خرید پلان‌ها")
+    if _is_vis("account"):
+        buttons.append("👤 حساب کاربری")
+    if _is_vis("trial") and trial_enabled():
+        buttons.append("🎁 دریافت تست رایگان")
+    if _is_vis("affiliate"):
+        buttons.append("🤝 همکاری در فروش")
+    if _is_vis("guide"):
+        buttons.append("📲 راهنمای اتصال")
+    if _is_vis("faq"):
+        buttons.append("📚 راهنما و سوالات")
+    if _is_vis("rewards"):
+        buttons.append("🎟 کد هدیه / تخفیف")
+    if _is_vis("support"):
+        buttons.append("📞 پشتیبانی")
+
+    if not buttons:
+        buttons = ["🛍 مشاهده و خرید پلان‌ها", "👤 حساب کاربری"]
+
+    for i in range(0, len(buttons), 2):
+        markup.row(*buttons[i:i+2])
     return markup
 
 def back_menu():
@@ -1879,8 +1974,31 @@ def send_welcome(message):
 
     referral_code = None
     parts = (message.text or '').strip().split(maxsplit=1)
-    if len(parts) == 2 and parts[1].startswith('ref_'):
-        referral_code = parts[1][4:]
+    if len(parts) == 2:
+        param = parts[1].strip()
+        if param == 'support':
+            return support_mode(message)
+        if param.startswith('support_server_'):
+            sid = param.replace('support_server_', '').strip()
+            server_name = ""
+            if sid.isdigit():
+                try:
+                    c = _db_connect()
+                    srow = c.execute("SELECT name FROM server_profiles WHERE id = ?", (int(sid),)).fetchone()
+                    if srow:
+                        server_name = srow[0]
+                    c.close()
+                except Exception:
+                    pass
+            USER_STATES[message.chat.id] = 'SUPPORT'
+            prompt = f"📞 **بخش پشتیبانی {get_brand_name()}**\n\n"
+            if server_name:
+                prompt += f"شما در حال استعلام و هماهنگی برای خرید **{server_name}** هستید.\n"
+            prompt += "لطفاً پیام یا مشخصات مدنظر خود را ارسال کنید. مدیریت به زودی پاسخ خواهد داد."
+            bot.send_message(message.chat.id, prompt, reply_markup=back_menu(), parse_mode="Markdown")
+            return
+        if param.startswith('ref_'):
+            referral_code = param[4:]
 
     bound_referrer = None
     if is_new_user and referral_code:
@@ -1911,7 +2029,14 @@ def go_to_main_menu(message):
 @bot.message_handler(func=lambda message: message.text == "🎟 کد هدیه / تخفیف")
 def code_entry_mode(message):
     USER_STATES[message.chat.id] = 'CODE_ENTRY'
-    bot.send_message(message.chat.id, "🎟 کد هدیه یا تخفیف را ارسال کنید.\n\nکد هدیه همان لحظه کیف پول را شارژ می‌کند؛ کد تخفیف روی خرید بعدی اعمال می‌شود.", reply_markup=back_menu())
+    bot.send_message(
+        message.chat.id,
+        "🎟 **ثبت کد هدیه**\n\n"
+        "لطفاً کد هدیه خود را ارسال کنید تا مستقیماً به موجودی کیف پول شما افزوده شود.\n\n"
+        "💡 **توجه:** کدهای تخفیف را تنها می‌توانید هنگام ثبت سفارش در منوی خرید اعمال نمایید.",
+        parse_mode="Markdown",
+        reply_markup=back_menu()
+    )
 
 
 @bot.message_handler(func=lambda message: USER_STATES.get(message.chat.id) == 'CODE_ENTRY' and bool(message.text))
@@ -1919,15 +2044,15 @@ def process_user_code(message):
     if message.text == "🔙 بازگشت به منوی اصلی":
         go_to_main_menu(message); return
     code = (message.text or '').strip().upper()
-    # Gift codes take precedence.
     conn = _db_connect()
     gift = conn.execute("SELECT 1 FROM gift_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
-    conn.close()
     if gift:
+        conn.close()
         ok, text = redeem_gift_code(message.from_user.id, code)
         USER_STATES[message.chat.id] = None
         bot.send_message(message.chat.id, ("✅ " if ok else "❌ ") + text, reply_markup=main_menu())
         return
+    conn.close()
     ok, text, ev = save_user_discount(message.from_user.id, code)
     USER_STATES[message.chat.id] = None
     if not ok:
@@ -1956,7 +2081,7 @@ def process_user_code(message):
         f"🔄 **تعداد استفاده باقیمانده:** {uses_text}"
         f"{desc_text}"
         f"{steps_text}\n\n"
-        f"برای استفاده، می‌توانید اکنون پلان مورد نظر خود را انتخاب کنید."
+        f"برای استفاده، می‌توانید اکنون پلان مورد نظر خود را در منوی خرید انتخاب کنید."
     )
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🛍 مشاهده و خرید پلان‌ها", callback_data="buy_plan_now"))
@@ -2192,6 +2317,9 @@ def _release_stale_checkouts(user_id=None):
 
 
 def _product_snapshot(plan):
+    server_ids = plan.get('server_ids')
+    if isinstance(server_ids, list):
+        server_ids = json.dumps(server_ids)
     return {
         'plan_id': int(plan.get('id', 0)),
         'name': str(plan.get('name') or get_brand_name()),
@@ -2199,10 +2327,11 @@ def _product_snapshot(plan):
         'days': int(plan.get('days') or 0),
         'volume': float(plan.get('volume', plan.get('volume_gb', 0)) or 0),
         'ip_limit': int(plan.get('ip_limit') or 0),
+        'server_ids': server_ids or None,
     }
 
 
-def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None):
+def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None, discount_code=None):
     plan = _product_snapshot(plan)
     _release_stale_checkouts(user_id)
     conn = _db_connect()
@@ -2212,7 +2341,8 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
             conn.execute("ALTER TABLE transactions ADD COLUMN promo_cashback_percent REAL NOT NULL DEFAULT 0")
             conn.commit()
         conn.execute("BEGIN IMMEDIATE")
-        promo = resolve_checkout_promotion(conn, int(user_id), int(plan['price']), explicit_code=explicit_code, kind=kind)
+        code_to_check = explicit_code or discount_code
+        promo = resolve_checkout_promotion(conn, int(user_id), int(plan['price']), explicit_code=code_to_check, kind=kind)
         code = promo['code']
         discount_amount = int(promo['discount_amount'])
         promo_cb = float(promo['cashback_percent'])
@@ -2233,11 +2363,11 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
             """INSERT INTO transactions
                (user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb)
-               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb, server_ids)
+               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(user_id), int(plan['plan_id']), status, int(final_price), payment_method, int(wallet_used), int(cash_amount), now_ts,
              target_service_email, custom_name, kind, plan['name'], int(plan['days']), float(plan['volume']), int(plan['ip_limit']),
-             code, int(discount_amount), float(promo_cb), float(extra_volume_gb or 0))
+             code, int(discount_amount), float(promo_cb), float(extra_volume_gb or 0), plan.get('server_ids'))
         )
         tx_id = int(cur.lastrowid)
         if kind == 'NEW' and not target_service_email:
@@ -2318,8 +2448,9 @@ def _send_receipt_to_admins(tx_id, photo_id):
             continue
 
 
-def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None):
-    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name, explicit_code=explicit_code)
+def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None, discount_code=None):
+    code = explicit_code or discount_code
+    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name, explicit_code=code)
     if not result:
         bot.send_message(chat_id, f"❌ خطا در ایجاد تراکنش: {error}", reply_markup=main_menu())
         return
@@ -2455,7 +2586,7 @@ def custom_name_purchase(call):
     bot.answer_callback_query(call.id)
     msg = bot.send_message(
         call.from_user.id,
-        "✏️ نام دلخواه سرویس را بفرستید.\nمثال: `shayan-phone`\n\nفقط حروف انگلیسی، عدد، `.`, `_`, `-` و ۳ تا ۴۰ کاراکتر.",
+        "✏️ نام دلخواه سرویس را بفرستید.\nمثال: `my-phone`\n\nفقط حروف انگلیسی، عدد، `.`, `_`, `-` و ۳ تا ۴۰ کاراکتر.",
         parse_mode='Markdown', reply_markup=back_menu()
     )
     bot.register_next_step_handler(msg, process_custom_service_name, int(pid), method)
@@ -2516,11 +2647,11 @@ def show_account(message):
 
     conn = _db_connect()
     approved_txs = conn.execute(
-        "SELECT id, service_email, payment_method, plan_name_snapshot FROM transactions WHERE user_id = ? AND status = 'APPROVED' AND kind = 'NEW' ORDER BY id DESC",
+        "SELECT id, service_email, payment_method, plan_name_snapshot FROM transactions WHERE user_id = ? AND UPPER(status) = 'APPROVED' AND (kind IS NULL OR UPPER(kind) IN ('NEW', 'CUSTOM', 'SERVICE', '')) ORDER BY id DESC",
         (user_id,)
     ).fetchall()
     active_trial = conn.execute(
-        "SELECT email FROM trial_services WHERE user_id = ? AND status = 'ACTIVE'",
+        "SELECT email FROM trial_services WHERE user_id = ? AND UPPER(status) IN ('ACTIVE', 'TRIAL_ACTIVE')",
         (user_id,)
     ).fetchone()
     linked_services = conn.execute("SELECT id,email FROM linked_services WHERE user_id=? ORDER BY id DESC", (user_id,)).fetchall()
@@ -2745,7 +2876,7 @@ def send_xui_status(user_id, user_email, service_tx_id=None):
             bot.send_message(user_id, status_text, parse_mode="Markdown", reply_markup=markup)
         else:
             bot.send_message(user_id, "❌ مشخصات این اکانت روی پنل سرور یافت نشد.")
-    except Exception as e:
+    except Exception:
         bot.send_message(user_id, f"🚨 خطا در خواندن اطلاعات فنی سرور.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('getlinks:'))
@@ -3042,10 +3173,11 @@ def super_admin_panel(message):
     if not is_admin(message.from_user.id):
         bot.send_message(message.chat.id, "❌ شما به این منو دسترسی ندارید.")
         return
-    webapp_url = get_db_setting('webapp_url', '').strip()
+    webapp_url = os.getenv('WEBAPP_URL', '').strip() or get_db_setting('webapp_url', '').strip()
     markup = types.InlineKeyboardMarkup(row_width=1)
     if webapp_url:
-        admin_app_url = f"{webapp_url.rstrip('/')}/#/admin"
+        sep = "&" if "?" in webapp_url else "?"
+        admin_app_url = f"{webapp_url.rstrip('/')}/admin{sep}v={VERSION}"
         markup.add(types.InlineKeyboardButton("⚙️ ورود به پنل مدیریت وب (Admin Panel)", web_app=types.WebAppInfo(url=admin_app_url)))
     else:
         markup.add(types.InlineKeyboardButton("⚙️ منوی مدیریت ربات", callback_data="admin:stats"))
@@ -3784,7 +3916,7 @@ def handle_admin_panel_callbacks(call):
                           f"💾 دیسک سرور: `{disk_curr:.2f} GB / {disk_total:.2f} GB`\n" \
                           f"⚙️ وضعیت هسته Xray: *{xray_state} ({xray_ver})*"
                 bot.send_message(admin_chat, srv_txt, parse_mode="Markdown")
-        except Exception as e:
+        except Exception:
             bot.send_message(admin_chat, f"🚨 خطا در ارتباط با وب‌سرویس سرور")
             
     elif action == "broadcast":
@@ -4344,7 +4476,8 @@ def process_admin_broadcast(message):
             bot.copy_message(chat_id=u[0], from_chat_id=message.chat.id, message_id=message.message_id)
             success_count += 1
             time.sleep(0.04)
-        except: continue
+        except Exception:
+            continue
     bot.send_message(message.chat.id, f"✅ تحویل موفق به {success_count} کاربر.")
 
 def process_edit_bank(message, field_type):
@@ -4603,7 +4736,8 @@ def process_delete_panel_sub(message):
         if res.status_code == 200 and res.json().get("success"):
             bot.send_message(message.chat.id, f"✅ اشتراک `{email}` با موفقیت از پنل حذف شد.")
         else: bot.send_message(message.chat.id, f"❌ خطای پنل: {res.text}")
-    except Exception as e: bot.send_message(message.chat.id, f"🚨 خطای ارتباطی")
+    except Exception:
+        bot.send_message(message.chat.id, f"🚨 خطای ارتباطی")
 
 # --- X-UI AUTO CREATION ENGINE ---
 def _xui_headers():
@@ -4708,7 +4842,10 @@ def _get_active_inbound_details(headers, request_proxies):
     data = _safe_json(response)
     if response.status_code != 200 or not data.get('success'):
         raise RuntimeError(_xui_response_error(response, "خطا در دریافت Inboundها از پنل"))
-    return [ib for ib in (data.get('obj') or []) if ib.get('enable', True) and ib.get('id') is not None]
+    raw_list = data.get('obj') or []
+    if isinstance(raw_list, dict):
+        raw_list = list(raw_list.values())
+    return [ib for ib in raw_list if isinstance(ib, dict) and ib.get('enable') is not False and ib.get('enable') != 0 and ib.get('id') is not None]
 
 
 def _get_active_inbound_ids(headers, request_proxies):
@@ -4907,7 +5044,10 @@ def _get_exported_client(email):
         raise RuntimeError(_xui_response_error(response, "خطا در Export کلاینت‌ها"))
     for item in data.get('obj', []) or []:
         client = item.get('client') or {}
-        if str(client.get('email')) == str(email):
+        c_email = str(client.get('email') or '').strip()
+        c_sub = str(client.get('subId') or '').strip()
+        target = str(email or '').strip()
+        if target and (c_email == target or c_sub == target):
             return client, item.get('inboundIds', []) or []
     return None, []
 
@@ -4959,7 +5099,7 @@ def renew_xui_service(user_id, user_email, days, volume_gb, ip_limit, plan_id=No
         _sync_client_inbounds(user_email, desired)
     target_group = None
     if plan_id:
-        p_row = get_plan_by_id(plan_id, include_inactive=True)
+        p_row = get_plan(plan_id, include_inactive=True)
         if p_row and p_row.get('group_name'):
             target_group = str(p_row['group_name']).strip()
     if not target_group:
@@ -4991,14 +5131,22 @@ def add_volume_xui_service(user_email, volume_gb):
     return True
 
 
-def _mark_trial(user_id, status, error=None):
+def _mark_trial(user_id, status, error=None, sub_id=None, *args, **kwargs):
+    if sub_id is None and "sub_id" in kwargs:
+        sub_id = kwargs["sub_id"]
     conn = _db_connect()
     cursor = conn.cursor()
     if status == 'ACTIVE':
-        cursor.execute(
-            "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, last_error = NULL WHERE user_id = ?",
-            (int(time.time()), user_id)
-        )
+        if sub_id:
+            cursor.execute(
+                "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, sub_id = ?, last_error = NULL WHERE user_id = ?",
+                (int(time.time()), str(sub_id), user_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE trial_services SET status = 'ACTIVE', activated_at = ?, last_error = NULL WHERE user_id = ?",
+                (int(time.time()), user_id)
+            )
     else:
         cursor.execute(
             "UPDATE trial_services SET status = ?, last_error = ? WHERE user_id = ?",
@@ -5064,7 +5212,7 @@ def generate_trial_xui_config(user_id, user_email):
             _xui_assign_group(user_email, get_db_setting('xui_trial_group', 'Trial') or 'Trial')
         except Exception as group_error:
             notify_admins(f"⚠️ تست {user_email} ساخته شد اما عضویت Group Trial خطا داد: {str(group_error)[:350]}")
-        _mark_trial(user_id, 'ACTIVE')
+        _mark_trial(user_id, 'ACTIVE', sub_id=sub_id)
     except Exception as e:
         _mark_trial(user_id, 'FAILED', e)
         try:
@@ -5142,6 +5290,28 @@ def provision_xui_service(user_id, plan_id, tx_id, user_email):
     request_proxies = _xui_proxies()
 
     desired_inbound_ids = _selected_inbound_ids_for('plan', int(plan_id), headers, request_proxies)
+    server_ids_raw = tx['server_ids'] if 'server_ids' in tx.keys() else None
+    if server_ids_raw:
+        try:
+            s_ids = json.loads(server_ids_raw) if isinstance(server_ids_raw, str) else list(server_ids_raw)
+            if s_ids:
+                s_conn = _db_connect()
+                placeholders = ','.join('?' for _ in s_ids)
+                s_rows = s_conn.execute(f"SELECT inbound_ids FROM server_profiles WHERE id IN ({placeholders})", [int(x) for x in s_ids]).fetchall()
+                s_conn.close()
+                custom_inbound_ids = []
+                for sr in s_rows:
+                    try:
+                        custom_inbound_ids.extend([int(x) for x in json.loads(sr['inbound_ids'] or '[]')])
+                    except Exception:
+                        pass
+                if custom_inbound_ids:
+                    active_ids = {int(x) for x in _get_active_inbound_ids(headers, request_proxies)}
+                    valid_custom_inbounds = [x for x in sorted(set(custom_inbound_ids)) if x in active_ids]
+                    if valid_custom_inbounds:
+                        desired_inbound_ids = valid_custom_inbounds
+        except Exception as e:
+            logger.warning("Failed to resolve custom server inbounds for tx %s: %s", tx_id, e)
     client_data = _get_client_data(user_email, headers, request_proxies)
     if not client_data:
         payload = {
@@ -5283,8 +5453,12 @@ def finalize_service_transaction(tx_id, admin_message_id=None, admin_chat_id=Non
         current = conn.execute("SELECT status FROM transactions WHERE id=?", (int(tx_id),)).fetchone()
         if not current or current['status'] == 'APPROVED':
             conn.rollback(); return True
-        conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, last_error=NULL WHERE id=?",
-                     (int(time.time()), user_email, int(tx_id)))
+        if sub_id:
+            conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, sub_id=?, last_error=NULL WHERE id=?",
+                         (int(time.time()), user_email, str(sub_id), int(tx_id)))
+        else:
+            conn.execute("UPDATE transactions SET status='APPROVED', approved_at=?, service_email=?, last_error=NULL WHERE id=?",
+                         (int(time.time()), user_email, int(tx_id)))
         conn.commit()
     finally:
         conn.close()

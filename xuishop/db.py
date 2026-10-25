@@ -2,7 +2,7 @@ import os
 import re
 import secrets
 import sqlite3
-from typing import Any, Optional
+from typing import Optional
 
 
 def _migrate_db_files(directory: str, legacy_name: str = "speedping.db", target_name: str = "app.db") -> str:
@@ -27,7 +27,7 @@ def _migrate_db_files(directory: str, legacy_name: str = "speedping.db", target_
 def get_db_path() -> str:
     """Return canonical database path (app.db), automatically migrating legacy speedping.db."""
     # 1. Environment variable override
-    env_db = os.environ.get("DATABASE_PATH") or os.environ.get("SPEEDYBOT_DB_PATH")
+    env_db = os.environ.get("DATABASE_PATH") or os.environ.get("XUISHOP_DB_PATH") or os.environ.get("SPEEDYBOT_DB_PATH")
     if env_db:
         return os.path.abspath(env_db)
 
@@ -47,8 +47,8 @@ def get_db_path() -> str:
     if os.path.exists(speedping_in_root):
         return _migrate_db_files(project_root, "speedping.db", "app.db")
 
-    # 4. Check SPEEDYBOT_APP_DIR if configured
-    configured_app_dir = os.environ.get("SPEEDYBOT_APP_DIR")
+    # 4. Check XUISHOP_APP_DIR or legacy SPEEDYBOT_APP_DIR if configured
+    configured_app_dir = os.environ.get("XUISHOP_APP_DIR") or os.environ.get("SPEEDYBOT_APP_DIR")
     if configured_app_dir and os.path.isdir(configured_app_dir):
         app_db_in_cfg = os.path.join(configured_app_dir, "app.db")
         speedping_in_cfg = os.path.join(configured_app_dir, "speedping.db")
@@ -73,7 +73,7 @@ def get_connection(timeout: int = 20) -> sqlite3.Connection:
     return conn
 
 
-def get_brand_name(default: str = "Shop", conn: Optional[sqlite3.Connection] = None) -> str:
+def get_brand_name(default: str = "VizzPN Shop Bot", conn: Optional[sqlite3.Connection] = None) -> str:
     """Return configured brand name by combining webapp_title, brand_name, and environment."""
     close_after = False
     if conn is None:
@@ -87,16 +87,16 @@ def get_brand_name(default: str = "Shop", conn: Optional[sqlite3.Connection] = N
             # 1. webapp_title in settings
             r1 = conn.execute("SELECT value FROM settings WHERE key = 'webapp_title'").fetchone()
             t1 = str(r1[0]).strip() if r1 and r1[0] else ""
-            if t1 and t1.lower() != "speedybot":
+            if t1 and t1.lower() not in ("speedybot", "speedping", "shop"):
                 return t1
 
             # 2. brand_name in settings
             r2 = conn.execute("SELECT value FROM settings WHERE key = 'brand_name'").fetchone()
             t2 = str(r2[0]).strip() if r2 and r2[0] else ""
-            if t2 and t2.lower() != "speedybot":
+            if t2 and t2.lower() not in ("speedybot", "speedping", "shop"):
                 return t2
 
-            if t1 and t1.lower() != "speedybot":
+            if t1 and t1.lower() not in ("speedybot", "speedping", "shop"):
                 return t1
     except Exception:
         pass
@@ -106,17 +106,17 @@ def get_brand_name(default: str = "Shop", conn: Optional[sqlite3.Connection] = N
 
     # 3. Environment variable BRAND_NAME
     env_brand = os.environ.get("BRAND_NAME", "").strip()
-    if env_brand and env_brand.lower() != "speedybot":
+    if env_brand and env_brand.lower() not in ("speedybot", "speedping"):
         return env_brand
 
     return default
 
 
-def get_brand_slug(default: str = "vpn", conn: Optional[sqlite3.Connection] = None) -> str:
+def get_brand_slug(default: str = "vizzpn", conn: Optional[sqlite3.Connection] = None) -> str:
     """Return lowercase alphanumeric slug of the brand name for configs and emails."""
     brand = get_brand_name(conn=conn)
     slug = re.sub(r"[^a-zA-Z0-9]", "", brand).lower()
-    return slug if slug else default
+    return slug or default
 
 
 def is_service_email_in_use(candidate: str, conn: Optional[sqlite3.Connection] = None) -> bool:

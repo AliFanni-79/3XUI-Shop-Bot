@@ -1,26 +1,24 @@
-# SpeedyBot v5.0.0
+# VizzPN Shop Bot
 
 <p align="center">
   <strong>Telegram Mini App & Automated Sales Platform for 3x-ui / Sanaei</strong><br>
-  Vue 3 Mini App • Custom Plan Builder • Zibal & Zarinpal Gateways • Automated Provisioning • Free Trial • Wallet • Control Center
 </p>
 
 <p align="center">
   <a href="README_FA.md">🇮🇷 راهنمای فارسی</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
   <a href="SECURITY.md">Security</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="LICENSE">License</a>
 </p>
 
-> **Author / Maintainer:** **SudoShayanNA**  
-> Telegram: **@SudoShayanNA** · Email: **namayandeshayan@gmail.com**  
-> Official repository: **https://github.com/roseshayan/SpeedyBot**
+> **Author / Maintainer:** **AliFanni-79**  
+> Telegram: **@AliFanni_79**  
+> Official repository: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
-SpeedyBot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
+VizzPN Shop Bot turns Telegram into a high-performance storefront, self-service customer portal, and operations console for **3x-ui / Sanaei**. Built as a hybrid application combining a modern **Telegram Mini App (Vue 3 + Tailwind CSS)** and a streamlined Telegram bot, it provides automatic client provisioning, an interactive custom plan builder, online payment gateway integrations (Zibal & Zarinpal), wallet checkouts, and a Telegram-first administrative dashboard.
 
 ## Architecture
 
-SpeedyBot runs as a unified single-process application:
+VizzPN Shop Bot runs as a unified single-process application:
 
 ```text
 main.py
@@ -28,14 +26,15 @@ main.py
   └── Uvicorn Daemon Thread (FastAPI REST API + static Vue 3 Mini App on port 8080)
 ```
 
-The application package is located in `speedybot/` and the compiled single-page frontend is served from `webapp/dist/`.
+The application package is located in `xuishop/` and the compiled single-page frontend is served from `webapp/dist/`.
 
 ---
 
 ## Table of contents
 
 - [Features](#features)
-- [What's New in v5.0.0](#whats-new-in-v500)
+- [What's New in v26.2.1](#whats-new-in-v2621)
+- [What's New in v26.2.0](#whats-new-in-v2620)
 - [Default plans](#default-plans)
 - [Telegram Mini App Setup](#telegram-mini-app-setup)
 - [Online Payment Gateways](#online-payment-gateways)
@@ -58,6 +57,7 @@ The application package is located in `speedybot/` and the compiled single-page 
 - [Notifications](#notifications)
 - [Diagnostics](#diagnostics)
 - [Updating](#updating)
+- [Upgrading and Maintenance](#upgrading-and-maintenance)
 - [Backups and rollback](#backups-and-rollback)
 - [Troubleshooting](#troubleshooting)
 - [Project layout](#project-layout)
@@ -108,15 +108,77 @@ From `/sudoadmin` or the Mini App Admin Dashboard:
 
 ---
 
-## What's New in v5.0.0
+## What's New in v26.2.1
 
-### 1. Telegram Mini App (TMA)
+### 1. Server Profiles & Inbound Selection in Custom Plan Builder
+- **Server Location Step**: Step 4 in the Custom Plan Builder enables customers to pick their desired servers ("سرورها" / Servers) with dynamic price calculation and transparent surcharge summaries.
+- **Server Profile Management**: Dedicated sub-tab in the Admin Dashboard (`🖥 سرورها`) under Plans to configure server profiles, map multiple inbounds to single server names, and assign individual price adjustments.
+- **One-Click Inbound Auto-Grouping**: `⚡️ Auto-group by Inbounds` automatically groups active panel inbounds sharing identical remarks or tags into neat server profiles.
+- **Custom / External Servers**: Admins can offer custom servers that operate outside 3x-ui inbounds with either standard prices or support-only access.
+- **Support-Gated Servers ("برای خرید به پشتیبانی مراجعه فرمایید")**:
+  - Admins can configure the support destination:
+    1. **Built-in Bot Support**: Directs customers into the bot's native support conversation.
+    2. **External Link / Telegram Channel / ID**: Opens Telegram channels, groups, or IDs directly via `openTelegramLink`.
+  - When support-gated servers are chosen in the Custom Builder, online payment buttons convert seamlessly into a direct support action button.
+
+### 2. Preset Plan Inbound Selection & Form Fix
+- Resolved an issue where saving new preset plans stalled due to Persian digit input or unhandled validation errors. Added clear visual error alerts, Persian number normalization, and save spinners.
+- Added direct inbound selection checkboxes with "Select All ✓" and "Deselect All ✕" controls when creating or editing preset plans.
+
+### 3. Active Plans & Deactivated History View with Rebuy
+- Fixed the Customer Services view to reliably display active purchased plans and active free trials.
+- Added a deactivated services section showing plans expired or revoked within the past 30 days (excluding one-off trials).
+- Integrated 1-click **Rebuy**: automatically redirects to checkout if the plan is available in catalog, or pre-fills the Custom Plan Builder if custom parameters were used.
+
+### 4. End-to-End Persistence for Multi-Server Checkouts
+- Added full support for `server_ids` across Card-to-Card, Wallet, Gateway (Zibal & Zarinpal), and Telegram Stars checkout flows.
+- Automatic provisioning assigns generated clients precisely to the inbounds defined in the selected server profiles.
+
+---
+
+## What's New in v26.2.0
+
+### 1. Customer Service Management & Interactive Controls
+- Complete management modal directly in the Customer Details profile inside the Web Admin Dashboard.
+- **Traffic Quota Management**: Edit quota (`totalGB`), reset downloaded/uploaded bytes with one click, or set traffic to unlimited.
+- **Concurrent IP Limiter**: Edit and enforce `limitIp` directly in 3x-ui.
+- **Expiry Date & Quick Extension**: View formatted expiration date and remaining days; extend by +7, +30, +60, +90 days, set to unlimited, or choose an exact date.
+- **Per-Service Inbound Routing**: Selectively map or exclude inbounds for specific customer services with one-click toggles.
+- **Instant Client Deletion**: Safely delete clients from the 3x-ui panel (`del/{email}?keepTraffic=0`) while revoking all linked transaction and trial records.
+
+### 2. Plan Inbound Routing Bugfix
+- Fixed a bug where inbounds in the Plans list displayed "No inbound available in the panel".
+- Both backend and frontend now consistently process inbound tags, remarks, protocols, ports, and selection states.
+
+### 3. Telegram API Rate-Limiting Protection (HTTP 429)
+- Implemented an intelligent rate-limit exception handler in `TeleBot.infinity_polling`.
+- When Telegram API returns HTTP 429 ("Too Many Requests: retry after X"), polling automatically pauses for `retry_after + 2` seconds instead of busy-spinning every 250ms.
+
+### 4. Resilient Background Services
+- Added exception catching and detailed logging for the Uvicorn daemon thread in `main.py`.
+
+---
+
+## What's New in v26.1.0
+
+### 1. CalVer Release & Rebranding
+- Formal adoption of **v26.1.0** CalVer versioning scheme.
+- Full rebranding to **VizzPN Shop Bot** under **AliFanni-79** (`@AliFanni_79`).
+- Complete overhaul of project documentation, license terms, and repository metadata.
+
+### 2. Multi-App Connection Guides with Direct Telegram Intake
+- Guides organized by both operating system (Android, iOS, Windows, macOS, Linux, TV) and specific client application (V2RayNG, Streisand, v2rayN, Hiddify, etc.).
+- **Direct Telegram Intake Flow**: Admins can submit formatted guides, high-definition photos, and video tutorials directly via Telegram chat without manually handling `file_id` strings or web input limits.
+- Interactive Web Admin interface with application name suggestions, media previews, and live editing.
+- Responsive client guide portal in the Mini App with tabbed application navigation.
+
+### 3. Telegram Mini App (TMA) Architecture
 - Modern SPA built with **Vue 3, Tailwind CSS, and Pinia**.
 - Deep integration via Telegram WebApp SDK (`window.Telegram.WebApp`).
-- Automatically authenticated via HMAC-SHA256 signature validation of Telegram `initData`.
+- Cryptographically verified HMAC-SHA256 signature validation of Telegram `initData`.
 - Embedded FastAPI server running asynchronously in a background thread inside `main.py`.
 
-### 2. Interactive Custom Plan Builder
+### 4. Interactive Custom Plan Builder
 - Users are no longer limited to fixed plans; they can customize:
   1. **Duration**: 1, 3, 6, or 12 months with duration tier discounts (e.g., 5%, 10%, 20%).
   2. **Traffic**: Custom GB slider (default 1,000 Tomans/GB, volume discounts for >50GB, >100GB, >300GB) or Unlimited traffic (capped at 1,000 GB for fair use).
@@ -124,23 +186,18 @@ From `/sudoadmin` or the Mini App Admin Dashboard:
   4. **Fair-Use Safeguard**: Prohibits simultaneous unlimited traffic + unlimited users to prevent reselling abuse.
   5. **Instant Price Calculation**: Transparent breakdown showing original vs discounted price.
 
-### 3. Online Payment Gateways (Zibal & Zarinpal)
+### 5. Online Payment Gateways (Zibal & Zarinpal)
 - Native integration with Iranian payment gateways (Zibal and Zarinpal).
 - Support for sandbox/testing mode and live merchant IDs.
 - Automated web callback handlers (`/api/payment/callback/zibal` and `zarinpal`).
-- Instant automated provisioning upon verified payment without requiring admin manual receipt checks.
-- Disabled by default out of the box; easily enabled in the Admin Dashboard.
+- Instant automated provisioning upon verified payment without requiring manual receipt checks.
+- Manual card-to-card transfer with receipt photo verification workflow.
+- Internal wallet balance support for instant zero-click renewals and purchases.
 
-### 4. Simplified Chat Interface
-- Added persistent **Telegram Menu Button** (`MenuButtonWebApp`) launching the Mini App.
-- Streamlined chat reply keyboard to 3 primary actions:
-  - `📡 سرویس‌های فعال من` (My Active Services)
-  - `📚 راهنما و سوالات` (Guides & FAQ)
-  - `📞 پشتیبانی` (Support)
-  - WebApp launch button if `WEBAPP_URL` is set.
-
-### 5. Architectural Pruning
-- Pruned deprecated legacy features (Doprax deployments, feedback rating surveys, phone/channel gating, and custom emoji formatting) to maximize performance and reliability.
+### 6. Administrative Console & Operations Automation
+- Centralized Admin Dashboard covering live orders, user CRM, trial policies, inbound routing, and audit logs.
+- Interactive diagnostic tools: `/xuidiag` (API verification), `/groupsdiag` (client group reconciliation), and `/notifydiag` (service health monitor).
+- Non-destructive automated backups (`restore.sh`, `restore.py`) and atomic source updates (`update.sh`, `upgrade.sh`).
 
 ---
 
@@ -160,7 +217,7 @@ In addition to preset plans, users can build custom plans dynamically through th
 
 ## Telegram Mini App Setup
 
-SpeedyBot embeds a high-performance Vue 3 Single Page Application directly inside Telegram.
+VizzPN Shop Bot embeds a high-performance Vue 3 Single Page Application directly inside Telegram.
 
 ### Configuration
 In `/root/SpeedyBot/.env`:
@@ -172,7 +229,7 @@ export WEBAPP_URL='https://bot.yourdomain.com'
 
 ### Internet Exposure (No Nginx Required)
 
-Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports multiple zero-Nginx options out of the box during both `install.sh` and `update.sh`:
+Telegram Mini Apps strictly require a public **HTTPS** URL. VizzPN Shop Bot supports multiple zero-Nginx options out of the box during both `install.sh` and `update.sh`:
 
 1. **Option 1: Cloudflare Quick Tunnel (Recommended — No Nginx, No Domain, No Open Ports)**
    - Automatically installs `cloudflared` and runs a background systemd service (`speedybot-tunnel.service`).
@@ -215,7 +272,7 @@ Telegram Mini Apps strictly require a public **HTTPS** URL. SpeedyBot supports m
 
 ## Online Payment Gateways & Telegram Stars
 
-SpeedyBot natively supports automated online payment gateways, Telegram Stars, manual card-to-card receipts, and internal wallet payments:
+VizzPN Shop Bot natively supports automated online payment gateways, Telegram Stars, manual card-to-card receipts, and internal wallet payments:
 
 1. **Telegram Stars (`XTR`)**
    - Native in-app payment directly inside Telegram using Stars.
@@ -285,7 +342,7 @@ Recommended production setup:
 - Working Subscription service if Subscription URLs are used.
 - Outbound connectivity from the VPS to Telegram and the panel.
 
-SpeedyBot uses Long Polling, so no Telegram webhook port is required.
+VizzPN Shop Bot uses Long Polling, so no Telegram webhook port is required.
 
 ---
 
@@ -372,7 +429,7 @@ Log in as `root`:
 apt update
 apt install -y git
 
-git clone https://github.com/AliFanni-79/SpeedyBot.git /root/SpeedyBot
+git clone https://github.com/AliFanni-79/3XUI-Shop-Bot.git /root/SpeedyBot
 cd /root/SpeedyBot
 chmod +x install.sh update.sh
 ./install.sh
@@ -529,7 +586,7 @@ admins can:
 - Select exact inbounds independently for each plan.
 - Reset a scope to all active inbounds.
 
-If a scope has no explicit inbound rows, SpeedyBot uses **all active inbounds** for backward compatibility.
+If a scope has no explicit inbound rows, VizzPN Shop Bot uses **all active inbounds** for backward compatibility.
 
 ### Direct config vs Subscription
 
@@ -573,22 +630,33 @@ The normal Trial Inbound selection still applies.
 
 ## Connection guides
 
-Admins can create platform-specific guides for:
+VizzPN Shop Bot features an advanced, multi-platform connection guide system tailored for both administrators and end users:
 
-- Android.
-- iPhone / iOS.
-- Windows.
-- macOS.
-- Linux.
-- Android TV / TV Box.
+### Supported Platforms & Applications
+Admins can publish guides organized by platform and specific client application:
+- **Android**: V2RayNG, Hiddify, Streisand, etc.
+- **iPhone / iOS**: Streisand, FoXray, V2Box, etc.
+- **Windows**: v2rayN, Hiddify, Nekoray, etc.
+- **macOS**: V2Box, FoXray, etc.
+- **Linux**: Command line, GUI clients.
+- **Android TV / TV Box**: TV-compatible clients.
 
-Guide items can be:
+### Guide Content Types
+Each guide can contain:
+- Formatted text instructions and direct download links.
+- High-definition photos with descriptive captions.
+- Video tutorials with step-by-step captions.
 
-- Text.
-- Photo + caption.
-- Video + caption.
+### Effortless Direct Telegram Bot Submission
+Instead of manually typing long guides or copying Telegram `file_id` strings into a web form:
+1. In the Web Admin Dashboard, click **ارسال درخواست ثبت راهنما به تلگرام من**.
+2. The bot sends an interactive prompt directly to the admin in Telegram chat.
+3. The admin sends or forwards the guide message directly in Telegram — including long formatted text, photos, or video tutorials with captions.
+4. The bot automatically extracts the content and Telegram `file_id`, saving the guide under the designated platform and app immediately.
 
-Telegram `file_id` values are stored instead of copying media binaries into SQLite.
+### User Experience
+- Customers can access step-by-step guides from either the Telegram chat keyboard (`📚 راهنما و سوالات`) or the Mini App (`📲 راهنمای اتصال`).
+- Customers can filter guides by operating system and preferred client app with one-tap configuration copying.
 
 ---
 
@@ -596,7 +664,7 @@ Telegram `file_id` values are stored instead of copying media binaries into SQLi
 
 ### Acquisition survey
 
-After the first successful paid purchase, SpeedyBot can ask how the user found the service. Default choices include friend recommendation, Telegram search, channel ads, Instagram, web/search, returning customer and other.
+After the first successful paid purchase, VizzPN Shop Bot can ask how the user found the service. Default choices include friend recommendation, Telegram search, channel ads, Instagram, web/search, returning customer and other.
 
 ### Trial follow-up
 
@@ -618,7 +686,7 @@ Rules:
 
 - 3–40 characters.
 - ASCII letters/numbers plus `.`, `_`, `-`.
-- Checked against local SpeedyBot data.
+- Checked against local VizzPN Shop Bot data.
 - Checked against the connected 3x-ui panel before checkout.
 
 ### Link a previously purchased service
@@ -629,7 +697,7 @@ Ownership rules:
 
 - Matching panel `tgId` → automatic claim.
 - Non-matching `tgId` → admin approval required.
-- One panel Client can be linked to only one SpeedyBot account.
+- One panel Client can be linked to only one VizzPN Shop Bot account.
 
 ---
 
@@ -791,7 +859,7 @@ cd /root/SpeedyBot
 1. Re-executes itself from `/tmp` so it can safely replace its own file.
 2. Resolves the current GitHub branch commit.
 3. Clones the complete repository into a temporary directory.
-4. Validates `main.py`, every `speedybot/*.py`, `install.sh` and `update.sh`.
+4. Validates `main.py`, every `xuishop/*.py`, `install.sh` and `update.sh`.
 5. Installs dependencies before downtime.
 6. Stops the systemd service.
 7. Creates a complete rollback copy of the deployed application.
@@ -806,9 +874,9 @@ Because `--delete` is used for source synchronization, old version-specific file
 
 ---
 
-## Migrating from v3.x
+## Upgrading and Maintenance
 
-Do **not** delete `.env` or `speedping.db`.
+To check for updates or upgrade your production installation:
 
 ```bash
 cd /root/SpeedyBot
@@ -816,7 +884,7 @@ cd /root/SpeedyBot
 ./update.sh
 ```
 
-After upgrade:
+After an upgrade completes, verify the runtime:
 
 ```bash
 cat VERSION.txt
@@ -825,21 +893,22 @@ systemctl status xui-bot.service --no-pager -l
 journalctl -u xui-bot.service -n 150 --no-pager
 ```
 
-Expected version:
+Expected active version:
 
 ```text
-4.0.0
+26.2.0
 ```
 
-Expected runner target:
+Runner target:
 
 ```text
 /root/SpeedyBot/main.py
 ```
 
-The v4 database migration is additive and preserves existing business data.
-
-Read [MIGRATION_NOTES.md](MIGRATION_NOTES.md) before a major production upgrade.
+All updates are atomic and non-destructive:
+- Database schema migrations run automatically and preserve all customer, order, wallet, and service records.
+- Complete rollback snapshots are created before changes are applied in `/root/SpeedyBot/backups/`.
+- If a deployment failure occurs, the previous release is automatically restored without downtime.
 
 ---
 
@@ -869,37 +938,59 @@ For real production, periodically copy backups to another machine/storage provid
 
 ```text
 SpeedyBot/
-├── main.py                    # single production entrypoint
-├── speedybot/                 # integrated application package
-│   ├── __init__.py
-│   ├── core.py                # sales/provisioning business core
-│   ├── context.py
-│   ├── storage.py
-│   ├── ui.py
-│   ├── user_handlers.py
-│   ├── admin_handlers.py
-│   ├── trial.py
-│   ├── corepatch.py
-│   ├── ops.py
-│   └── handlers.py
-├── tests/
-│   └── test_storage.py
-├── install.sh
-├── update.sh
-├── requirements.txt
-├── VERSION.txt
-├── README.md
-├── README_FA.md
-├── CHANGELOG.md
-├── MIGRATION_NOTES.md
-├── RELEASE_NOTES_v4.0.0.md
-├── SECURITY.md
-├── SUPPORT.md
-├── CONTRIBUTING.md
-├── AUTHOR.md
-├── LICENSE
-├── .env.example
-└── .github/
+├── main.py                    # Unified production entrypoint (TeleBot + FastAPI daemon)
+├── xuishop/                 # Core application backend package
+│   ├── __init__.py            # Package init & version declaration
+│   ├── core.py                # Sales and provisioning business core
+│   ├── api.py                 # FastAPI REST API endpoints for Mini App & webhooks
+│   ├── context.py             # Global execution context and bot state
+│   ├── storage.py             # SQLite data access and schema migrations
+│   ├── db.py                  # Database connection helpers
+│   ├── ui.py                  # Telegram keyboards and message formatters
+│   ├── user_handlers.py       # Telegram user commands and callbacks
+│   ├── admin_handlers.py      # Admin panel and command handlers
+│   ├── admin_tools.py         # Administrative actions and utilities
+│   ├── admin_ux.py            # Admin UX interactive workflows
+│   ├── trial.py               # Free trial issuance and policy enforcement
+│   ├── gateways.py            # Zibal, Zarinpal and payment gateway handlers
+│   ├── linked_services.py     # Existing customer subscription linking
+│   ├── customization.py       # Visual styles and button layouts
+│   ├── backup_manager.py      # Automated snapshot and backup manager
+│   ├── env_manager.py         # Dynamic .env configuration manager
+│   ├── updates.py             # Version checking and auto-update logic
+│   ├── corepatch.py           # Core monkeypatches and proxy overrides
+│   ├── ops.py                 # System health and operational checks
+│   └── handlers.py            # Unified event router
+├── webapp/                    # Telegram Mini App (Vue 3 + Vite + Tailwind CSS)
+│   ├── src/
+│   │   ├── api/               # API client calling FastAPI endpoints
+│   │   ├── stores/            # Pinia state stores (auth, etc.)
+│   │   ├── views/             # StoreView, ServicesView, WalletView, GuidesView, AdminDashboard
+│   │   ├── App.vue
+│   │   └── main.js
+│   ├── dist/                  # Production-compiled assets served by FastAPI
+│   ├── package.json
+│   ├── tailwind.config.js
+│   └── vite.config.js
+├── tests/                     # Automated unittest suite
+│   ├── test_admin_ux.py
+│   ├── test_api.py
+│   ├── test_api_admin_and_stars.py
+│   ├── test_backup_and_restore.py
+│   ├── test_storage.py
+│   └── test_xui_and_card.py
+├── install.sh                 # One-click Ubuntu deployment installer
+├── update.sh                  # One-click application updater
+├── upgrade.sh                 # Automated database and environment upgrader
+├── restore.sh / restore.py    # Backup restoration scripts
+├── requirements.txt           # Python production dependencies
+├── VERSION.txt                # Single source of truth for semantic version
+├── README.md                  # English documentation
+├── README_FA.md               # Persian documentation
+├── SECURITY.md                # Security policy
+├── LICENSE                    # MIT License
+├── .env.example               # Template environment configuration
+└── .github/                   # CI/CD workflows and issue templates
 ```
 
 No release-numbered application folder is used.
@@ -925,10 +1016,9 @@ See [SECURITY.md](SECURITY.md).
 
 Licensed under the **MIT License**.
 
-Created and maintained by **SudoShayanNA**.
+Created and maintained by **AliFanni-79**.
 
-- Telegram: **@SudoShayanNA**
-- Email: **namayandeshayan@gmail.com**
-- Repository: **https://github.com/roseshayan/SpeedyBot**
+- Telegram: **@AliFanni_79**
+- Repository: **https://github.com/AliFanni-79/3XUI-Shop-Bot**
 
-If you redistribute or build on SpeedyBot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.
+If you redistribute or build on VizzPN Shop Bot, keeping a link to the original repository helps users find maintained documentation, security updates and future releases.

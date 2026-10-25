@@ -92,6 +92,16 @@ install_cloudflared(){
   fi
 }
 
+stop_cf_quick_tunnel(){
+  if systemctl is-active --quiet speedybot-tunnel.service 2>/dev/null || systemctl list-unit-files speedybot-tunnel.service &>/dev/null; then
+    info "Stopping and disabling previous Cloudflare Quick Tunnel (speedybot-tunnel.service)..."
+    systemctl stop speedybot-tunnel.service 2>/dev/null || true
+    systemctl disable speedybot-tunnel.service 2>/dev/null || true
+    rm -f /etc/systemd/system/speedybot-tunnel.service 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+}
+
 setup_cf_quick_tunnel(){
   local port="$1"
   install_cloudflared || return 1
@@ -100,7 +110,7 @@ setup_cf_quick_tunnel(){
   info "Setting up persistent Cloudflare Quick Tunnel service..."
   cat > /etc/systemd/system/speedybot-tunnel.service <<EOF
 [Unit]
-Description=SpeedyBot Cloudflare Tunnel (No Nginx)
+Description=X-UI Shop Bot Cloudflare Tunnel (No Nginx)
 After=network-online.target xui-bot.service
 Wants=network-online.target
 
@@ -185,9 +195,9 @@ EOF
 [[ "$EUID" -eq 0 ]] || fail "Run install.sh as root."
 command -v apt-get >/dev/null 2>&1 || fail "apt-get was not found. Ubuntu/Debian is required."
 [[ -f "$SOURCE_DIR/main.py" ]] || fail "main.py is missing next to install.sh."
-[[ -d "$SOURCE_DIR/speedybot" ]] || fail "speedybot application package is missing."
+[[ -d "$SOURCE_DIR/xuishop" ]] || fail "xuishop application package is missing."
 
-printf '\n============================================================\n SpeedyBot v5.0.0 Installer\n Telegram Mini App + 3x-ui / Sanaei Automation\n============================================================\n\n'
+printf '\n============================================================\n VizzPN Shop Bot Installer\n Telegram Mini App + 3x-ui / Sanaei Automation\n============================================================\n\n'
 
 # --- System Prerequisites Check ---
 info "Checking system prerequisites..."
@@ -380,7 +390,7 @@ apt-get install -y python3 python3-pip python3-venv curl git ca-certificates rsy
 mkdir -p "$APP_DIR"
 
 if [[ "$SOURCE_DIR" != "$APP_DIR" ]]; then
-  info "Installing the complete SpeedyBot repository..."
+  info "Installing the complete VizzPN Shop Bot repository..."
   rsync -a --delete \
     --exclude '.git/' \
     --exclude '.env' \
@@ -416,18 +426,22 @@ if [[ -f requirements.txt ]]; then
 else
   ./.venv/bin/python -m pip install pyTelegramBotAPI requests 'qrcode[pil]' fastapi uvicorn python-multipart
 fi
-./.venv/bin/python -m py_compile main.py speedybot/*.py
+./.venv/bin/python -m py_compile main.py xuishop/*.py
 bash -n install.sh
 [[ ! -f update.sh ]] || bash -n update.sh
 [[ ! -f upgrade.sh ]] || bash -n upgrade.sh
 
 # --- Configure Internet Tunnel / Reverse Proxy ---
 if [[ "$CF_TUNNEL_MODE" == "token" ]]; then
+  stop_cf_quick_tunnel
   info "Configuring Cloudflare Tunnel service..."
   setup_cf_token_tunnel "$CF_TUNNEL_TOKEN" || true
 elif [[ "$EXPOSE_METHOD" == "3" && -n "$CADDY_DOMAIN" ]]; then
+  stop_cf_quick_tunnel
   info "Configuring Caddy web server..."
   setup_caddy_proxy "$CADDY_DOMAIN" "$WEBAPP_PORT" || true
+elif [[ "$EXPOSE_METHOD" == "2" || "$EXPOSE_METHOD" == "4" ]]; then
+  stop_cf_quick_tunnel
 fi
 
 cat > "$ENV_FILE" <<EOF
@@ -475,12 +489,14 @@ SET_ZIBAL_MERCHANT="$ZIBAL_MERCHANT" \
 SET_ZIBAL_SANDBOX="$ZIBAL_SANDBOX" \
 SET_ZARINPAL_MERCHANT="$ZARINPAL_MERCHANT" \
 SET_ZARINPAL_SANDBOX="$ZARINPAL_SANDBOX" \
+PYTHONPATH="$APP_DIR" \
 "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+import sys, os
+sys.path.insert(0, os.environ.get("SET_APP_DIR", "/root/SpeedyBot"))
 import sqlite3
 
 try:
-    from speedybot import storage, db
+    from xuishop import storage, db
     storage.init_db()
 
     conn = db.get_connection(timeout=15)
@@ -535,7 +551,7 @@ PY
 write_runner
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=SpeedyBot Telegram Bot
+Description=VizzPN Shop Bot Telegram Bot
 After=network-online.target
 Wants=network-online.target
 [Service]
@@ -567,10 +583,11 @@ if [[ "$CF_TUNNEL_MODE" == "quick" ]]; then
   if [[ -n "$CF_URL" ]]; then
     WEBAPP_URL="$CF_URL"
     sed -i -E "s|^export WEBAPP_URL=.*|export WEBAPP_URL=$(printf '%q' "$WEBAPP_URL")|" "$ENV_FILE"
-    TARGET_URL="$WEBAPP_URL" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
-import os
+    TARGET_URL="$WEBAPP_URL" PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python3" - <<'PY' || true
+import sys, os
+sys.path.insert(0, os.environ.get("SET_APP_DIR", "/root/SpeedyBot"))
 try:
-    from speedybot import db
+    from xuishop import db
     conn = db.get_connection(timeout=15)
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
@@ -584,7 +601,7 @@ PY
 fi
 
 printf '\n============================================================\n'
-printf ' ✅ SpeedyBot v5.0.0 is running!\n'
+printf ' ✅ VizzPN Shop Bot is running!\n'
 printf '============================================================\n'
 
 if [[ -n "$WEBAPP_URL" ]]; then
@@ -601,6 +618,9 @@ if [[ -n "$WEBAPP_URL" ]]; then
   elif [[ "$EXPOSE_METHOD" == "3" ]]; then
     printf '\n   [Caddy Web Server Active]\n'
     printf '   • Service: caddy.service (Auto Let'\''s Encrypt SSL active)\n'
+  elif [[ "$EXPOSE_METHOD" == "2" ]]; then
+    printf '\n   [Custom Domain / Reverse Proxy Active]\n'
+    printf '   • Proxying HTTPS requests to port %s\n' "$WEBAPP_PORT"
   fi
 
   printf '\n📱 Configure Telegram Menu Button in @BotFather:\n'

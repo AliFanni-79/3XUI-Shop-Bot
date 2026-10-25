@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SpeedyBot CLI Database Restore Utility.
+"""X-UI Shop Bot CLI Database Restore Utility.
 
-Safely restores an SQLite backup into the active SpeedyBot database.
+Safely restores an SQLite backup into the active X-UI Shop Bot database.
 Can be run interactively or by passing the path to a .db backup file.
 
 Usage:
@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from speedybot import backup_manager, env_manager
+from xuishop import backup_manager, env_manager
 
 
 def check_service_status(service_name="xui-bot.service"):
@@ -60,20 +60,20 @@ def format_size(bytes_num):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpeedyBot SQLite Database Restore Utility")
+    parser = argparse.ArgumentParser(description="X-UI Shop Bot SQLite Database Restore Utility")
     parser.add_argument("backup_file", nargs="?", default=None, help="Path to SQLite backup (.db) file")
     parser.add_argument("--latest", action="store_true", help="Restore the latest available backup automatically")
     parser.add_argument("-y", "--yes", action="store_true", help="Confirm restoration without interactive prompt")
     parser.add_argument("--target", default=None, help="Target SQLite database file (default: app.db)")
     args = parser.parse_args()
 
-    from speedybot.db import get_db_path
+    from xuishop.db import get_db_path
     target_db = args.target or get_db_path()
     backup_file_path = args.backup_file
 
     print("==================================================")
-    print("      SpeedyBot Database Restore Tool             ")
-    print("      ابزار بازیابی پایگاه داده ربات SpeedyBot      ")
+    print("      X-UI Shop Bot Database Restore Tool         ")
+    print("      ابزار بازیابی پایگاه داده ربات X-UI Shop Bot  ")
     print("==================================================")
 
     # 1. Determine backup file
@@ -175,7 +175,7 @@ def main():
 
     # 6. Run package schema migrations
     try:
-        from speedybot import storage
+        from xuishop import storage
         storage.init_db()
         print("[OK] Schema migrations verified.")
     except Exception as e:

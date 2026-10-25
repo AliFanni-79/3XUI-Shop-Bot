@@ -7,6 +7,9 @@
           ← بازگشت
         </router-link>
         <h2 class="text-sm font-bold">⚙️ پنل مدیریت ارشد {{ uiTitle || auth.appTitle || 'فروشگاه' }}</h2>
+        <span class="bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold">
+          v{{ appVersion }}
+        </span>
       </div>
       <button @click="loadData" class="text-xs text-tg-button hover:underline flex items-center gap-1">
         🔄 <span>بروزرسانی</span>
@@ -14,7 +17,17 @@
     </div>
 
     <!-- Quick Stats Grid -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+      <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+        <span class="text-tg-hint text-[10px] block">نسخه فعال نرم‌افزار</span>
+        <span class="text-base font-bold text-sky-400 mt-0.5 block font-mono">v{{ appVersion }}</span>
+      </div>
+      <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
+        <span class="text-tg-hint text-[10px] block">سرویس تست رایگان</span>
+        <span class="text-base font-bold mt-0.5 block" :class="trialSettings.enabled ? 'text-emerald-400' : 'text-gray-400'">
+          {{ trialSettings.enabled ? 'فعال ✓' : 'غیرفعال' }}
+        </span>
+      </div>
       <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
         <span class="text-tg-hint text-[10px] block">کل کاربران</span>
         <span class="text-base font-bold text-tg mt-0.5 block">{{ Number(stats.total_users || 0).toLocaleString('fa-IR') }}</span>
@@ -37,7 +50,7 @@
       </div>
       <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30">
         <span class="text-tg-hint text-[10px] block">وضعیت سرویس سنائی</span>
-        <span class="text-xs font-bold mt-1 block flex items-center gap-1" :class="serverStatus?.xui?.connected ? 'text-emerald-400' : 'text-rose-400'">
+        <span class="text-xs font-bold mt-1 flex items-center gap-1" :class="serverStatus?.xui?.connected ? 'text-emerald-400' : 'text-rose-400'">
           <span class="w-2 h-2 rounded-full inline-block" :class="serverStatus?.xui?.connected ? 'bg-emerald-400' : 'bg-rose-400'"></span>
           {{ serverStatus?.xui?.connected ? (serverStatus.xui.latency_ms + ' ms') : 'قطع اتصال' }}
         </span>
@@ -64,8 +77,7 @@
       <span>{{ globalMsg }}</span>
       <button @click="globalMsg = ''" class="text-xs opacity-70 hover:opacity-100">✕</button>
     </div>
-
-    <!-- ==================== Tab 1: Orders (سفارش‌ها) ==================== -->
+<!-- ==================== Tab 1: Orders (سفارش‌ها) ==================== -->
     <div v-if="activeTab === 'orders'" class="space-y-3">
       <div class="flex justify-between items-center">
         <h3 class="text-xs font-bold text-tg">سفارش‌های در انتظار بررسی فیش</h3>
@@ -113,69 +125,523 @@
       </div>
     </div>
 
+    
     <!-- ==================== Tab 2: Plans Management (مدیریت پلان‌ها) ==================== -->
     <div v-if="activeTab === 'plans'" class="space-y-3">
-      <div class="flex justify-between items-center">
-        <h3 class="text-xs font-bold text-tg">پلان‌های آماده فروشگاه</h3>
-        <button @click="openCreatePlanModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
-          <span>➕</span>
-          <span>افزودن پلان جدید</span>
+      <!-- Sub-tabs -->
+      <div class="flex gap-1.5 border-b border-gray-700/30 pb-2 text-xs">
+        <button
+          @click="plansSubTab = 'catalog'"
+          class="py-1.5 px-3 rounded-xl transition font-medium"
+          :class="plansSubTab === 'catalog' ? 'bg-tg-button text-white font-bold' : 'bg-tg-sec text-tg-hint hover:text-tg'"
+        >
+          📦 پلان‌ها ({{ plansList.length }})
+        </button>
+        <button
+          @click="plansSubTab = 'categories'"
+          class="py-1.5 px-3 rounded-xl transition font-medium"
+          :class="plansSubTab === 'categories' ? 'bg-tg-button text-white font-bold' : 'bg-tg-sec text-tg-hint hover:text-tg'"
+        >
+          🗂 دسته‌بندی‌ها ({{ categoriesList.length }})
+        </button>
+        <button
+          @click="plansSubTab = 'volume'"
+          class="py-1.5 px-3 rounded-xl transition font-medium"
+          :class="plansSubTab === 'volume' ? 'bg-tg-button text-white font-bold' : 'bg-tg-sec text-tg-hint hover:text-tg'"
+        >
+          ➕ بسته‌های حجم اضافه ({{ volumePacksList.length }})
+        </button>
+        <button
+          @click="plansSubTab = 'servers'"
+          class="py-1.5 px-3 rounded-xl transition font-medium"
+          :class="plansSubTab === 'servers' ? 'bg-tg-button text-white font-bold' : 'bg-tg-sec text-tg-hint hover:text-tg'"
+        >
+          🖥 سرورها ({{ serverProfilesList.length }})
         </button>
       </div>
 
-      <div class="space-y-2">
-        <div
-          v-for="p in plansList"
-          :key="p.id"
-          class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
-        >
-          <div class="space-y-0.5">
-            <div class="flex items-center gap-2">
-              <span class="font-bold text-sm">{{ p.name }}</span>
-              <span class="text-[10px] px-2 py-0.5 rounded-full" :class="p.active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
-                {{ p.active ? 'فعال' : 'غیرفعال' }}
-              </span>
+      <!-- 2.1 Catalog Plans List -->
+      <div v-if="plansSubTab === 'catalog'" class="space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-tg">پلان‌های آماده فروشگاه</h3>
+          <button @click="openCreatePlanModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+            <span>➕</span>
+            <span>افزودن پلان جدید</span>
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <div
+            v-for="p in plansList"
+            :key="p.id"
+            class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
+          >
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm">{{ p.name }}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full" :class="p.active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
+                  {{ p.active ? 'فعال' : 'غیرفعال' }}
+                </span>
+                <span v-if="getCategoryName(p.category_id)" class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                  {{ getCategoryIcon(p.category_id) }} {{ getCategoryName(p.category_id) }}
+                </span>
+              </div>
+              <div class="text-[10px] text-tg-hint flex flex-wrap gap-x-3 gap-y-0.5">
+                <span>مدت: {{ p.days }} روز</span>
+                <span>حجم: {{ p.volume_gb > 0 ? p.volume_gb + ' GB' : 'نامحدود' }}</span>
+                <span>کاربر: {{ p.ip_limit > 0 ? p.ip_limit + ' کاربره' : 'نامحدود' }}</span>
+                <span v-if="p.group_name" class="text-blue-400 font-semibold">👥 گروه: {{ p.group_name }}</span>
+              </div>
+              <div class="text-emerald-400 font-bold text-xs pt-0.5">
+                {{ Number(p.price).toLocaleString('fa-IR') }} تومان
+              </div>
             </div>
-            <div class="text-[10px] text-tg-hint flex flex-wrap gap-x-3 gap-y-0.5">
-              <span>مدت: {{ p.days }} روز</span>
-              <span>حجم: {{ p.volume_gb > 0 ? p.volume_gb + ' GB' : 'نامحدود' }}</span>
-              <span>کاربر: {{ p.ip_limit > 0 ? p.ip_limit + ' کاربره' : 'نامحدود' }}</span>
-              <span v-if="p.group_name" class="text-blue-400 font-semibold">👥 گروه: {{ p.group_name }}</span>
-            </div>
-            <div class="text-emerald-400 font-bold text-xs pt-0.5">
-              {{ Number(p.price).toLocaleString('fa-IR') }} تومان
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="openPlanInboundsModal(p)"
+                class="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl text-xs hover:bg-indigo-500/30"
+                title="مسیریابی اینباندها"
+              >
+                🔀 اینباندها
+              </button>
+              <button
+                @click="handleTogglePlan(p.id)"
+                class="p-2 rounded-xl text-xs transition"
+                :class="p.active ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'"
+                :title="p.active ? 'غیرفعال‌سازی' : 'فعال‌سازی'"
+              >
+                {{ p.active ? 'خاموش' : 'روشن' }}
+              </button>
+              <button
+                @click="openEditPlanModal(p)"
+                class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
+                title="ویرایش"
+              >
+                ✏️
+              </button>
+              <button
+                @click="handleDeletePlan(p.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
+                title="حذف"
+              >
+                🗑
+              </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div class="flex items-center gap-1.5">
+      <!-- 2.2 Categories List -->
+      <div v-if="plansSubTab === 'categories'" class="space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-xs font-bold text-tg">دسته‌بندی‌های پلن‌ها</h3>
+            <span class="text-[10px] text-tg-hint">دسته‌بندی سرویس‌ها جهت نمایش منظم به خریداران در ربات و مینی‌اپ</span>
+          </div>
+          <button @click="openCreateCategoryModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+            <span>➕</span>
+            <span>افزودن دسته‌بندی</span>
+          </button>
+        </div>
+
+        <div v-if="categoriesList.length" class="space-y-2">
+          <div
+            v-for="cat in categoriesList"
+            :key="cat.id"
+            class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-base">{{ cat.icon || '📦' }}</span>
+                <span class="font-bold text-sm">{{ cat.name }}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full" :class="cat.is_active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
+                  {{ cat.is_active ? 'فعال' : 'غیرفعال' }}
+                </span>
+                <span class="text-[10px] text-tg-hint font-mono bg-tg px-2 py-0.5 rounded-lg">
+                  {{ cat.plans_count || 0 }} پلن مرتبط
+                </span>
+              </div>
+              <p v-if="cat.description" class="text-[10px] text-tg-hint">{{ cat.description }}</p>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="openEditCategoryModal(cat)"
+                class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
+                title="ویرایش"
+              >
+                ✏️
+              </button>
+              <button
+                @click="handleDeleteCategory(cat.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
+                title="حذف"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-8 bg-tg-sec/40 rounded-xl border border-dashed border-gray-700/30 text-xs text-tg-hint">
+          دسته‌بندی ثبت نشده است. پلن‌ها در دسته‌بندی پیش‌فرض نمایش داده می‌شوند.
+        </div>
+      </div>
+
+      <!-- 2.3 Volume Packs List -->
+      <div v-if="plansSubTab === 'volume'" class="space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-xs font-bold text-tg">بسته‌های حجم اضافه (Volume Packs)</h3>
+            <span class="text-[10px] text-tg-hint">خریداران می‌توانند برای سرویس فعال خود حجم اضافه بخرند</span>
+          </div>
+          <button @click="openCreateVolumePackModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+            <span>➕</span>
+            <span>افزودن بسته حجم</span>
+          </button>
+        </div>
+
+        <div v-if="volumePacksList.length" class="space-y-2">
+          <div
+            v-for="pack in volumePacksList"
+            :key="pack.id"
+            class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
+          >
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm">{{ pack.volume_gb }} گیگابایت اضافه</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full" :class="pack.is_active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
+                  {{ pack.is_active ? 'فعال' : 'غیرفعال' }}
+                </span>
+                <span class="text-[10px] text-tg-hint">اعتبار: {{ pack.duration_days }} روز</span>
+              </div>
+              <div class="text-emerald-400 font-bold text-xs pt-1">
+                {{ Number(pack.price).toLocaleString('fa-IR') }} تومان
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="handleToggleVolumePack(pack.id)"
+                class="p-2 rounded-xl text-xs transition"
+                :class="pack.is_active ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'"
+                :title="pack.is_active ? 'غیرفعال‌سازی' : 'فعال‌سازی'"
+              >
+                {{ pack.is_active ? 'خاموش' : 'روشن' }}
+              </button>
+              <button
+                @click="openEditVolumePackModal(pack)"
+                class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
+                title="ویرایش"
+              >
+                ✏️
+              </button>
+              <button
+                @click="handleDeleteVolumePack(pack.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
+                title="حذف"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-8 bg-tg-sec/40 rounded-xl border border-dashed border-gray-700/30 text-xs text-tg-hint">
+          بسته حجم اضافه‌ای تعریف نشده است.
+        </div>
+      </div>
+
+      <!-- 2.4 Server Profiles (Inbounds Grouping & Custom Servers) -->
+      <div v-if="plansSubTab === 'servers'" class="space-y-3">
+        <div class="flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <h3 class="text-xs font-bold text-tg">مدیریت سرورها و لوکیشن‌ها (Servers / Inbounds)</h3>
+            <span class="text-[10px] text-tg-hint">اینباندها را در قالب سرور برای سازنده پلن دلخواه گروه‌بندی یا سرور سفارشی ایجاد کنید</span>
+          </div>
+          <div class="flex gap-1.5">
             <button
-              @click="handleTogglePlan(p.id)"
-              class="p-2 rounded-xl text-xs transition"
-              :class="p.active ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'"
-              :title="p.active ? 'غیرفعال‌سازی' : 'فعال‌سازی'"
+              @click="handleAutoGroupServers"
+              :disabled="autoGroupingServers"
+              class="px-2.5 py-1.5 bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+              title="گروه‌بندی خودکار اینباندهای سنائی بر اساس نام/remark"
             >
-              {{ p.active ? 'خاموش' : 'روشن' }}
+              <span>⚡</span>
+              <span>{{ autoGroupingServers ? 'در حال ادغام...' : 'ادغام خودکار اینباندها' }}</span>
             </button>
+            <button @click="openCreateServerModal" class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+              <span>➕</span>
+              <span>افزودن سرور جدید</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="serverProfilesList.length" class="space-y-2">
+          <div
+            v-for="s in serverProfilesList"
+            :key="s.id"
+            class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-xs flex justify-between items-center"
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm">{{ s.name }}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full" :class="s.active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-700 text-tg-hint'">
+                  {{ s.active ? 'فعال' : 'غیرفعال' }}
+                </span>
+                <span v-if="s.contact_support" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                  💬 هماهنگی با پشتیبانی ({{ s.support_target_type === 'link' ? 'آیدی/کانال' : 'ربات داخلی' }})
+                </span>
+                <span v-if="s.is_custom" class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                  🌐 سرور اختصاصی / خارج از پنل
+                </span>
+              </div>
+              <div class="text-[10px] text-tg-hint flex flex-wrap gap-x-3 gap-y-0.5">
+                <span v-if="!s.contact_support">قیمت اضافه: <b class="text-emerald-400 font-mono">{{ s.price > 0 ? Number(s.price).toLocaleString('fa-IR') + ' تومان' : 'رایگان (پایه)' }}</b></span>
+                <span v-else class="text-amber-400">قیمت: توافقی / پشتیبانی</span>
+                <span v-if="!s.is_custom">اینباندهای متصل: <b class="text-white">{{ (s.inbound_ids && s.inbound_ids.length) ? s.inbound_ids.length + ' اینباند' : 'همه اینباندها' }}</b></span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="handleToggleServer(s.id)"
+                class="p-2 rounded-xl text-xs transition"
+                :class="s.active ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'"
+                :title="s.active ? 'غیرفعال‌سازی' : 'فعال‌سازی'"
+              >
+                {{ s.active ? 'خاموش' : 'روشن' }}
+              </button>
+              <button
+                @click="openEditServerModal(s)"
+                class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
+                title="ویرایش"
+              >
+                ✏️
+              </button>
+              <button
+                @click="handleDeleteServer(s.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
+                title="حذف"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-8 bg-tg-sec/40 rounded-xl border border-dashed border-gray-700/30 text-xs text-tg-hint space-y-2">
+          <div>سروری تعریف نشده است.</div>
+          <button @click="handleAutoGroupServers" class="text-indigo-400 text-xs font-bold underline">
+            ادغام خودکار اینباندهای موجود در پنل سنائی ⚡
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab: Free Trial (تست رایگان) ==================== -->
+    <div v-if="activeTab === 'trial'" class="space-y-4 text-xs">
+      <!-- Trial Stats Card -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-center">
+          <span class="text-tg-hint text-[10px] block">کل اکانت‌های تست اهدا شده</span>
+          <span class="text-base font-bold text-tg mt-1 block">{{ Number(trialStats.total_trials || 0).toLocaleString('fa-IR') }}</span>
+        </div>
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-center">
+          <span class="text-tg-hint text-[10px] block">تست‌های فعال فعلی</span>
+          <span class="text-base font-bold text-emerald-400 mt-1 block">{{ Number(trialStats.active_trials || 0).toLocaleString('fa-IR') }}</span>
+        </div>
+        <div class="bg-tg-sec p-3 rounded-2xl border border-gray-700/30 text-center">
+          <span class="text-tg-hint text-[10px] block">تست‌های منقضی شده</span>
+          <span class="text-base font-bold text-amber-400 mt-1 block">{{ Number(trialStats.expired_trials || 0).toLocaleString('fa-IR') }}</span>
+        </div>
+      </div>
+
+      <!-- Main Trial Settings Card -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🎁</span>
+            <div>
+              <h4 class="font-bold text-sm text-tg">تنظیمات سرویس تست رایگان (Free Trial)</h4>
+              <span class="text-[10px] text-tg-hint">اهدای اشتراک موقت به کاربران جهت بررسی کیفیت بدون نیاز به پرداخت</span>
+            </div>
+          </div>
+          <button
+            @click="trialSettings.enabled = !trialSettings.enabled"
+            class="px-3 py-1.5 rounded-xl font-bold transition shadow"
+            :class="trialSettings.enabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ trialSettings.enabled ? 'تست رایگان فعال ✓' : 'غیرفعال' }}
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">حجم هدیه (گیگابایت):</label>
+            <input
+              type="number"
+              step="0.5"
+              v-model.number="trialSettings.volume_gb"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-center"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">مدت زمان اعتبار (روز):</label>
+            <input
+              type="number"
+              v-model.number="trialSettings.days"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-center"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">محدودیت کاربر (IP Limit):</label>
+            <input
+              type="number"
+              v-model.number="trialSettings.ip_limit"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-center"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">دوره انتظار مجدد (روز):</label>
+            <input
+              type="number"
+              v-model.number="trialSettings.cooldown_days"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-center"
+            />
+            <span class="text-[8px] text-tg-hint block mt-0.5">0 یعنی فقط یکبار در طول عمر کاربر</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-0.5">گروه سنائی اختصاصی تست (3x-ui Group Name):</label>
+          <input
+            type="text"
+            list="xuiGroupsList"
+            v-model="trialSettings.group_name"
+            placeholder="مثلاً Trial یا خالی جهت استفاده از پیش‌فرض"
+            class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs"
+          />
+        </div>
+
+        <!-- CRM Follow-up settings -->
+        <div class="p-3 bg-tg rounded-xl border border-gray-700/30 space-y-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-bold block">ارسال خودکار پیام پیگیری تست (CRM Follow-up)</span>
+              <span class="text-[10px] text-tg-hint">ارسال پیام پیشنهاد خرید و تخفیف پس از انقضای تست رایگان</span>
+            </div>
             <button
-              @click="openEditPlanModal(p)"
-              class="p-2 bg-blue-500/20 text-blue-300 rounded-xl text-xs hover:bg-blue-500/30"
-              title="ویرایش"
+              @click="trialSettings.followup_enabled = !trialSettings.followup_enabled"
+              class="px-2.5 py-1 rounded-lg font-bold text-[10px] transition"
+              :class="trialSettings.followup_enabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
             >
-              ✏️
+              {{ trialSettings.followup_enabled ? 'فعال ✓' : 'غیرفعال' }}
             </button>
+          </div>
+          <div v-if="trialSettings.followup_enabled" class="flex items-center gap-2 pt-1">
+            <span class="text-[10px] text-tg-hint">تاخیر ارسال پیام پیگیری:</span>
+            <input
+              type="number"
+              v-model.number="trialSettings.followup_delay_hours"
+              class="w-20 bg-tg-sec border border-gray-700/40 rounded-lg px-2 py-1 text-center font-mono text-xs"
+            />
+            <span class="text-[10px] text-tg-hint">ساعت پس از انقضای تست</span>
+          </div>
+        </div>
+
+        <button
+          @click="handleSaveTrialSettings"
+          :disabled="savingTrialSettings"
+          class="w-full btn-tg font-bold py-2.5 rounded-xl text-xs transition shadow"
+        >
+          {{ savingTrialSettings ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات تست رایگان 💾' }}
+        </button>
+      </div>
+
+      <!-- Trial Inbound Routing Card -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">مسیریابی اینباندهای تست رایگان (Inbounds Routing)</h4>
+            <span class="text-[10px] text-tg-hint">انتخاب اینباندهایی که اکانت تست در آنها ساخته شود (اگر هیچکدام انتخاب نشود، در همه ساخته می‌شود)</span>
+          </div>
+          <button
+            @click="handleResetTrialInbounds"
+            class="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-xl text-xs hover:bg-amber-500/30 transition"
+          >
+            بازنشانی به همه 🔄
+          </button>
+        </div>
+
+        <div v-if="trialInbounds.length" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="inb in trialInbounds"
+            :key="inb.id"
+            class="p-2.5 rounded-xl border flex items-center justify-between transition cursor-pointer"
+            :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+            @click="handleToggleTrialInbound(inb.id)"
+          >
+            <div>
+              <span class="font-bold block">{{ inb.tag || ('اینباند #' + inb.id) }}</span>
+              <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+            </div>
+            <span
+              class="px-2.5 py-1 rounded-lg text-[10px] font-bold"
+              :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+            >
+              {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+            </span>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px]">
+          در حال حاضر اینباندی از پنل دریافت نشده است یا ارتباط برقرار نیست.
+        </div>
+      </div>
+
+      <!-- Trial Overrides Card -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">استثناهای کاربری تست (Trial Overrides)</h4>
+            <span class="text-[10px] text-tg-hint">تعیین حجم یا مدت زمان تست اختصاصی برای کاربران یا تسترها</span>
+          </div>
+          <button
+            @click="openAddTrialOverrideModal"
+            class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow"
+          >
+            <span>➕</span>
+            <span>افزودن کاربر خاص</span>
+          </button>
+        </div>
+
+        <div v-if="trialOverrides.length" class="space-y-1.5">
+          <div
+            v-for="ov in trialOverrides"
+            :key="ov.user_id"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center text-xs"
+          >
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold font-mono">کاربر: {{ ov.user_id }}</span>
+                <span class="text-emerald-400 font-bold font-mono">{{ ov.volume_gb }} GB</span>
+                <span class="text-blue-400 font-mono">{{ ov.days }} روز</span>
+                <span class="text-purple-400 font-mono">{{ ov.ip_limit }} کاربره</span>
+              </div>
+              <span v-if="ov.note" class="text-[10px] text-tg-hint block mt-0.5">یادداشت: {{ ov.note }}</span>
+            </div>
             <button
-              @click="handleDeletePlan(p.id)"
-              class="p-2 bg-rose-500/20 text-rose-300 rounded-xl text-xs hover:bg-rose-500/30"
-              title="حذف"
+              @click="handleDeleteTrialOverride(ov.user_id)"
+              class="p-1.5 bg-rose-500/20 text-rose-300 rounded-lg hover:bg-rose-500/30 transition"
+              title="حذف استثنا"
             >
               🗑
             </button>
           </div>
         </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px]">
+          هیچ استثنای کاربری ثبت نشده است. برای همه کاربران از تنظیمات عمومی استفاده می‌شود.
+        </div>
       </div>
     </div>
-
-    <!-- ==================== Tab: Sanaei 3x-ui & Groups ==================== -->
+<!-- ==================== Tab: Sanaei 3x-ui & Groups ==================== -->
     <div v-if="activeTab === 'xui'" class="space-y-3 text-xs">
       <!-- Sanaei Groups Box -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
@@ -291,7 +757,255 @@
       </div>
     </div>
 
-    <!-- ==================== Tab: Rewards & Discounts ==================== -->
+    
+    <!-- ==================== Tab: CRM & Claims (CRM و احراز اتصال) ==================== -->
+    <div v-if="activeTab === 'crm'" class="space-y-4 text-xs">
+      <!-- CRM Settings Card -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">📈 تنظیمات CRM و ثبت نام سرویس‌ها</h4>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+            <div>
+              <span class="font-bold block">نظرسنجی منبع آشنایی خریداران</span>
+              <span class="text-[10px] text-tg-hint">پرسش از کاربران پس از خرید برای تشخیص کانال‌های بازاریابی موثر</span>
+            </div>
+            <button
+              @click="crmSettings.survey_enabled = !crmSettings.survey_enabled"
+              class="px-3 py-1.5 rounded-xl font-bold transition"
+              :class="crmSettings.survey_enabled ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+            >
+              {{ crmSettings.survey_enabled ? 'فعال ✓' : 'غیرفعال' }}
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+            <div>
+              <span class="font-bold block">تغییر نام دلخواه سرویس توسط کاربر</span>
+              <span class="text-[10px] text-tg-hint">کاربر بتواند نام نمایشی سرویس خود را در بات تغییر دهد</span>
+            </div>
+            <button
+              @click="crmSettings.custom_name_enabled = !crmSettings.custom_name_enabled"
+              class="px-3 py-1.5 rounded-xl font-bold transition"
+              :class="crmSettings.custom_name_enabled ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+            >
+              {{ crmSettings.custom_name_enabled ? 'مجاز ✓' : 'غیرفعال' }}
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between p-2.5 bg-tg rounded-xl border border-gray-700/30">
+            <div>
+              <span class="font-bold block">اتصال سرویس‌های قبلی و قدیمی سنائی (Existing Service Claiming)</span>
+              <span class="text-[10px] text-tg-hint">امکان ثبت درخواست اتصال کانفیگ‌های قبلی به پنل کاربری بات جهت تمدید</span>
+            </div>
+            <button
+              @click="crmSettings.existing_service_enabled = !crmSettings.existing_service_enabled"
+              class="px-3 py-1.5 rounded-xl font-bold transition"
+              :class="crmSettings.existing_service_enabled ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 text-tg-hint'"
+            >
+              {{ crmSettings.existing_service_enabled ? 'فعال ✓' : 'غیرفعال' }}
+            </button>
+          </div>
+        </div>
+
+        <button
+          @click="handleSaveCrmSettings"
+          :disabled="savingCrm"
+          class="w-full btn-tg font-bold py-2 rounded-xl text-xs transition shadow"
+        >
+          {{ savingCrm ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات CRM 💾' }}
+        </button>
+      </div>
+
+      <!-- Pending Service Claims -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">درخواست‌های اتصال سرویس در انتظار بررسی</h4>
+            <span class="text-[10px] text-tg-hint">کاربرانی که می‌خواهند سرویس قبلی خود را به این ربات متصل کنند</span>
+          </div>
+          <span class="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">
+            {{ pendingClaims.length }} در انتظار
+          </span>
+        </div>
+
+        <div v-if="pendingClaims.length" class="space-y-2">
+          <div
+            v-for="cl in pendingClaims"
+            :key="cl.id"
+            class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2"
+          >
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="font-bold block">شناسه/ایمیل: <code class="text-blue-400">{{ cl.sub_id }}</code></span>
+                <span class="text-[10px] text-tg-hint">کاربر: <code>{{ cl.user_id }}</code> | درخواست #{{ cl.id }}</span>
+              </div>
+              <span class="text-[10px] text-tg-hint font-mono">{{ cl.created_at }}</span>
+            </div>
+            <div class="flex items-center gap-2 pt-1">
+              <button
+                @click="handleApproveClaim(cl.id)"
+                class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 rounded-xl transition shadow"
+              >
+                تایید اتصال سرویس ✓
+              </button>
+              <button
+                @click="openRejectClaimModal(cl.id)"
+                class="px-3 bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 font-semibold py-1.5 rounded-xl transition"
+              >
+                رد ✕
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-6 text-tg-hint text-[10px]">
+          درخواست اتصال سرویسی در انتظار بررسی نیست.
+        </div>
+      </div>
+
+      <!-- Survey Breakdown Card -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">📊 آمار کانال‌های جذب مشتری (نتایج نظرسنجی)</h4>
+        <div v-if="surveyStats.length" class="space-y-2">
+          <div
+            v-for="s in surveyStats"
+            :key="s.source"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+          >
+            <span class="font-bold">{{ s.source }}</span>
+            <span class="font-mono font-bold text-emerald-400">{{ s.count }} کاربر</span>
+          </div>
+        </div>
+        <div v-else class="text-center py-4 text-tg-hint text-[10px]">
+          هنوز پاسخی در نظرسنجی ثبت نشده است.
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== Tab: Connection Guides (راهنمای اتصال) ==================== -->
+    <div v-if="activeTab === 'guides'" class="space-y-4 text-xs">
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div>
+            <h4 class="font-bold text-sm text-tg">📲 مدیریت آموزش و راهنمای اتصال</h4>
+            <span class="text-[10px] text-tg-hint">ارسال راهنمای اتصال برنامه‌ها (V2rayNG, Streisand, v2rayN و...) به کاربران</span>
+          </div>
+          <button
+            @click="handleToggleGuides"
+            class="px-3 py-1.5 rounded-xl font-bold transition shadow"
+            :class="guidesEnabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ guidesEnabled ? 'بخش راهنما فعال ✓' : 'غیرفعال' }}
+          </button>
+        </div>
+
+        <!-- Platform filter pills -->
+        <div class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          <button
+            v-for="plt in guidePlatforms"
+            :key="plt.id"
+            @click="activeGuidePlatform = plt.id"
+            class="py-1.5 px-3 rounded-xl transition font-medium flex items-center gap-1"
+            :class="activeGuidePlatform === plt.id ? 'bg-tg-button text-white font-bold' : 'bg-tg text-tg-hint hover:text-tg'"
+          >
+            <span>{{ plt.icon }}</span>
+            <span>{{ plt.label }}</span>
+          </button>
+        </div>
+
+        <div class="flex justify-between items-center pt-2">
+          <span class="font-bold text-tg">مطالب راهنمای پلتفرم انتخاب شده:</span>
+          <div class="flex items-center gap-2">
+            <button
+              @click="handlePromptGuideBot(activeGuidePlatform)"
+              :disabled="promptingBot"
+              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition"
+              title="ارسال پیام به چت تلگرام مدیر تا مطلب راهنما را مستقیماً در چت ربات ارسال فرمایید"
+            >
+              <span>📲</span>
+              <span>{{ promptingBot ? 'در حال ارسال...' : 'ارسال در تلگرام' }}</span>
+            </button>
+            <button
+              @click="openAddGuideModal"
+              class="btn-tg py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1 shadow"
+            >
+              <span>➕</span>
+              <span>افزودن در وب</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="telegramBotUrl" class="p-2.5 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-center justify-between text-xs">
+          <span class="text-blue-300">دستور به تلگرام شما ارسال شد. لطفاً به چت ربات بروید و متن یا تصویر/ویدیو را ارسال کنید:</span>
+          <a :href="telegramBotUrl" target="_blank" class="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-bold text-[11px] hover:bg-blue-500">
+            باز کردن ربات در تلگرام ↗️
+          </a>
+        </div>
+
+        <div v-if="filteredGuides.length" class="space-y-2">
+          <div
+            v-for="item in filteredGuides"
+            :key="item.id"
+            class="bg-tg p-3.5 rounded-xl border border-gray-700/30 space-y-2"
+          >
+            <div class="flex justify-between items-start gap-2">
+              <div class="flex-1 min-w-0 space-y-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-bold text-sm">{{ item.title || (item.body ? (item.body.length > 50 ? item.body.slice(0, 50) + '...' : item.body) : ('آموزش #' + item.id)) }}</span>
+                  <span v-if="item.app_name" class="text-[10px] px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
+                    برنامه: {{ item.app_name }}
+                  </span>
+                  <span class="text-[9px] px-2 py-0.5 rounded-full font-mono" :class="item.media_type === 'VIDEO' ? 'bg-purple-500/20 text-purple-300' : (item.media_type === 'PHOTO' ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-700/30 text-tg-hint')">
+                    {{ item.media_type }}
+                  </span>
+                </div>
+
+                <!-- Media Preview in Admin Panel -->
+                <div v-if="item.media_file_id && item.media_type === 'PHOTO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/40 max-w-sm">
+                  <img :src="getGuideMediaUrl(item)" class="w-full max-h-48 object-contain" loading="lazy"/>
+                </div>
+                <div v-else-if="item.media_file_id && item.media_type === 'VIDEO'" class="rounded-xl overflow-hidden border border-gray-700/40 bg-black/60 max-w-sm">
+                  <video controls playsinline preload="metadata" :src="getGuideMediaUrl(item)" class="w-full max-h-48 rounded-xl"></video>
+                </div>
+
+                <p v-if="item.body" class="text-[11px] text-tg-hint whitespace-pre-wrap leading-relaxed">{{ item.body }}</p>
+
+                <!-- Attached Telegram File ID Box (Fixed Layout) -->
+                <div v-if="item.media_file_id" class="p-2 bg-gray-800/60 rounded-xl border border-gray-700/40 space-y-1.5 max-w-sm">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
+                      📎 فایل پیوست:
+                    </span>
+                    <button
+                      type="button"
+                      @click.stop="copyFileId(item.media_file_id)"
+                      class="text-[9px] px-2 py-0.5 bg-gray-700/70 hover:bg-gray-600 text-gray-200 rounded-md transition flex items-center gap-1"
+                    >
+                      <span>{{ copiedFileId === item.media_file_id ? '✓ کپی شد' : '📋 کپی ID' }}</span>
+                    </button>
+                  </div>
+                  <div class="font-mono text-[9px] text-gray-300 break-all bg-black/40 px-2 py-1.5 rounded-lg border border-gray-800/80 dir-ltr select-all">
+                    {{ item.media_file_id }}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                @click="handleDeleteGuide(item.id)"
+                class="p-2 bg-rose-500/20 text-rose-300 rounded-xl hover:bg-rose-500/30 transition shrink-0"
+                title="حذف"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="text-center py-6 text-tg-hint text-[10px]">
+          هنوز مطلبی برای این پلتفرم ثبت نشده است. با دکمه افزودن اولین آموزش را ایجاد کنید.
+        </div>
+      </div>
+    </div>
+<!-- ==================== Tab: Rewards & Discounts ==================== -->
     <div v-if="activeTab === 'rewards'" class="space-y-3 text-xs">
       <!-- Cashback Box -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
@@ -612,6 +1326,7 @@
       </div>
     </div>
 
+    
     <!-- ==================== Tab: Content & Security ==================== -->
     <div v-if="activeTab === 'content'" class="space-y-3 text-xs">
       <!-- Welcome Message & FAQ -->
@@ -695,6 +1410,46 @@
         </div>
       </div>
 
+      <!-- Service Username Generation Mode & Periodic Check -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <h4 class="font-bold text-sm text-tg">⚙️ الگوی نام کاربری سرویس‌ها و بررسی دوره‌ای</h4>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">الگوی نام کاربری در سنائی:</label>
+            <select
+              v-model="contentSecurity.service_username_mode"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs"
+            >
+              <option value="telegram_tx">شناسه تلگرام و تراکنش (یکتا و منظم)</option>
+              <option value="random">نام کاربری تصادفی و ناشناس (Random UUID)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">فاصله زمانی بررسی وضعیت سرویس‌ها (دقیقه):</label>
+            <input
+              type="number"
+              min="5"
+              max="1440"
+              v-model.number="contentSecurity.service_notification_interval"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+            />
+          </div>
+        </div>
+
+        <div class="pt-1 flex items-center justify-between border-t border-gray-700/30">
+          <span class="text-[10px] text-tg-hint">می‌توانید بررسی حجم و انقضا را فوراً اجرا کنید:</span>
+          <button
+            @click="handleCheckNotificationsNow"
+            :disabled="checkingNotifications"
+            class="px-3 py-1.5 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded-xl font-bold transition text-xs flex items-center gap-1"
+          >
+            <span>🚀</span>
+            <span>{{ checkingNotifications ? 'در حال بررسی...' : 'بررسی اعلان‌ها همین الان' }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Service Notifications -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
         <h4 class="font-bold text-sm text-tg">🔔 اعلان‌های هوشمند سرویس</h4>
@@ -747,8 +1502,7 @@
         {{ savingContentSec ? 'در حال ذخیره‌سازی...' : 'ذخیره متن‌ها، اعلان‌ها و امنیت 💾' }}
       </button>
     </div>
-
-    <!-- ==================== Tab 3: Builder Defaults (تنظیمات پلن‌ساز) ==================== -->
+<!-- ==================== Tab 3: Builder Defaults (تنظیمات پلن‌ساز) ==================== -->
     <div v-if="activeTab === 'builder'" class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-4 text-xs">
       <div class="border-b border-gray-700/30 pb-2">
         <h3 class="font-bold text-sm text-tg">تنظیمات قیمت‌گذاری و پیش‌فرض‌های پلن‌ساز دلخواه</h3>
@@ -943,6 +1697,7 @@
       </div>
     </div>
 
+    
     <!-- ==================== Tab 7: Payments & Gateways & Stars ==================== -->
     <div v-if="activeTab === 'payments'" class="space-y-4">
       <!-- 1. Card-to-Card Info -->
@@ -967,10 +1722,18 @@
             <label class="block text-[10px] text-tg-hint mb-1">نام بانک:</label>
             <input type="text" v-model="paymentsConfig.card.bank_name" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs" />
           </div>
+          <div class="col-span-full pt-1">
+            <label class="block text-[10px] text-tg-hint mb-1">تصویر کارت یا بارکد QR پرداخت (آدرس تصویر یا File ID):</label>
+            <input type="text" v-model="paymentsConfig.card.card_photo" dir="ltr" placeholder="https://example.com/card.jpg یا File ID تلگرام" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <div v-if="paymentsConfig.card.card_photo" class="mt-2 flex items-center gap-3">
+              <img :src="paymentsConfig.card.card_photo" class="w-20 h-20 object-cover rounded-xl border border-gray-700/40" @error="$event.target.style.display='none'" />
+              <span class="text-[10px] text-tg-hint">پیش‌نمایش تصویر کارت یا بارکد پرداخت</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 2. Telegram Stars Payment (NEW) -->
+      <!-- 2. Telegram Stars Payment -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-yellow-500/30 space-y-3 text-xs">
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-2">
@@ -1015,12 +1778,12 @@
 
         <div v-if="paymentsConfig.zibal.enabled" class="space-y-2 pt-2 border-t border-gray-700/30">
           <div>
-            <label class="block text-[10px] text-tg-hint mb-1">مرچنت کی زیبال (Merchant Key):</label>
-            <input type="text" v-model="paymentsConfig.zibal.merchant" dir="ltr" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <label class="block text-[10px] text-tg-hint mb-1">کد مرچنت زیبال (Merchant ID):</label>
+            <input type="text" v-model="paymentsConfig.zibal.merchant" dir="ltr" placeholder="zibal" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-tg-hint text-xs">محیط تستی زیبال (Sandbox):</span>
-            <input type="checkbox" v-model="paymentsConfig.zibal.sandbox" class="rounded accent-tg-button" />
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="zibalSandbox" v-model="paymentsConfig.zibal.sandbox" class="rounded" />
+            <label for="zibalSandbox" class="text-[10px] text-tg-hint">حالت تست زیبال (Sandbox / آزمایشگاهی)</label>
           </div>
         </div>
       </div>
@@ -1031,24 +1794,24 @@
           <div class="flex items-center gap-2">
             <span class="text-xl">🟡</span>
             <div>
-              <h4 class="font-bold text-sm text-tg">درگاه پرداخت زرین‌پال (Zarinpal)</h4>
-              <span class="text-[10px] text-tg-hint">پرداخت شتابی شاپرک</span>
+              <h4 class="font-bold text-sm text-tg">درگاه پرداخت زرین‌پال (ZarinPal)</h4>
+              <span class="text-[10px] text-tg-hint">درگاه پرداخت اینترنتی شاپرک</span>
             </div>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input type="checkbox" v-model="paymentsConfig.zarinpal.enabled" class="sr-only peer" />
-            <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+            <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-yellow-500"></div>
           </label>
         </div>
 
         <div v-if="paymentsConfig.zarinpal.enabled" class="space-y-2 pt-2 border-t border-gray-700/30">
           <div>
-            <label class="block text-[10px] text-tg-hint mb-1">مرچنت ۳۶ رقمی زرین‌پال:</label>
-            <input type="text" v-model="paymentsConfig.zarinpal.merchant" dir="ltr" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <label class="block text-[10px] text-tg-hint mb-1">کد مرچنت زرین‌پال (Merchant ID):</label>
+            <input type="text" v-model="paymentsConfig.zarinpal.merchant" dir="ltr" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-tg-hint text-xs">محیط تستی زرین‌پال (Sandbox):</span>
-            <input type="checkbox" v-model="paymentsConfig.zarinpal.sandbox" class="rounded accent-tg-button" />
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="zarinSandbox" v-model="paymentsConfig.zarinpal.sandbox" class="rounded" />
+            <label for="zarinSandbox" class="text-[10px] text-tg-hint">حالت تست زرین‌پال (Sandbox / آزمایشگاهی)</label>
           </div>
         </div>
       </div>
@@ -1058,7 +1821,7 @@
         :disabled="savingPayments"
         class="w-full btn-tg font-bold py-2.5 rounded-xl text-xs transition shadow"
       >
-        {{ savingPayments ? 'در حال ذخیره‌سازی...' : 'ذخیره تمام روش‌های پرداخت و استارز 💾' }}
+        {{ savingPayments ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات روش‌های پرداخت 💾' }}
       </button>
     </div>
 
@@ -1124,9 +1887,118 @@
           هنوز فایل بکاپی ساخته نشده است.
         </div>
       </div>
+
+      <!-- Snapshot Section -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <div>
+            <h4 class="font-bold text-sm text-tg">📸 اسنپ‌شات وضعیت و دیتابیس پنل</h4>
+            <span class="text-[10px] text-tg-hint">مشاهده گزارش جامع و ارسال مستقیم فایل اسنپ‌شات به چت تلگرام مدیر</span>
+          </div>
+          <div class="flex gap-2">
+            <button
+              @click="handleGetSnapshot"
+              :disabled="loadingSnapshot"
+              class="px-3 py-1.5 bg-blue-500/20 text-blue-300 rounded-xl font-bold hover:bg-blue-500/30 transition text-xs"
+            >
+              {{ loadingSnapshot ? 'در حال دریافت...' : 'مشاهده آمار 📊' }}
+            </button>
+            <button
+              @click="handleSendSnapshot"
+              :disabled="sendingSnapshot"
+              class="btn-tg py-1.5 px-3 rounded-xl font-bold shadow text-xs"
+            >
+              {{ sendingSnapshot ? 'در حال ارسال...' : 'ارسال به تلگرام 📤' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="snapshotInfo" class="p-3 bg-tg rounded-xl border border-gray-700/30 space-y-1 font-mono text-[10px]">
+          <div class="flex justify-between"><span>نسخه سیستم:</span><span class="text-sky-400 font-bold">v{{ snapshotInfo.version }}</span></div>
+          <div class="flex justify-between"><span>زمان اسنپ‌شات:</span><span>{{ snapshotInfo.timestamp }}</span></div>
+          <div class="flex justify-between"><span>کل کاربران:</span><span>{{ snapshotInfo.users?.total_users }}</span></div>
+          <div class="flex justify-between"><span>کل سفارش‌ها:</span><span>{{ snapshotInfo.orders?.total_orders }}</span></div>
+        </div>
+      </div>
     </div>
 
-    <!-- ==================== Tab 9: Server Status (وضعیت سرور) ==================== -->
+    <!-- ==================== Tab: Audit Log (لاگ حسابرسی) ==================== -->
+    <div v-if="activeTab === 'audit'" class="space-y-4 text-xs">
+      <!-- Audit Settings -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div>
+            <h4 class="font-bold text-sm text-tg">🧾 ثبت وقایع و لاگ حسابرسی (Audit Trail)</h4>
+            <span class="text-[10px] text-tg-hint">ثبت کلیه عملیات‌های حساس مالی، مدیریتی و ساخت سرویس‌ها</span>
+          </div>
+          <button
+            @click="auditSettings.enabled = !auditSettings.enabled"
+            class="px-3 py-1.5 rounded-xl font-bold transition shadow"
+            :class="auditSettings.enabled ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+          >
+            {{ auditSettings.enabled ? 'لاگ حسابرسی فعال ✓' : 'غیرفعال' }}
+          </button>
+        </div>
+
+        <div v-if="auditSettings.enabled" class="space-y-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">شناسه کانال یا گروه تلگرام حسابرسی (Audit Chat ID):</label>
+            <input
+              type="text"
+              v-model="auditSettings.audit_chat_id"
+              placeholder="-1001234567890 یا خالی"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+            <span class="text-[9px] text-tg-hint block mt-0.5">
+              در صورت تنظیم شناسه کانال، پیام‌های حسابرسی مستقیماً به آن کانال ارسال می‌شوند (ربات باید در کانال ادمین باشد).
+            </span>
+          </div>
+        </div>
+
+        <button
+          @click="handleSaveAuditSettings"
+          :disabled="savingAudit"
+          class="w-full btn-tg font-bold py-2 rounded-xl text-xs transition shadow"
+        >
+          {{ savingAudit ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات حسابرسی 💾' }}
+        </button>
+      </div>
+
+      <!-- Events List -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
+        <div class="flex justify-between items-center">
+          <h4 class="font-bold text-sm text-tg">آخرین رویدادهای سیستمی</h4>
+          <button @click="loadAuditEvents" class="text-xs text-tg-button hover:underline">
+            🔄 بروزرسانی
+          </button>
+        </div>
+
+        <div v-if="auditEvents.length" class="space-y-1.5 max-h-96 overflow-y-auto">
+          <div
+            v-for="ev in auditEvents"
+            :key="ev.id"
+            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 text-xs space-y-1"
+          >
+            <div class="flex justify-between items-center">
+              <span class="font-bold font-mono text-emerald-400">{{ ev.event_type }}</span>
+              <span class="text-[10px] text-tg-hint font-mono">{{ ev.created_at }}</span>
+            </div>
+            <div class="text-[10px] text-tg-hint flex gap-3">
+              <span v-if="ev.actor_id">مجری: <code>{{ ev.actor_id }}</code></span>
+              <span v-if="ev.target_id">هدف: <code>{{ ev.target_id }}</code></span>
+            </div>
+            <p v-if="ev.details" class="text-[10px] text-tg/80 font-mono bg-tg-sec/50 p-1.5 rounded-lg">
+              {{ ev.details }}
+            </p>
+          </div>
+        </div>
+        <div v-else class="text-center py-6 text-tg-hint text-[10px]">
+          رویدادی ثبت نشده است.
+        </div>
+      </div>
+    </div>
+<!-- ==================== Tab 9: Server Status (وضعیت سرور) ==================== -->
     <div v-if="activeTab === 'server'" class="space-y-3 text-xs">
       <div v-if="serverStatus" class="space-y-3">
         <!-- Resource Bars -->
@@ -1216,13 +2088,14 @@
       </button>
     </div>
 
+    
     <!-- ==================== Tab 11: Branding / UI Title ==================== -->
-    <div v-if="activeTab === 'branding'" class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3 text-xs">
+    <div v-if="activeTab === 'branding'" class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-4 text-xs">
       <div class="flex items-center gap-2">
         <span class="text-lg">🎨</span>
         <div>
-          <span class="font-bold block text-sm">نام و عنوان وب‌اپلیکیشن</span>
-          <span class="text-[10px] text-tg-hint">تغییر عنوان در تب مرورگر و بالای مینی‌اپ</span>
+          <span class="font-bold block text-sm">نام، عنوان و منوی مشتریان</span>
+          <span class="text-[10px] text-tg-hint">شخصی‌سازی ظاهر وب‌اپلیکیشن و دکمه‌های منوی ربات تلگرام</span>
         </div>
       </div>
 
@@ -1236,12 +2109,32 @@
         />
       </div>
 
+      <!-- Customer Menu Visibility Toggles -->
+      <div class="space-y-2 pt-2 border-t border-gray-700/30">
+        <label class="block text-xs font-semibold text-tg">دکمه‌های منوی ربات تلگرام مشتریان (کیبورد اصلی):</label>
+        <span class="text-[10px] text-tg-hint block">انتخاب کنید کدام دکمه‌ها در منوی ربات به مشتریان نمایش داده شوند</span>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+          <button
+            v-for="(label, key) in customerMenuLabels"
+            :key="key"
+            type="button"
+            @click="customerMenu[key] = !customerMenu[key]"
+            class="p-2 rounded-xl text-xs font-medium border transition flex items-center justify-between"
+            :class="customerMenu[key] ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'bg-tg border-gray-700/40 text-tg-hint'"
+          >
+            <span>{{ label }}</span>
+            <span class="text-[10px]">{{ customerMenu[key] ? '✓' : '✕' }}</span>
+          </button>
+        </div>
+      </div>
+
       <button
         @click="handleSaveBranding"
         :disabled="savingBranding || !uiTitle.trim()"
         class="w-full btn-tg font-bold py-2.5 rounded-xl text-xs transition active:scale-95 shadow"
       >
-        {{ savingBranding ? 'در حال ذخیره‌سازی...' : 'ذخیره عنوان وب‌اپ 💾' }}
+        {{ savingBranding ? 'در حال ذخیره‌سازی...' : 'ذخیره تنظیمات عنوان و منو 💾' }}
       </button>
     </div>
 
@@ -1249,10 +2142,16 @@
 
     <!-- Modal 1: Plan Create/Edit Modal -->
     <div v-if="showPlanModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
           <h4 class="font-bold text-sm">{{ isEditingPlan ? 'ویرایش پلان' : 'افزودن پلان جدید' }}</h4>
           <button @click="showPlanModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <!-- Error banner inside modal -->
+        <div v-if="planModalError" class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex justify-between items-center">
+          <span>{{ planModalError }}</span>
+          <button type="button" @click="planModalError = ''" class="opacity-70 hover:opacity-100 text-xs">✕</button>
         </div>
 
         <div class="space-y-2">
@@ -1278,29 +2177,95 @@
               <input type="number" v-model.number="planForm.ip_limit" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
             </div>
           </div>
-          <div>
-            <label class="block text-[10px] text-tg-hint mb-0.5">نام گروه سنائی (3x-ui Group Name):</label>
-            <input
-              type="text"
-              list="xuiGroupsList"
-              v-model="planForm.group_name"
-              placeholder="مثلاً Customers یا VIP"
-              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono"
-            />
-            <datalist id="xuiGroupsList">
-              <option v-for="g in xuiGroups" :key="g.name" :value="g.name" />
-            </datalist>
-            <span class="text-[9px] text-tg-hint block mt-0.5">
-              کلاینت‌های این پلن در پنل سنائی به این Group اختصاص داده می‌شوند (پیش‌فرض: Customers).
-            </span>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">دسته‌بندی پلن:</label>
+              <select v-model="planForm.category_id" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs">
+                <option :value="null">پیش‌فرض (عمومی)</option>
+                <option v-for="cat in categoriesList" :key="cat.id" :value="cat.id">
+                  {{ cat.icon || '📦' }} {{ cat.name }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">نام گروه سنائی (Group Name):</label>
+              <input
+                type="text"
+                list="xuiGroupsList"
+                v-model="planForm.group_name"
+                placeholder="مثلاً Customers یا VIP"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono"
+              />
+              <datalist id="xuiGroupsList">
+                <option v-for="g in xuiGroups" :key="g.name" :value="g.name" />
+              </datalist>
+            </div>
+          </div>
+
+          <!-- Inbounds (Servers) Selection -->
+          <div class="space-y-1.5 pt-2 border-t border-gray-700/30">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="block text-[11px] font-bold text-white">انتخاب اینباندها / سرورها (Inbounds):</label>
+                <span class="text-[10px] text-tg-hint">کلاینت‌های این پلان روی کدام اینباندها ساخته شوند؟</span>
+              </div>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  @click="selectAllPlanInbounds(true)"
+                  class="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold hover:bg-emerald-500/30"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllPlanInbounds(false)"
+                  class="px-2 py-0.5 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold hover:bg-gray-700/60"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="loadingAllInbounds" class="text-center py-3 text-tg-hint text-[10px]">
+              در حال دریافت اینباندها...
+            </div>
+            <div v-else-if="availableInboundsList.length" class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar pr-0.5">
+              <div
+                v-for="inb in availableInboundsList"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px] text-white">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-2 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد.
+            </div>
           </div>
         </div>
 
         <div class="flex gap-2 pt-2">
-          <button @click="handleSavePlan" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
-            ذخیره پلان 💾
+          <button
+            @click="handleSavePlan"
+            :disabled="isSavingPlan"
+            class="flex-1 btn-tg py-2 rounded-xl font-bold shadow flex items-center justify-center gap-1.5"
+          >
+            <span v-if="isSavingPlan" class="animate-spin text-xs">⏳</span>
+            <span>{{ isSavingPlan ? 'در حال ذخیره...' : 'ذخیره پلان 💾' }}</span>
           </button>
-          <button @click="showPlanModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+          <button @click="showPlanModal = false" :disabled="isSavingPlan" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
             انصراف
           </button>
         </div>
@@ -1329,28 +2294,148 @@
         </div>
 
         <div>
-          <span class="font-bold block mb-1">سرویس‌های فعال ({{ selectedUserDetail.services.length }}):</span>
-          <div v-if="selectedUserDetail.services.length" class="space-y-1">
-            <div v-for="s in selectedUserDetail.services" :key="s.id" class="p-2 bg-tg rounded-lg font-mono text-[10px] flex justify-between">
-              <span>{{ s.sub_id || 'سرویس' }}</span>
-              <span class="text-tg-hint">{{ s.status }}</span>
+          <span class="font-bold block mb-1.5">سرویس‌های متصل و فعال ({{ selectedUserDetail.services.length }}):</span>
+          <div v-if="selectedUserDetail.services.length" class="space-y-2">
+            <div
+              v-for="s in selectedUserDetail.services"
+              :key="s.id"
+              class="p-2.5 bg-tg rounded-xl border border-gray-700/30 space-y-2"
+            >
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="font-bold text-xs block text-white">{{ s.display_name || s.sub_id || 'سرویس' }}</span>
+                  <span class="text-[10px] font-mono text-tg-hint block">{{ s.email || s.service_email || s.sub_id }}</span>
+                </div>
+                <span class="text-[9px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold">
+                  {{ s.status || 'فعال' }}
+                </span>
+              </div>
+
+              <div class="flex items-center gap-1.5 pt-1 border-t border-gray-700/30">
+                <button
+                  type="button"
+                  @click="openEditServiceModal(s)"
+                  class="flex-1 py-1.5 px-2 bg-sky-500/20 text-sky-300 rounded-lg text-[10px] font-bold hover:bg-sky-500/30 transition text-center"
+                >
+                  ✏️ ویرایش، انقضا و اینباندها
+                </button>
+                <button
+                  type="button"
+                  @click="handleQuickResetTraffic(s)"
+                  class="py-1.5 px-2 bg-amber-500/20 text-amber-300 rounded-lg text-[10px] font-bold hover:bg-amber-500/30 transition"
+                  title="صفر کردن ترافیک مصرف شده"
+                >
+                  🔄 ریست حجم
+                </button>
+                <button
+                  type="button"
+                  @click="handleDeleteService(s)"
+                  class="py-1.5 px-2 bg-rose-500/20 text-rose-300 rounded-lg text-[10px] font-bold hover:bg-rose-500/30 transition"
+                  title="حذف کامل سرویس از پنل"
+                >
+                  🗑 حذف
+                </button>
+              </div>
             </div>
           </div>
           <div v-else class="text-tg-hint text-[10px]">سرویسی یافت نشد.</div>
         </div>
 
-        <div>
-          <span class="font-bold block mb-1">تاریخچه تراکنش‌ها ({{ selectedUserDetail.transactions.length }}):</span>
-          <div v-if="selectedUserDetail.transactions.length" class="space-y-1">
-            <div v-for="t in selectedUserDetail.transactions" :key="t.id" class="p-2 bg-tg rounded-lg text-[10px] flex justify-between items-center">
-              <div>
-                <span class="font-bold block">{{ t.plan }}</span>
-                <span class="text-tg-hint">#{{ t.id }} | {{ t.method }}</span>
+        <!-- User History: Purchases & Wallet transactions -->
+        <div class="space-y-2 pt-1 border-t border-gray-700/30">
+          <div class="flex items-center gap-1.5 border-b border-gray-700/30 pb-2">
+            <button
+              type="button"
+              @click="userHistoryTab = 'purchases'"
+              class="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold transition text-center"
+              :class="userHistoryTab === 'purchases' ? 'btn-tg shadow text-white' : 'bg-tg text-tg-hint hover:text-tg'"
+            >
+              🛒 خریدها و سفارش‌ها ({{ selectedUserDetail.transactions?.length || 0 }})
+            </button>
+            <button
+              type="button"
+              @click="userHistoryTab = 'wallet'"
+              class="flex-1 py-1.5 px-2 rounded-xl text-[11px] font-semibold transition text-center"
+              :class="userHistoryTab === 'wallet' ? 'btn-tg shadow text-white' : 'bg-tg text-tg-hint hover:text-tg'"
+            >
+              👛 تراکنش‌های کیف پول ({{ selectedUserDetail.wallet_transactions?.length || 0 }})
+            </button>
+          </div>
+
+          <!-- Tab 1: Purchases & Orders (showing plan, price, status, and discounts used!) -->
+          <div v-if="userHistoryTab === 'purchases'">
+            <div v-if="selectedUserDetail.transactions && selectedUserDetail.transactions.length" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+              <div
+                v-for="t in selectedUserDetail.transactions"
+                :key="t.id"
+                class="p-2.5 bg-tg rounded-xl text-[10px] space-y-1.5 border border-gray-700/30"
+              >
+                <div class="flex justify-between items-start">
+                  <div>
+                    <span class="font-bold text-tg text-xs block">{{ t.plan }}</span>
+                    <span class="text-tg-hint">#{{ t.id }} | روش: {{ t.method }}</span>
+                  </div>
+                  <div class="text-left">
+                    <span class="font-bold text-xs" :class="t.status === 'APPROVED' ? 'text-emerald-400' : (t.status === 'REJECTED' || t.status === 'CANCELLED' ? 'text-rose-400' : 'text-amber-400')">
+                      {{ Number(t.price).toLocaleString('fa-IR') }} تومان
+                    </span>
+                    <span class="block text-[9px] text-tg-hint">
+                      {{ t.status === 'APPROVED' ? '✅ تایید شده' : (t.status === 'REJECTED' ? '❌ رد شده' : (t.status === 'CANCELLED' ? '🚫 لغو شده' : '⏳ ' + t.status)) }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Discount used info -->
+                <div v-if="t.discount_amount > 0" class="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg text-emerald-300">
+                  <span>🎟</span>
+                  <span>تخفیف استفاده‌شده:</span>
+                  <span class="font-bold">{{ Number(t.discount_amount).toLocaleString('fa-IR') }} تومان</span>
+                  <span v-if="t.discount_code" class="font-mono text-tg-hint">({{ t.discount_code }})</span>
+                </div>
               </div>
-              <span class="text-emerald-400 font-mono font-bold">{{ Number(t.price).toLocaleString('fa-IR') }} تومان</span>
+            </div>
+            <div v-else class="text-tg-hint text-[10px] py-4 text-center bg-tg/40 rounded-xl border border-dashed border-gray-700/30">
+              خرید یا سفارشی برای این کاربر ثبت نشده است.
             </div>
           </div>
-          <div v-else class="text-tg-hint text-[10px]">تراکنشی ثبت نشده است.</div>
+
+          <!-- Tab 2: Wallet transactions (Balance ups and downs unrelated to purchases, e.g. Gift codes, Admin Adjust) -->
+          <div v-if="userHistoryTab === 'wallet'">
+            <div v-if="selectedUserDetail.wallet_transactions && selectedUserDetail.wallet_transactions.length" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+              <div
+                v-for="wt in selectedUserDetail.wallet_transactions"
+                :key="wt.id"
+                class="p-2.5 bg-tg rounded-xl text-[10px] flex justify-between items-center border border-gray-700/30"
+              >
+                <div class="space-y-0.5">
+                  <div class="flex items-center gap-1.5">
+                    <span v-if="wt.type === 'GIFT_CODE'">🎁</span>
+                    <span v-else-if="wt.type === 'CASHBACK'">💸</span>
+                    <span v-else-if="wt.type === 'COMMISSION'">🤝</span>
+                    <span v-else-if="wt.type === 'PURCHASE'">🛒</span>
+                    <span v-else>⚡️</span>
+                    <span class="font-bold text-tg">{{ wt.description || wt.type }}</span>
+                  </div>
+                  <span class="text-tg-hint text-[9px] block">
+                    موجودی پس از تراکنش: {{ Number(wt.balance_after).toLocaleString('fa-IR') }} تومان
+                  </span>
+                </div>
+
+                <div class="text-left">
+                  <span
+                    class="font-mono font-bold text-xs block"
+                    :class="wt.amount > 0 ? 'text-emerald-400' : 'text-rose-400'"
+                  >
+                    {{ wt.amount > 0 ? '+' : '' }}{{ Number(wt.amount).toLocaleString('fa-IR') }}
+                  </span>
+                  <span class="text-[9px] text-tg-hint">تومان</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-tg-hint text-[10px] py-4 text-center bg-tg/40 rounded-xl border border-dashed border-gray-700/30">
+              تراکنشی در کیف پول ثبت نشده است.
+            </div>
+          </div>
         </div>
 
         <button @click="selectedUserDetail = null" class="w-full bg-gray-700/40 text-tg py-2 rounded-xl font-bold">
@@ -1789,6 +2874,717 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal 8: Plan Inbounds Selector Modal (NEW) -->
+    <div v-if="showPlanInboundsModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div>
+            <h4 class="font-bold text-sm">مسیریابی اینباندهای پلن: {{ selectedPlanForInbounds?.name }}</h4>
+            <span class="text-[10px] text-tg-hint">کلاینت‌های این پلن روی اینباندهای فعال ساخته خواهند شد</span>
+          </div>
+          <button @click="showPlanInboundsModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div v-if="loadingPlanInbounds" class="text-center py-6 text-tg-hint">
+          در حال دریافت اینباندها...
+        </div>
+        <div v-else-if="planInboundsList.length" class="space-y-2 max-h-72 overflow-y-auto">
+          <div
+            v-for="inb in planInboundsList"
+            :key="inb.id"
+            class="p-2.5 rounded-xl border flex items-center justify-between transition cursor-pointer"
+            :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+            @click="handleTogglePlanInbound(inb.id)"
+          >
+            <div>
+              <span class="font-bold block">{{ inb.tag || ('اینباند #' + inb.id) }}</span>
+              <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+            </div>
+            <span
+              class="px-2.5 py-1 rounded-lg text-[10px] font-bold"
+              :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+            >
+              {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+            </span>
+          </div>
+        </div>
+        <div v-else class="text-center py-6 text-tg-hint">
+          اینباندی در پنل یافت نشد.
+        </div>
+
+        <div class="flex gap-2 pt-2 border-t border-gray-700/30">
+          <button @click="handleResetPlanInbounds" class="px-3 bg-amber-500/20 text-amber-300 rounded-xl font-bold">
+            بازنشانی به همه 🔄
+          </button>
+          <button @click="showPlanInboundsModal = false" class="flex-1 btn-tg py-2 rounded-xl font-bold">
+            بستن
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 9: Category Create/Edit Modal (NEW) -->
+    <div v-if="showCategoryModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm">{{ isEditingCategory ? 'ویرایش دسته‌بندی' : 'افزودن دسته‌بندی جدید' }}</h4>
+          <button @click="showCategoryModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div class="space-y-2">
+          <div class="grid grid-cols-4 gap-2">
+            <div class="col-span-1">
+              <label class="block text-[10px] text-tg-hint mb-0.5">آیکون:</label>
+              <input type="text" v-model="categoryForm.icon" placeholder="📦" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-center text-sm" />
+            </div>
+            <div class="col-span-3">
+              <label class="block text-[10px] text-tg-hint mb-0.5">نام دسته‌بندی:</label>
+              <input type="text" v-model="categoryForm.name" placeholder="مثلاً: سرویس‌های گیمینگ یا VIP" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">توضیحات کوتاه:</label>
+            <input type="text" v-model="categoryForm.description" placeholder="سرویس‌های اختصاصی با پینگ پایین" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">ترتیب نمایش:</label>
+              <input type="number" v-model.number="categoryForm.sort_order" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">وضعیت:</label>
+              <select v-model.number="categoryForm.is_active" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2">
+                <option :value="1">فعال</option>
+                <option :value="0">غیرفعال</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="handleSaveCategory" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ذخیره دسته‌بندی 💾
+          </button>
+          <button @click="showCategoryModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 10: Volume Pack Create/Edit Modal (NEW) -->
+    <div v-if="showVolumePackModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm">{{ isEditingVolumePack ? 'ویرایش بسته حجم اضافه' : 'افزودن بسته حجم اضافه' }}</h4>
+          <button @click="showVolumePackModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">حجم بسته (گیگابایت):</label>
+              <input type="number" step="0.5" v-model.number="volumePackForm.volume_gb" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">قیمت (تومان):</label>
+              <input type="number" v-model.number="volumePackForm.price" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">مدت اعتبار افزوده (روز):</label>
+              <input type="number" v-model.number="volumePackForm.duration_days" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">وضعیت:</label>
+              <select v-model.number="volumePackForm.is_active" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2">
+                <option :value="1">فعال</option>
+                <option :value="0">غیرفعال</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="handleSaveVolumePack" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ذخیره بسته 💾
+          </button>
+          <button @click="showVolumePackModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Server Profile Create/Edit Modal -->
+    <div v-if="showServerModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm">{{ isEditingServer ? 'ویرایش سرور / لوکیشن' : 'افزودن سرور جدید' }}</h4>
+          <button @click="showServerModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <!-- Error banner inside modal -->
+        <div v-if="serverModalError" class="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex justify-between items-center">
+          <span>{{ serverModalError }}</span>
+          <button type="button" @click="serverModalError = ''" class="opacity-70 hover:opacity-100 text-xs">✕</button>
+        </div>
+
+        <div class="space-y-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">نام و پرچم سرور:</label>
+            <input type="text" v-model="serverForm.name" placeholder="مثلاً: 🇩🇪 سرور آلمان VIP" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+          </div>
+
+          <!-- Contact Support Toggle -->
+          <div class="p-2.5 rounded-xl bg-tg border border-gray-700/30 space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="serverForm.contact_support" class="accent-indigo-500" />
+              <span class="font-bold text-xs text-white">برای خرید به پشتیبانی مراجعه فرمایید (عدم پرداخت خودکار)</span>
+            </label>
+
+            <!-- Support target type selection -->
+            <div v-if="serverForm.contact_support" class="pt-2 border-t border-gray-700/30 space-y-2">
+              <span class="text-[10px] text-tg-hint block">محل هدایت کاربر هنگام کلیک روی خرید:</span>
+              <div class="grid grid-cols-2 gap-2">
+                <label
+                  class="p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition"
+                  :class="serverForm.support_target_type === 'bot' ? 'bg-indigo-500/20 border-indigo-500/50 text-white font-bold' : 'bg-tg border-gray-700/30 text-tg-hint'"
+                >
+                  <input type="radio" value="bot" v-model="serverForm.support_target_type" class="hidden" />
+                  <span>📞 پشتیبانی ربات</span>
+                </label>
+                <label
+                  class="p-2 rounded-xl border flex items-center gap-2 cursor-pointer transition"
+                  :class="serverForm.support_target_type === 'link' ? 'bg-indigo-500/20 border-indigo-500/50 text-white font-bold' : 'bg-tg border-gray-700/30 text-tg-hint'"
+                >
+                  <input type="radio" value="link" v-model="serverForm.support_target_type" class="hidden" />
+                  <span>💬 آیدی یا کانال</span>
+                </label>
+              </div>
+
+              <div v-if="serverForm.support_target_type === 'link'">
+                <label class="block text-[10px] text-tg-hint mb-0.5">آیدی یا لینک تلگرام پشتیبانی / کانال:</label>
+                <input
+                  type="text"
+                  v-model="serverForm.support_target_url"
+                  placeholder="مثلاً SupportAdmin@ یا https://t.me/..."
+                  class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <!-- Price input (if not support only) -->
+            <div v-else>
+              <label class="block text-[10px] text-tg-hint mb-0.5">قیمت اضافه این سرور (تومان - 0 برای رایگان/پیش‌فرض):</label>
+              <input type="number" v-model.number="serverForm.price" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+            </div>
+          </div>
+
+          <!-- Custom / External Server toggle -->
+          <div class="p-2.5 rounded-xl bg-tg border border-gray-700/30">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="serverForm.is_custom" class="accent-indigo-500" />
+              <span class="text-xs">سرور سفارشی / خارجی (بدون اتصال مستقیم به اینباندهای ۳x-ui)</span>
+            </label>
+          </div>
+
+          <!-- Inbound Checkboxes (if not custom) -->
+          <div v-if="!serverForm.is_custom" class="space-y-1.5 pt-2 border-t border-gray-700/30">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="block text-[11px] font-bold text-white">اینباندهای متصل به این سرور (ادغام):</label>
+                <span class="text-[10px] text-tg-hint">ترافیک این سرور روی این اینباندها هدایت می‌شود</span>
+              </div>
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  @click="selectAllServerInbounds(true)"
+                  class="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllServerInbounds(false)"
+                  class="px-2 py-0.5 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="serverInboundsList.length" class="space-y-1.5 max-h-40 overflow-y-auto no-scrollbar pr-0.5">
+              <div
+                v-for="inb in serverInboundsList"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px] text-white">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'انتخاب ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-2 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد.
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button
+            @click="handleSaveServer"
+            :disabled="isSavingServer"
+            class="flex-1 btn-tg py-2 rounded-xl font-bold shadow flex items-center justify-center gap-1.5"
+          >
+            <span v-if="isSavingServer" class="animate-spin text-xs">⏳</span>
+            <span>{{ isSavingServer ? 'در حال ذخیره...' : 'ذخیره سرور 💾' }}</span>
+          </button>
+          <button @click="showServerModal = false" :disabled="isSavingServer" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 11: Add Trial Override Modal (NEW) -->
+    <div v-if="showTrialOverrideModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <h4 class="font-bold text-sm">افزودن استثنای تست رایگان</h4>
+        <div class="space-y-2">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">شناسه عددی تلگرام کاربر:</label>
+            <input type="number" v-model.number="trialOverrideForm.user_id" placeholder="12345678" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">حجم (GB):</label>
+              <input type="number" step="0.5" v-model.number="trialOverrideForm.volume_gb" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2 font-mono text-center" />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">مدت (روز):</label>
+              <input type="number" v-model.number="trialOverrideForm.days" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2 font-mono text-center" />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">کاربر (IP):</label>
+              <input type="number" v-model.number="trialOverrideForm.ip_limit" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2 font-mono text-center" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">یادداشت / علت اعطا:</label>
+            <input type="text" v-model="trialOverrideForm.note" placeholder="مثلاً: تست یوتیوبر یا همکار" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="handleSaveTrialOverride" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ثبت استثنا 💾
+          </button>
+          <button @click="showTrialOverrideModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 12: Reject Service Claim Modal (NEW) -->
+    <div v-if="showRejectClaimModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
+        <h4 class="font-bold text-sm text-rose-400">رد درخواست اتصال سرویس</h4>
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">دلیل رد درخواست (برای کاربر ارسال می‌شود):</label>
+          <textarea
+            v-model="rejectClaimReason"
+            rows="3"
+            class="w-full bg-tg border border-gray-700/40 rounded-xl p-3 text-xs leading-relaxed"
+            placeholder="اشتراک در پنل یافت نشد یا معتبر نیست."
+          ></textarea>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button @click="handleConfirmRejectClaim" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-xl font-bold shadow">
+            رد قطعی درخواست ✕
+          </button>
+          <button @click="showRejectClaimModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 13: Add Guide Item Modal (NEW) -->
+    <div v-if="showAddGuideModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-md w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm">افزودن آموزش راهنمای اتصال</h4>
+          <button @click="showAddGuideModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div class="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-blue-300">📲 ارسال مطلب مستقیم در چت ربات تلگرام:</span>
+            <span class="text-[10px] bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded-full font-bold">پیشنهادی</span>
+          </div>
+          <p class="text-[10px] text-tg-hint leading-relaxed">
+            به جای تایپ دستی، می‌توانید درخواست را به ربات بفرستید تا مطلب کامل (شامل متن بلند، تصویر و ویدیو همراه کپشن) را مستقیماً از تلگرام به عنوان راهنما دریافت و ذخیره کند.
+          </p>
+          <button
+            @click="handlePromptGuideBot(guideForm.platform, guideForm.app_name)"
+            :disabled="promptingBot"
+            class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-xl font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+          >
+            <span>🚀</span>
+            <span>{{ promptingBot ? 'در حال ارسال پیام به ربات...' : 'ارسال درخواست ثبت راهنما به تلگرام من' }}</span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <div class="h-px bg-gray-700/40 flex-1"></div>
+          <span class="text-[10px] text-tg-hint">یا ثبت دستی در پنل وب:</span>
+          <div class="h-px bg-gray-700/40 flex-1"></div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">سیستم عامل / پلتفرم:</label>
+              <select v-model="guideForm.platform" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs">
+                <option value="android">اندروید (Android) 📱</option>
+                <option value="ios">آیفون و آیپد (iOS) 🍏</option>
+                <option value="windows">ویندوز (Windows) 💻</option>
+                <option value="macos">مک (macOS) 🖥</option>
+                <option value="linux">لینوکس (Linux) 🐧</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">نوع محتوا:</label>
+              <select v-model="guideForm.media_type" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-mono">
+                <option value="TEXT">متن ساده (TEXT)</option>
+                <option value="PHOTO">تصویر آموزشی (PHOTO)</option>
+                <option value="VIDEO">ویدیو آموزشی (VIDEO)</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-0.5">
+              <label class="block text-[10px] text-tg-hint">نام نرم‌افزار / اپلیکیشن:</label>
+              <span class="text-[9px] text-blue-400">پیشنهادها را انتخاب یا دستی بنویسید</span>
+            </div>
+            <input
+              type="text"
+              v-model="guideForm.app_name"
+              placeholder="مثلاً: V2RayNG یا Streisand یا Hiddify"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs font-medium"
+            />
+            <div v-if="platformSuggestedApps[guideForm.platform]" class="flex gap-1.5 flex-wrap mt-1.5">
+              <button
+                v-for="sApp in platformSuggestedApps[guideForm.platform]"
+                :key="sApp"
+                type="button"
+                @click="guideForm.app_name = sApp"
+                class="text-[10px] px-2 py-0.5 rounded-lg border transition"
+                :class="guideForm.app_name === sApp ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-300 border-gray-700 hover:border-gray-500'"
+              >
+                {{ sApp }}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">عنوان آموزش:</label>
+            <input type="text" v-model="guideForm.title" placeholder="مثلاً: راهنمای نصب نرم‌افزار v2rayNG" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2" />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">متن توضیحات و آموزش:</label>
+            <textarea
+              v-model="guideForm.body"
+              rows="4"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl p-3 text-xs leading-relaxed"
+              placeholder="لینک دانلود برنامه و مراحل اتصال..."
+            ></textarea>
+          </div>
+          <div v-if="guideForm.media_type !== 'TEXT'">
+            <label class="block text-[10px] text-tg-hint mb-0.5">شناسه فایل تلگرام (File ID) یا لینک فایل:</label>
+            <input type="text" v-model="guideForm.media_file_id" dir="ltr" placeholder="AgACAgIAAxkBA..." class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-0.5">ترتیب نمایش:</label>
+            <input type="number" v-model.number="guideForm.sort_order" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono" />
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button @click="handleSaveGuide" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
+            ثبت آموزش 💾
+          </button>
+          <button @click="showAddGuideModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
+            انصراف
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 14: Customer Service Edit Modal (NEW) -->
+    <div v-if="showServiceModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-lg w-full p-4 space-y-3 text-xs shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <div>
+            <h4 class="font-bold text-sm flex items-center gap-1.5">
+              <span>🛠</span>
+              <span>مدیریت سرویس: {{ serviceEditForm.display_name || serviceEditForm.email }}</span>
+            </h4>
+            <span class="text-[10px] text-tg-hint font-mono">{{ serviceEditForm.email }}</span>
+          </div>
+          <button @click="showServiceModal = false" class="text-tg-hint hover:text-tg text-sm">✕</button>
+        </div>
+
+        <div v-if="loadingServiceModal" class="py-10 text-center text-tg-hint space-y-2">
+          <div class="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div>در حال دریافت اطلاعات سرویس از پنل سنائی...</div>
+        </div>
+
+        <div v-else class="space-y-3">
+          <!-- Usage Stats Bar -->
+          <div class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2">
+            <div class="flex justify-between items-center text-[11px]">
+              <span>مصرف ترافیک:</span>
+              <span class="font-mono font-bold">
+                {{ serviceEditForm.used_gb }} GB / {{ serviceEditForm.total_gb > 0 ? (serviceEditForm.total_gb + ' GB') : 'نامحدود' }}
+              </span>
+            </div>
+            <!-- Progress bar -->
+            <div v-if="serviceEditForm.total_gb > 0" class="w-full bg-gray-700/50 h-2 rounded-full overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all"
+                :class="serviceUsagePercent >= 90 ? 'bg-rose-500' : (serviceUsagePercent >= 75 ? 'bg-amber-500' : 'bg-emerald-500')"
+                :style="{ width: Math.min(100, serviceUsagePercent) + '%' }"
+              ></div>
+            </div>
+            <div class="flex justify-between items-center text-[10px] text-tg-hint pt-1 border-t border-gray-700/20">
+              <span>وضعیت اتصال:</span>
+              <span :class="serviceEditForm.enable ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'">
+                {{ serviceEditForm.enable ? 'فعال (مجاز به اتصال)' : 'غیرفعال (مسدود شده)' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Volume & IP Limit -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">حجم مجاز (گیگابایت - ۰ برای نامحدود):</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                v-model.number="serviceEditForm.total_gb"
+                placeholder="0 = نامحدود"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-0.5">محدودیت IP همزمان (۰ برای نامحدود):</label>
+              <input
+                type="number"
+                min="0"
+                v-model.number="serviceEditForm.limit_ip"
+                placeholder="0 = نامحدود"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <!-- Expiry Date & Time Section -->
+          <div class="bg-tg/50 p-3 rounded-xl border border-gray-700/30 space-y-2">
+            <div class="flex justify-between items-center">
+              <label class="text-[10px] text-tg-hint">تاریخ انقضا:</label>
+              <span class="text-[11px] font-bold text-sky-400">
+                {{ formatServiceExpiry(serviceEditForm.expiry_time) }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input
+                type="date"
+                :value="getExpiryInputDate(serviceEditForm.expiry_time)"
+                @change="onDateInputChange"
+                class="flex-1 bg-tg border border-gray-700/40 rounded-xl px-3 py-1.5 text-xs font-mono"
+              />
+              <button
+                type="button"
+                @click="setServiceExpiryDays(0)"
+                class="px-2.5 py-1.5 bg-gray-700/40 hover:bg-gray-700 text-tg-hint rounded-xl text-[10px] font-bold transition"
+              >
+                نامحدود (بدون انقضا)
+              </button>
+            </div>
+
+            <!-- Quick Extend Buttons -->
+            <div class="flex items-center gap-1.5 flex-wrap pt-1">
+              <span class="text-[9px] text-tg-hint">تمدید سریع:</span>
+              <button
+                type="button"
+                @click="extendServiceExpiry(7)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۷ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(30)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۳۰ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(60)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۶۰ روز
+              </button>
+              <button
+                type="button"
+                @click="extendServiceExpiry(90)"
+                class="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-lg text-[10px] font-bold hover:bg-indigo-500/30 transition"
+              >
+                +۹۰ روز
+              </button>
+            </div>
+          </div>
+
+          <!-- Reset Quota & Enable Toggle -->
+          <div class="space-y-2 pt-1">
+            <label class="flex items-center gap-2 cursor-pointer bg-tg p-2.5 rounded-xl border border-gray-700/30">
+              <input
+                type="checkbox"
+                v-model="serviceEditForm.enable"
+                class="w-4 h-4 rounded text-indigo-500 focus:ring-0"
+              />
+              <div class="flex-1">
+                <span class="font-bold text-xs block">فعال بودن سرویس در سرور</span>
+                <span class="text-[10px] text-tg-hint">در صورت خاموش بودن، اتصال کاربر قطع خواهد شد</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-2 cursor-pointer bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-xl">
+              <input
+                type="checkbox"
+                v-model="serviceEditForm.reset_traffic"
+                class="w-4 h-4 rounded text-amber-500 focus:ring-0"
+              />
+              <div class="flex-1">
+                <span class="font-bold text-xs text-amber-300 block">صفر کردن حجم مصرف شده (Reset Quota)</span>
+                <span class="text-[10px] text-amber-200/70">با ذخیره این فرم، مقادیر دانلود و آپلود کاربر به صفر بازنشانی می‌شود</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Inbounds Selector -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex justify-between items-center">
+              <div>
+                <label class="font-bold text-xs block">اینباندهای مجاز برای این سرویس:</label>
+                <span class="text-[10px] text-tg-hint">اینباند‌هایی که کلاینت روی آنها تنظیم و فعال است</span>
+              </div>
+              <div class="flex gap-1.5">
+                <button
+                  type="button"
+                  @click="selectAllServiceInbounds(true)"
+                  class="px-2 py-1 bg-emerald-500/20 text-emerald-300 rounded-lg text-[9px] font-bold"
+                >
+                  همه ✓
+                </button>
+                <button
+                  type="button"
+                  @click="selectAllServiceInbounds(false)"
+                  class="px-2 py-1 bg-gray-700/40 text-tg-hint rounded-lg text-[9px] font-bold"
+                >
+                  هیچ‌کدام ✕
+                </button>
+              </div>
+            </div>
+
+            <div v-if="serviceEditForm.all_inbounds && serviceEditForm.all_inbounds.length" class="space-y-1.5 max-h-48 overflow-y-auto">
+              <div
+                v-for="inb in serviceEditForm.all_inbounds"
+                :key="inb.id"
+                class="p-2 rounded-xl border flex items-center justify-between transition cursor-pointer"
+                :class="inb.selected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-tg border-gray-700/30 opacity-70'"
+                @click="inb.selected = !inb.selected"
+              >
+                <div>
+                  <span class="font-bold block text-[11px]">{{ inb.tag || inb.remark || ('اینباند #' + inb.id) }}</span>
+                  <span class="text-[10px] text-tg-hint font-mono">{{ inb.protocol }} : {{ inb.port }}</span>
+                </div>
+                <span
+                  class="px-2 py-0.5 rounded-lg text-[9px] font-bold"
+                  :class="inb.selected ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-tg-hint'"
+                >
+                  {{ inb.selected ? 'فعال ✓' : 'خاموش' }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-center py-3 text-tg-hint text-[10px]">
+              اینباندی در پنل یافت نشد یا دریافت نشد.
+            </div>
+          </div>
+
+          <!-- Bottom Action Buttons -->
+          <div class="pt-2 border-t border-gray-700/30 space-y-2">
+            <div class="flex gap-2">
+              <button
+                type="button"
+                @click="handleSaveService"
+                :disabled="savingService"
+                class="flex-1 btn-tg py-2 rounded-xl font-bold flex items-center justify-center gap-1.5"
+              >
+                <div v-if="savingService" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>{{ savingService ? 'در حال ذخیره...' : '💾 ذخیره تغییرات' }}</span>
+              </button>
+              <button
+                type="button"
+                @click="showServiceModal = false"
+                class="px-4 bg-gray-700/40 text-tg hover:bg-gray-700 rounded-xl font-bold"
+              >
+                انصراف
+              </button>
+            </div>
+
+            <div class="flex justify-between items-center pt-1 border-t border-gray-700/20">
+              <button
+                type="button"
+                @click="handleQuickResetTraffic(serviceEditForm.email)"
+                class="text-[10px] text-amber-400 hover:underline flex items-center gap-1"
+              >
+                <span>🔄</span>
+                <span>صفر کردن حجم همین الان</span>
+              </button>
+
+              <button
+                type="button"
+                @click="handleDeleteService(serviceEditForm.email)"
+                class="text-[10px] text-rose-400 hover:underline flex items-center gap-1"
+              >
+                <span>🗑</span>
+                <span>حذف کامل سرویس از پنل</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1841,17 +3637,67 @@ import {
   getAdminAffiliate,
   saveAdminAffiliate,
   getAdminContentSecurity,
-  saveAdminContentSecurity
+  saveAdminContentSecurity,
+  // Customer Services Management
+  getAdminServiceDetails,
+  updateAdminService,
+  resetAdminServiceTraffic,
+  deleteAdminService,
+  // NEW API methods
+  getAdminInbounds,
+  getAdminPlanInbounds,
+  toggleAdminPlanInbound,
+  resetAdminPlanInbounds,
+  getAdminServers,
+  createAdminServer,
+  updateAdminServer,
+  deleteAdminServer,
+  toggleAdminServer,
+  autoGroupAdminServers,
+  getAdminCategories,
+  createAdminCategory,
+  updateAdminCategory,
+  deleteAdminCategory,
+  getAdminVolumePacks,
+  createAdminVolumePack,
+  updateAdminVolumePack,
+  deleteAdminVolumePack,
+  toggleAdminVolumePack,
+  getAdminTrialSettings,
+  saveAdminTrialSettings,
+  toggleAdminTrialInbound,
+  resetAdminTrialInbounds,
+  getAdminTrialOverrides,
+  saveAdminTrialOverride,
+  deleteAdminTrialOverride,
+  getAdminCrm,
+  saveAdminCrmSettings,
+  approveAdminClaim,
+  rejectAdminClaim,
+  getAdminGuides,
+  createAdminGuide,
+  deleteAdminGuide,
+  toggleAdminGuides,
+  promptAdminGuideBot,
+  getAdminAudit,
+  saveAdminAuditSettings,
+  getAdminSnapshot,
+  sendAdminSnapshot,
+  checkAdminNotifications
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const appVersion = computed(() => auth.appVersion || stats.value?.version || '26.2.2')
 
 // Navigation Tabs
 const activeTab = ref('orders')
 const tabs = computed(() => [
   { id: 'orders', label: 'سفارش‌ها', icon: '📑', badge: orders.value.length || null },
-  { id: 'plans', label: 'پلان‌ها', icon: '📦' },
+  { id: 'plans', label: 'پلان‌ها و دسته‌ها', icon: '📦' },
+  { id: 'trial', label: 'تست رایگان', icon: '🎁', badge: trialSettings.value.enabled ? 'فعال' : null },
+  { id: 'crm', label: 'CRM و اتصال', icon: '📈', badge: pendingClaims.value.length || null },
+  { id: 'guides', label: 'راهنمای اتصال', icon: '📲' },
   { id: 'xui', label: 'سنائی و گروه‌ها', icon: '🌐' },
   { id: 'rewards', label: 'تخفیف و پاداش', icon: '🎟' },
   { id: 'affiliate', label: 'همکاری در فروش', icon: '🤝' },
@@ -1862,9 +3708,10 @@ const tabs = computed(() => [
   { id: 'admins', label: 'مدیران', icon: '👑' },
   { id: 'payments', label: 'پرداخت و استارز', icon: '💳' },
   { id: 'backups', label: 'بکاپ و عملیات', icon: '💾' },
+  { id: 'audit', label: 'لاگ حسابرسی', icon: '🧾' },
   { id: 'server', label: 'وضعیت سرور', icon: '🖥' },
   { id: 'broadcast', label: 'پیام همگانی', icon: '📢' },
-  { id: 'branding', label: 'عنوان و ظاهر', icon: '🎨' },
+  { id: 'branding', label: 'عنوان و منو', icon: '🎨' },
 ])
 
 // Global UI State
@@ -1879,11 +3726,143 @@ const serverStatus = ref(null)
 // Orders
 const orders = ref([])
 
-// Plans
+// Plans & Sub-tabs
+const plansSubTab = ref('catalog')
 const plansList = ref([])
+const categoriesList = ref([])
+const volumePacksList = ref([])
 const showPlanModal = ref(false)
 const isEditingPlan = ref(false)
-const planForm = ref({ id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '' })
+const planForm = ref({ id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '', category_id: null })
+const planModalError = ref('')
+const isSavingPlan = ref(false)
+const availableInboundsList = ref([])
+const loadingAllInbounds = ref(false)
+
+// Categories Modal & Form
+const showCategoryModal = ref(false)
+const isEditingCategory = ref(false)
+const categoryForm = ref({ id: null, name: '', icon: '📦', description: '', sort_order: 100, is_active: 1 })
+
+// Volume Packs Modal & Form
+const showVolumePackModal = ref(false)
+const isEditingVolumePack = ref(false)
+const volumePackForm = ref({ id: null, volume_gb: 10, price: 50000, duration_days: 30, is_active: 1 })
+
+// Server Profiles (Inbounds Grouping & Custom Servers)
+const serverProfilesList = ref([])
+const showServerModal = ref(false)
+const isEditingServer = ref(false)
+const serverModalError = ref('')
+const isSavingServer = ref(false)
+const autoGroupingServers = ref(false)
+const serverForm = ref({
+  id: null,
+  name: '',
+  price: 0,
+  inbound_ids: [],
+  is_custom: false,
+  contact_support: false,
+  support_target_type: 'bot',
+  support_target_url: '',
+  active: 1,
+  sort_order: 100
+})
+const serverInboundsList = ref([])
+
+// Plan Inbounds Selector Modal
+const showPlanInboundsModal = ref(false)
+const selectedPlanForInbounds = ref(null)
+const planInboundsList = ref([])
+const loadingPlanInbounds = ref(false)
+
+// Free Trial Management
+const trialSettings = ref({
+  enabled: false,
+  volume_gb: 1.0,
+  days: 1,
+  ip_limit: 1,
+  cooldown_days: 0,
+  group_name: '',
+  followup_enabled: true,
+  followup_delay_hours: 2
+})
+const trialStats = ref({ total_trials: 0, active_trials: 0, expired_trials: 0 })
+const trialInbounds = ref([])
+const trialOverrides = ref([])
+const savingTrialSettings = ref(false)
+const showTrialOverrideModal = ref(false)
+const trialOverrideForm = ref({ user_id: null, volume_gb: 2, days: 3, ip_limit: 1, note: '' })
+
+// CRM & Claims
+const crmSettings = ref({ survey_enabled: true, custom_name_enabled: true, existing_service_enabled: true })
+const surveyStats = ref([])
+const pendingClaims = ref([])
+const savingCrm = ref(false)
+const showRejectClaimModal = ref(false)
+const rejectingClaimId = ref(null)
+const rejectClaimReason = ref('')
+
+// Connection Guides
+const guidesEnabled = ref(true)
+const guidesList = ref([])
+const activeGuidePlatform = ref('android')
+const guidePlatforms = [
+  { id: 'android', label: 'اندروید', icon: '📱' },
+  { id: 'ios', label: 'آیفون/آیپد', icon: '🍏' },
+  { id: 'windows', label: 'ویندوز', icon: '💻' },
+  { id: 'macos', label: 'مک', icon: '🖥' },
+  { id: 'linux', label: 'لینوکس', icon: '🐧' },
+]
+const filteredGuides = computed(() =>
+  guidesList.value.filter(g => (g.platform || '').toLowerCase() === activeGuidePlatform.value.toLowerCase())
+)
+const platformSuggestedApps = {
+  android: ['V2RayNG', 'Hiddify', 'V2Box', 'Clash Meta', 'Sing-box', 'Happ'],
+  ios: ['Streisand', 'V2Box', 'FoXray', 'Shadowrocket', 'Sing-box'],
+  windows: ['v2rayN', 'Hiddify', 'Clash Verge', 'NekoRay', 'Happ'],
+  macos: ['V2rayU', 'FoXray', 'Clash Verge', 'Hiddify', 'Happ'],
+  linux: ['v2rayA', 'NekoRay', 'Clash Verge', 'Happ'],
+}
+const showAddGuideModal = ref(false)
+const guideForm = ref({ platform: 'android', app_name: 'V2RayNG', title: '', body: '', media_type: 'TEXT', media_file_id: '', sort_order: 100 })
+const promptingBot = ref(false)
+const telegramBotUrl = ref('')
+
+// Audit Log
+const auditSettings = ref({ enabled: false, audit_chat_id: '' })
+const auditEvents = ref([])
+const savingAudit = ref(false)
+
+// Snapshot
+const snapshotInfo = ref(null)
+const loadingSnapshot = ref(false)
+const sendingSnapshot = ref(false)
+
+// Notifications check
+const checkingNotifications = ref(false)
+
+// Customer Menu
+const customerMenu = ref({
+  buy: true,
+  account: true,
+  trial: true,
+  affiliate: true,
+  guide: true,
+  faq: true,
+  rewards: true,
+  support: true
+})
+const customerMenuLabels = {
+  buy: '🛍 خرید و مشاهده پلان‌ها',
+  account: '👤 حساب و سرویس‌های من',
+  trial: '🎁 دریافت تست رایگان',
+  affiliate: '🤝 همکاری در فروش',
+  guide: '📲 راهنمای اتصال',
+  faq: '📚 راهنما و سوالات',
+  rewards: '🎟 کد هدیه / تخفیف',
+  support: '📞 پشتیبانی'
+}
 
 // Sanaei 3x-ui & Groups
 const xuiGroups = ref([])
@@ -1945,6 +3924,8 @@ const contentSecurity = ref({
   service_notifications_enabled: true,
   service_volume_warning_percent: 90,
   service_expiry_warning_hours: 24,
+  service_username_mode: 'telegram_tx',
+  service_notification_interval: 30
 })
 const savingContentSec = ref(false)
 
@@ -1973,6 +3954,7 @@ const savingBuilder = ref(false)
 const usersList = ref([])
 const userSearchQuery = ref('')
 const selectedUserDetail = ref(null)
+const userHistoryTab = ref('purchases')
 const adjustBalanceUser = ref(null)
 const adjustBalanceAmount = ref(0)
 const adjustBalanceReason = ref('')
@@ -1989,7 +3971,7 @@ const newAdminId = ref(null)
 
 // Payments & Gateways & Stars
 const paymentsConfig = ref({
-  card: { card_number: '', card_holder: '', bank_name: '' },
+  card: { card_number: '', card_holder: '', bank_name: '', card_photo: '' },
   zibal: { enabled: false, merchant: '', sandbox: false },
   zarinpal: { enabled: false, merchant: '', sandbox: false },
   stars: { enabled: true, rate: 1500 }
@@ -2019,7 +4001,11 @@ const showNotify = (msg, success = true) => {
 // ─── Data Loaders ────────────────────────────────────────────────────────────
 const loadData = async () => {
   try {
-    const [stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes, bkRes, srvRes, brRes, xuiRes, rewRes, affRes, csRes] = await Promise.all([
+    const [
+      stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes,
+      bkRes, srvRes, brRes, xuiRes, rewRes, affRes, csRes,
+      catRes, volRes, triRes, crmRes, guiRes, audRes, srvpRes
+    ] = await Promise.all([
       getAdminStats().catch(() => ({ data: {} })),
       getAdminOrders().catch(() => ({ data: { orders: [] } })),
       getAdminPlans().catch(() => ({ data: { plans: [] } })),
@@ -2030,11 +4016,18 @@ const loadData = async () => {
       getAdminPayments().catch(() => ({ data: null })),
       getAdminBackups().catch(() => ({ data: { backups: [] } })),
       getAdminServerStatus().catch(() => ({ data: null })),
-      getAdminBranding().catch(() => ({ data: { webapp_title: '' } })),
+      getAdminBranding().catch(() => ({ data: { webapp_title: '', customer_menu: {} } })),
       getAdminXuiGroups().catch(() => ({ data: { groups: [] } })),
       getAdminRewards().catch(() => ({ data: null })),
       getAdminAffiliate().catch(() => ({ data: null })),
       getAdminContentSecurity().catch(() => ({ data: null })),
+      getAdminCategories().catch(() => ({ data: { categories: [] } })),
+      getAdminVolumePacks().catch(() => ({ data: { packs: [] } })),
+      getAdminTrialSettings().catch(() => ({ data: null })),
+      getAdminCrm().catch(() => ({ data: null })),
+      getAdminGuides().catch(() => ({ data: null })),
+      getAdminAudit().catch(() => ({ data: null })),
+      getAdminServers().catch(() => ({ data: { servers: [] } })),
     ])
 
     stats.value = stRes.data || {}
@@ -2047,12 +4040,66 @@ const loadData = async () => {
     if (payRes?.data) paymentsConfig.value = { ...paymentsConfig.value, ...payRes.data }
     backupsList.value = bkRes.data?.backups || []
     serverStatus.value = srvRes?.data || null
-    uiTitle.value = brRes.data?.webapp_title || ''
-    if (uiTitle.value) auth.setAppTitle(uiTitle.value)
+
+    if (brRes?.data) {
+      uiTitle.value = brRes.data.webapp_title || ''
+      if (uiTitle.value) auth.setAppTitle(uiTitle.value)
+      if (brRes.data.customer_menu) {
+        customerMenu.value = { ...customerMenu.value, ...brRes.data.customer_menu }
+      }
+    }
+
     xuiGroups.value = xuiRes.data?.groups || []
     if (rewRes?.data) rewardsData.value = { ...rewardsData.value, ...rewRes.data }
     if (affRes?.data) affiliateData.value = { ...affiliateData.value, ...affRes.data }
     if (csRes?.data) contentSecurity.value = { ...contentSecurity.value, ...csRes.data }
+
+    categoriesList.value = catRes.data?.categories || []
+    volumePacksList.value = volRes.data?.packs || []
+    serverProfilesList.value = srvpRes.data?.servers || []
+
+    if (triRes?.data) {
+      trialSettings.value = {
+        enabled: !!triRes.data.enabled,
+        volume_gb: triRes.data.volume_gb ?? 1.0,
+        days: triRes.data.days ?? 1,
+        ip_limit: triRes.data.ip_limit ?? 1,
+        cooldown_days: triRes.data.cooldown_days ?? 0,
+        group_name: triRes.data.group_name || '',
+        followup_enabled: triRes.data.followup_enabled ?? true,
+        followup_delay_hours: triRes.data.followup_delay_hours ?? 2,
+      }
+      trialStats.value = triRes.data.stats || { total_trials: 0, active_trials: 0, expired_trials: 0 }
+      const triRaw = triRes.data?.inbounds || triRes.data?.active_inbounds || []
+      const triConfiguredSet = new Set(triRes.data?.configured_inbounds || [])
+      trialInbounds.value = triRaw.map(i => ({
+        ...i,
+        tag: i.tag || i.remark || ('اینباند #' + i.id),
+        selected: typeof i.selected === 'boolean' ? i.selected : triConfiguredSet.has(i.id)
+      }))
+    }
+
+    if (crmRes?.data) {
+      if (crmRes.data.settings) crmSettings.value = { ...crmSettings.value, ...crmRes.data.settings }
+      surveyStats.value = crmRes.data.survey_stats || []
+      pendingClaims.value = crmRes.data.pending_claims || []
+    }
+
+    if (guiRes?.data) {
+      guidesEnabled.value = !!guiRes.data.enabled
+      guidesList.value = guiRes.data.items || []
+    }
+
+    if (audRes?.data) {
+      auditSettings.value = {
+        enabled: !!audRes.data.enabled,
+        audit_chat_id: audRes.data.audit_chat_id || ''
+      }
+      auditEvents.value = audRes.data.events || []
+    }
+
+    // Load trial overrides
+    loadTrialOverrides()
 
     const modeRes = await getAdminOpsMode().catch(() => null)
     if (modeRes?.data?.mode) opsMode.value = modeRes.data.mode
@@ -2090,32 +4137,150 @@ const handleReject = async (orderId) => {
 }
 
 // ─── Plans Handlers ──────────────────────────────────────────────────────────
+const parseFaNumber = (val) => {
+  if (val === null || val === undefined || val === '') return null
+  const faDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹']
+  const arDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  let str = String(val).trim()
+  for (let i = 0; i < 10; i++) {
+    str = str.replace(new RegExp(faDigits[i], 'g'), String(i))
+    str = str.replace(new RegExp(arDigits[i], 'g'), String(i))
+  }
+  const n = Number(str)
+  return isNaN(n) ? null : n
+}
+
+const loadAvailableInboundsForPlan = async (planId) => {
+  loadingAllInbounds.value = true
+  try {
+    const res = await getAdminInbounds()
+    const all = res.data?.inbounds || []
+    let configuredIds = []
+    if (planId) {
+      const pRes = await getAdminPlanInbounds(planId)
+      configuredIds = pRes.data?.configured_inbounds || []
+    }
+    const configuredSet = new Set(configuredIds)
+    const hasConfig = configuredIds.length > 0
+
+    availableInboundsList.value = all.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: planId ? (hasConfig ? configuredSet.has(i.id) : true) : true
+    }))
+  } catch (err) {
+    console.error('Failed to load inbounds:', err)
+  } finally {
+    loadingAllInbounds.value = false
+  }
+}
+
+const selectAllPlanInbounds = (select) => {
+  availableInboundsList.value.forEach(i => {
+    i.selected = select
+  })
+}
+
 const openCreatePlanModal = () => {
   isEditingPlan.value = false
-  planForm.value = { id: null, name: '', price: 100000, days: 30, volume_gb: 0, ip_limit: 1, active: 1, sort_order: 100, group_name: '' }
+  planModalError.value = ''
+  planForm.value = {
+    id: null,
+    name: '',
+    price: 100000,
+    days: 30,
+    volume_gb: 0,
+    ip_limit: 1,
+    active: 1,
+    sort_order: 100,
+    group_name: '',
+    category_id: categoriesList.value?.[0]?.id || null
+  }
   showPlanModal.value = true
+  loadAvailableInboundsForPlan(null)
 }
 
 const openEditPlanModal = (plan) => {
   isEditingPlan.value = true
-  planForm.value = { ...plan, group_name: plan.group_name || '' }
+  planModalError.value = ''
+  planForm.value = {
+    ...plan,
+    group_name: plan.group_name || '',
+    category_id: plan.category_id || null
+  }
   showPlanModal.value = true
+  loadAvailableInboundsForPlan(plan.id)
 }
 
 const handleSavePlan = async () => {
+  planModalError.value = ''
+
+  const name = String(planForm.value.name || '').trim()
+  if (!name) {
+    planModalError.value = 'لطفاً نام پلان را وارد کنید.'
+    return
+  }
+
+  const price = parseFaNumber(planForm.value.price)
+  if (price === null || isNaN(price) || price < 0) {
+    planModalError.value = 'لطفاً قیمت معتبر وارد کنید.'
+    return
+  }
+
+  const days = parseFaNumber(planForm.value.days)
+  if (days === null || isNaN(days) || days < 1) {
+    planModalError.value = 'مدت زمان باید حداقل ۱ روز باشد.'
+    return
+  }
+
+  const volume_gb = parseFaNumber(planForm.value.volume_gb) ?? 0
+  const ip_limit = parseFaNumber(planForm.value.ip_limit) ?? 1
+  const sort_order = parseFaNumber(planForm.value.sort_order) ?? 100
+
+  const selectedInboundIds = availableInboundsList.value
+    .filter(i => i.selected)
+    .map(i => i.id)
+
+  const payload = {
+    name,
+    price,
+    days,
+    volume_gb,
+    ip_limit,
+    sort_order,
+    active: planForm.value.active ? 1 : 0,
+    group_name: (planForm.value.group_name || '').trim() || null,
+    category_id: planForm.value.category_id || null,
+    inbound_ids: selectedInboundIds
+  }
+
+  isSavingPlan.value = true
   try {
     if (isEditingPlan.value) {
-      await updateAdminPlan(planForm.value.id, planForm.value)
+      await updateAdminPlan(planForm.value.id, payload)
       showNotify('پلان با موفقیت ویرایش شد.')
     } else {
-      await createAdminPlan(planForm.value)
+      await createAdminPlan(payload)
       showNotify('پلان جدید با موفقیت اضافه شد.')
     }
     showPlanModal.value = false
     const res = await getAdminPlans()
     plansList.value = res.data?.plans || []
   } catch (err) {
-    showNotify(err.response?.data?.detail || 'خطا در ذخیره پلان', false)
+    let errorMsg = 'خطا در ذخیره پلان'
+    if (err.response?.data?.detail) {
+      const d = err.response.data.detail
+      if (typeof d === 'string') {
+        errorMsg = d
+      } else if (Array.isArray(d)) {
+        errorMsg = d.map(item => item.msg || JSON.stringify(item)).join(' | ')
+      } else {
+        errorMsg = JSON.stringify(d)
+      }
+    }
+    planModalError.value = errorMsg
+  } finally {
+    isSavingPlan.value = false
   }
 }
 
@@ -2138,6 +4303,564 @@ const handleDeletePlan = async (planId) => {
     showNotify('پلان حذف شد.')
   } catch (err) {
     showNotify(err.response?.data?.detail || 'خطا در حذف پلان', false)
+  }
+}
+
+// ─── Plan Inbounds Handlers ──────────────────────────────────────────────────
+const openPlanInboundsModal = async (plan) => {
+  selectedPlanForInbounds.value = plan
+  showPlanInboundsModal.value = true
+  loadingPlanInbounds.value = true
+  try {
+    const res = await getAdminPlanInbounds(plan.id)
+    const rawList = res.data?.inbounds || res.data?.active_inbounds || []
+    const configuredSet = new Set(res.data?.configured_inbounds || [])
+    planInboundsList.value = rawList.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: typeof i.selected === 'boolean' ? i.selected : configuredSet.has(i.id)
+    }))
+  } catch (err) {
+    showNotify('خطا در دریافت اینباندهای پلن', false)
+  } finally {
+    loadingPlanInbounds.value = false
+  }
+}
+
+const handleTogglePlanInbound = async (inboundId) => {
+  if (!selectedPlanForInbounds.value) return
+  try {
+    const res = await toggleAdminPlanInbound(selectedPlanForInbounds.value.id, inboundId)
+    const target = planInboundsList.value.find(i => i.id === inboundId)
+    if (target) target.selected = res.data.selected
+    showNotify('وضعیت اینباند برای پلن تغییر یافت.')
+  } catch (err) {
+    showNotify('خطا در تغییر اینباند', false)
+  }
+}
+
+const handleResetPlanInbounds = async () => {
+  if (!selectedPlanForInbounds.value) return
+  try {
+    await resetAdminPlanInbounds(selectedPlanForInbounds.value.id)
+    planInboundsList.value.forEach(i => i.selected = false)
+    showNotify('تمامی اینباندها برای این پلن فعال شدند (حالت پیش‌فرض).')
+  } catch (err) {
+    showNotify('خطا در بازنشانی اینباندها', false)
+  }
+}
+
+// ─── Categories Handlers ─────────────────────────────────────────────────────
+const getCategoryName = (catId) => {
+  if (!catId) return null
+  const cat = categoriesList.value.find(c => c.id === catId)
+  return cat ? cat.name : null
+}
+
+const getCategoryIcon = (catId) => {
+  if (!catId) return ''
+  const cat = categoriesList.value.find(c => c.id === catId)
+  return cat?.icon || '📦'
+}
+
+const openCreateCategoryModal = () => {
+  isEditingCategory.value = false
+  categoryForm.value = { id: null, name: '', icon: '📦', description: '', sort_order: 100, is_active: 1 }
+  showCategoryModal.value = true
+}
+
+const openEditCategoryModal = (cat) => {
+  isEditingCategory.value = true
+  categoryForm.value = { ...cat }
+  showCategoryModal.value = true
+}
+
+const handleSaveCategory = async () => {
+  if (!categoryForm.value.name.trim()) return
+  try {
+    if (isEditingCategory.value) {
+      await updateAdminCategory(categoryForm.value.id, categoryForm.value)
+      showNotify('دسته‌بندی با موفقیت ویرایش شد.')
+    } else {
+      await createAdminCategory(categoryForm.value)
+      showNotify('دسته‌بندی جدید با موفقیت ایجاد شد.')
+    }
+    showCategoryModal.value = false
+    const res = await getAdminCategories()
+    categoriesList.value = res.data?.categories || []
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره دسته‌بندی', false)
+  }
+}
+
+const handleDeleteCategory = async (catId) => {
+  if (!confirm('آیا از حذف این دسته‌بندی اطمینان دارید؟ پلن‌های مرتبط به حالت بدون دسته‌بندی منتقل می‌شوند.')) return
+  try {
+    await deleteAdminCategory(catId)
+    categoriesList.value = categoriesList.value.filter(c => c.id !== catId)
+    showNotify('دسته‌بندی حذف شد.')
+  } catch (err) {
+    showNotify('خطا در حذف دسته‌بندی', false)
+  }
+}
+
+// ─── Volume Packs Handlers ───────────────────────────────────────────────────
+const openCreateVolumePackModal = () => {
+  isEditingVolumePack.value = false
+  volumePackForm.value = { id: null, volume_gb: 10, price: 50000, duration_days: 30, is_active: 1 }
+  showVolumePackModal.value = true
+}
+
+const openEditVolumePackModal = (pack) => {
+  isEditingVolumePack.value = true
+  volumePackForm.value = { ...pack }
+  showVolumePackModal.value = true
+}
+
+const handleSaveVolumePack = async () => {
+  try {
+    if (isEditingVolumePack.value) {
+      await updateAdminVolumePack(volumePackForm.value.id, volumePackForm.value)
+      showNotify('بسته حجم ویرایش شد.')
+    } else {
+      await createAdminVolumePack(volumePackForm.value)
+      showNotify('بسته حجم جدید ایجاد شد.')
+    }
+    showVolumePackModal.value = false
+    const res = await getAdminVolumePacks()
+    volumePacksList.value = res.data?.packs || []
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره بسته حجم', false)
+  }
+}
+
+const handleToggleVolumePack = async (packId) => {
+  try {
+    const res = await toggleAdminVolumePack(packId)
+    const target = volumePacksList.value.find(p => p.id === packId)
+    if (target) target.is_active = res.data.is_active
+    showNotify('وضعیت بسته حجم تغییر یافت.')
+  } catch (err) {
+    showNotify('خطا در تغییر وضعیت بسته حجم', false)
+  }
+}
+
+const handleDeleteVolumePack = async (packId) => {
+  if (!confirm('آیا از حذف این بسته حجم اطمینان دارید؟')) return
+  try {
+    await deleteAdminVolumePack(packId)
+    volumePacksList.value = volumePacksList.value.filter(p => p.id !== packId)
+    showNotify('بسته حجم حذف شد.')
+  } catch (err) {
+    showNotify('خطا در حذف بسته حجم', false)
+  }
+}
+
+// ─── Server Profiles Handlers ────────────────────────────────────────────────
+const openCreateServerModal = async () => {
+  isEditingServer.value = false
+  serverModalError.value = ''
+  serverForm.value = {
+    id: null,
+    name: '',
+    price: 0,
+    inbound_ids: [],
+    is_custom: false,
+    contact_support: false,
+    support_target_type: 'bot',
+    support_target_url: '',
+    active: 1,
+    sort_order: 100
+  }
+  showServerModal.value = true
+  await loadServerInbounds([])
+}
+
+const openEditServerModal = async (server) => {
+  isEditingServer.value = true
+  serverModalError.value = ''
+  serverForm.value = {
+    ...server,
+    is_custom: !!server.is_custom,
+    contact_support: !!server.contact_support,
+    support_target_type: server.support_target_type || 'bot',
+    support_target_url: server.support_target_url || ''
+  }
+  showServerModal.value = true
+  await loadServerInbounds(server.inbound_ids || [])
+}
+
+const loadServerInbounds = async (configuredIds = []) => {
+  try {
+    const res = await getAdminInbounds()
+    const all = res.data?.inbounds || []
+    const configuredSet = new Set(configuredIds)
+    serverInboundsList.value = all.map(i => ({
+      ...i,
+      tag: i.tag || i.remark || ('اینباند #' + i.id),
+      selected: configuredSet.has(i.id)
+    }))
+  } catch (err) {
+    console.error('Failed to load inbounds:', err)
+  }
+}
+
+const selectAllServerInbounds = (select) => {
+  serverInboundsList.value.forEach(i => {
+    i.selected = select
+  })
+}
+
+const handleSaveServer = async () => {
+  serverModalError.value = ''
+  const name = String(serverForm.value.name || '').trim()
+  if (!name) {
+    serverModalError.value = 'لطفاً نام سرور را وارد کنید.'
+    return
+  }
+  const price = parseFaNumber(serverForm.value.price) ?? 0
+
+  const selectedInbounds = serverInboundsList.value
+    .filter(i => i.selected)
+    .map(i => i.id)
+
+  const payload = {
+    name,
+    price,
+    inbound_ids: serverForm.value.is_custom ? [] : selectedInbounds,
+    is_custom: serverForm.value.is_custom ? 1 : 0,
+    contact_support: serverForm.value.contact_support ? 1 : 0,
+    support_target_type: serverForm.value.support_target_type || 'bot',
+    support_target_url: (serverForm.value.support_target_url || '').trim(),
+    active: serverForm.value.active ? 1 : 0,
+    sort_order: serverForm.value.sort_order ?? 100
+  }
+
+  isSavingServer.value = true
+  try {
+    if (isEditingServer.value) {
+      await updateAdminServer(serverForm.value.id, payload)
+      showNotify('سرور با موفقیت ویرایش شد.')
+    } else {
+      await createAdminServer(payload)
+      showNotify('سرور جدید با موفقیت ایجاد شد.')
+    }
+    showServerModal.value = false
+    const res = await getAdminServers()
+    serverProfilesList.value = res.data?.servers || []
+  } catch (err) {
+    serverModalError.value = err.response?.data?.detail || 'خطا در ذخیره سرور'
+  } finally {
+    isSavingServer.value = false
+  }
+}
+
+const handleDeleteServer = async (id) => {
+  if (!confirm('آیا از حذف این سرور اطمینان دارید؟')) return
+  try {
+    await deleteAdminServer(id)
+    serverProfilesList.value = serverProfilesList.value.filter(s => s.id !== id)
+    showNotify('سرور حذف شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در حذف سرور', false)
+  }
+}
+
+const handleToggleServer = async (id) => {
+  try {
+    const res = await toggleAdminServer(id)
+    const target = serverProfilesList.value.find(s => s.id === id)
+    if (target) target.active = res.data.active
+    showNotify('وضعیت سرور تغییر یافت.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در تغییر وضعیت سرور', false)
+  }
+}
+
+const handleAutoGroupServers = async () => {
+  autoGroupingServers.value = true
+  try {
+    const res = await autoGroupAdminServers()
+    showNotify(res.data?.message || 'ادغام خودکار اینباندها با موفقیت انجام شد.')
+    const sRes = await getAdminServers()
+    serverProfilesList.value = sRes.data?.servers || []
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ادغام خودکار سرورها', false)
+  } finally {
+    autoGroupingServers.value = false
+  }
+}
+
+// ─── Free Trial Handlers ─────────────────────────────────────────────────────
+const handleSaveTrialSettings = async () => {
+  savingTrialSettings.value = true
+  try {
+    await saveAdminTrialSettings(trialSettings.value)
+    showNotify('تنظیمات تست رایگان با موفقیت ذخیره شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره تنظیمات تست رایگان', false)
+  } finally {
+    savingTrialSettings.value = false
+  }
+}
+
+const handleToggleTrialInbound = async (inboundId) => {
+  try {
+    const res = await toggleAdminTrialInbound(inboundId)
+    const target = trialInbounds.value.find(i => i.id === inboundId)
+    if (target) target.selected = res.data.selected
+    showNotify('اینباند تست بروزرسانی شد.')
+  } catch (err) {
+    showNotify('خطا در تغییر اینباند تست', false)
+  }
+}
+
+const handleResetTrialInbounds = async () => {
+  try {
+    await resetAdminTrialInbounds()
+    trialInbounds.value.forEach(i => i.selected = false)
+    showNotify('اینباندهای تست رایگان به همه اینباندها بازنشانی شد.')
+  } catch (err) {
+    showNotify('خطا در بازنشانی اینباندهای تست', false)
+  }
+}
+
+const loadTrialOverrides = async () => {
+  try {
+    const res = await getAdminTrialOverrides()
+    trialOverrides.value = res.data?.overrides || []
+  } catch (err) {
+    console.error('Error loading trial overrides:', err)
+  }
+}
+
+const openAddTrialOverrideModal = () => {
+  trialOverrideForm.value = { user_id: null, volume_gb: 2, days: 3, ip_limit: 1, note: '' }
+  showTrialOverrideModal.value = true
+}
+
+const handleSaveTrialOverride = async () => {
+  if (!trialOverrideForm.value.user_id) return
+  try {
+    await saveAdminTrialOverride(trialOverrideForm.value)
+    showNotify('استثنای تست رایگان کاربر ثبت شد.')
+    showTrialOverrideModal.value = false
+    loadTrialOverrides()
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ثبت استثنای کاربر', false)
+  }
+}
+
+const handleDeleteTrialOverride = async (userId) => {
+  if (!confirm(`آیا استثنای تست رایگان کاربر ${userId} حذف شود؟`)) return
+  try {
+    await deleteAdminTrialOverride(userId)
+    trialOverrides.value = trialOverrides.value.filter(o => o.user_id !== userId)
+    showNotify('استثنای کاربر حذف شد.')
+  } catch (err) {
+    showNotify('خطا در حذف استثنای کاربر', false)
+  }
+}
+
+// ─── CRM & Claims Handlers ───────────────────────────────────────────────────
+const handleSaveCrmSettings = async () => {
+  savingCrm.value = true
+  try {
+    await saveAdminCrmSettings(crmSettings.value)
+    showNotify('تنظیمات CRM با موفقیت ذخیره شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره تنظیمات CRM', false)
+  } finally {
+    savingCrm.value = false
+  }
+}
+
+const handleApproveClaim = async (claimId) => {
+  try {
+    await approveAdminClaim(claimId)
+    pendingClaims.value = pendingClaims.value.filter(c => c.id !== claimId)
+    showNotify('درخواست اتصال سرویس تایید شد ✓')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در تایید درخواست', false)
+  }
+}
+
+const openRejectClaimModal = (claimId) => {
+  rejectingClaimId.value = claimId
+  rejectClaimReason.value = 'اشتراک در پنل یافت نشد یا معتبر نیست.'
+  showRejectClaimModal.value = true
+}
+
+const handleConfirmRejectClaim = async () => {
+  if (!rejectingClaimId.value) return
+  try {
+    await rejectAdminClaim(rejectingClaimId.value, rejectClaimReason.value)
+    pendingClaims.value = pendingClaims.value.filter(c => c.id !== rejectingClaimId.value)
+    showRejectClaimModal.value = false
+    showNotify('درخواست اتصال سرویس رد شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در رد درخواست', false)
+  }
+}
+
+// ─── Guides Handlers ─────────────────────────────────────────────────────────
+const handleToggleGuides = async () => {
+  try {
+    const res = await toggleAdminGuides()
+    guidesEnabled.value = res.data.enabled
+    showNotify(`بخش راهنما ${guidesEnabled.value ? 'فعال' : 'غیرفعال'} شد.`)
+  } catch (err) {
+    showNotify('خطا در تغییر وضعیت راهنما', false)
+  }
+}
+
+const handlePromptGuideBot = async (platform, appName = null) => {
+  promptingBot.value = true
+  try {
+    const res = await promptAdminGuideBot(platform || activeGuidePlatform.value, appName)
+    showNotify(res.data?.message || 'دستور ثبت راهنما به چت تلگرام شما ارسال شد.')
+    if (res.data?.bot_username) {
+      telegramBotUrl.value = `https://t.me/${res.data.bot_username}`
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ارسال پیام به ربات تلگرام', false)
+  } finally {
+    promptingBot.value = false
+  }
+}
+
+const openAddGuideModal = () => {
+  const defaultApps = {
+    android: 'V2RayNG',
+    ios: 'Streisand',
+    windows: 'v2rayN',
+    macos: 'V2rayU',
+    linux: 'v2rayA'
+  }
+  guideForm.value = {
+    platform: activeGuidePlatform.value,
+    app_name: defaultApps[activeGuidePlatform.value] || 'V2RayNG',
+    title: '',
+    body: '',
+    media_type: 'TEXT',
+    media_file_id: '',
+    sort_order: 100
+  }
+  showAddGuideModal.value = true
+}
+
+const handleSaveGuide = async () => {
+  const bodyText = (guideForm.value.body || guideForm.value.title || '').trim()
+  if (!bodyText) {
+    showNotify('متن راهنما نمی‌تواند خالی باشد.', false)
+    return
+  }
+  guideForm.value.body = bodyText
+  try {
+    await createAdminGuide(guideForm.value)
+    showNotify('آموزش جدید با موفقیت ثبت شد.')
+    showAddGuideModal.value = false
+    const res = await getAdminGuides()
+    guidesList.value = res.data?.items || []
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ثبت آموزش', false)
+  }
+}
+
+const handleDeleteGuide = async (itemId) => {
+  if (!confirm('آیا از حذف این آموزش اطمینان دارید؟')) return
+  try {
+    await deleteAdminGuide(itemId)
+    guidesList.value = guidesList.value.filter(g => g.id !== itemId)
+    showNotify('آموزش حذف شد.')
+  } catch (err) {
+    showNotify('خطا در حذف آموزش', false)
+  }
+}
+
+const copiedFileId = ref('')
+const copyFileId = async (id) => {
+  if (!id) return
+  try {
+    await navigator.clipboard.writeText(id)
+    copiedFileId.value = id
+    setTimeout(() => {
+      if (copiedFileId.value === id) copiedFileId.value = ''
+    }, 2000)
+  } catch (e) {
+    console.error('Failed to copy', e)
+  }
+}
+
+const getGuideMediaUrl = (item) => {
+  if (item?.media_url) return item.media_url
+  if (!item?.media_file_id) return ''
+  const fid = item.media_file_id.trim()
+  if (fid.startsWith('http://') || fid.startsWith('https://')) {
+    return fid
+  }
+  return `/api/guides/${item.id}/media`
+}
+
+// ─── Audit Log Handlers ──────────────────────────────────────────────────────
+const handleSaveAuditSettings = async () => {
+  savingAudit.value = true
+  try {
+    await saveAdminAuditSettings(auditSettings.value)
+    showNotify('تنظیمات حسابرسی ذخیره شد.')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره تنظیمات حسابرسی', false)
+  } finally {
+    savingAudit.value = false
+  }
+}
+
+const loadAuditEvents = async () => {
+  try {
+    const res = await getAdminAudit()
+    auditEvents.value = res.data?.events || []
+    showNotify('لاگ‌های حسابرسی بروزرسانی شدند.')
+  } catch (err) {
+    showNotify('خطا در دریافت لاگ‌ها', false)
+  }
+}
+
+// ─── Snapshot Handlers ───────────────────────────────────────────────────────
+const handleGetSnapshot = async () => {
+  loadingSnapshot.value = true
+  try {
+    const res = await getAdminSnapshot()
+    snapshotInfo.value = res.data?.snapshot || res.data
+    showNotify('اطلاعات اسنپ‌شات دریافت شد.')
+  } catch (err) {
+    showNotify('خطا در دریافت اسنپ‌شات', false)
+  } finally {
+    loadingSnapshot.value = false
+  }
+}
+
+const handleSendSnapshot = async () => {
+  sendingSnapshot.value = true
+  try {
+    const res = await sendAdminSnapshot()
+    showNotify(res.data?.message || 'فایل اسنپ‌شات به چت تلگرام ارسال شد 📤')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ارسال اسنپ‌شات به تلگرام', false)
+  } finally {
+    sendingSnapshot.value = false
+  }
+}
+
+// ─── Notifications Check Handler ─────────────────────────────────────────────
+const handleCheckNotificationsNow = async () => {
+  checkingNotifications.value = true
+  try {
+    const res = await checkAdminNotifications()
+    showNotify(res.data?.message || 'بررسی سرویس‌ها و ارسال اعلان‌ها انجام شد ✓')
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در بررسی اعلان‌ها', false)
+  } finally {
+    checkingNotifications.value = false
   }
 }
 
@@ -2164,8 +4887,196 @@ const handleSearchUsers = async () => {
   }
 }
 
+// ─── Customer Service Management Handlers ────────────────────────────────────
+const showServiceModal = ref(false)
+const loadingServiceModal = ref(false)
+const savingService = ref(false)
+const serviceEditForm = ref({
+  email: '',
+  display_name: '',
+  total_gb: 0,
+  used_gb: 0,
+  limit_ip: 0,
+  expiry_time: 0,
+  enable: true,
+  reset_traffic: false,
+  all_inbounds: [],
+  inbound_ids: []
+})
+
+const serviceUsagePercent = computed(() => {
+  const total = Number(serviceEditForm.value.total_gb) || 0
+  const used = Number(serviceEditForm.value.used_gb) || 0
+  if (total <= 0) return 0
+  return Math.round((used / total) * 100)
+})
+
+const formatServiceExpiry = (ms) => {
+  if (!ms || Number(ms) <= 0) return 'نامحدود / بدون تاریخ انقضا'
+  const d = new Date(Number(ms))
+  if (isNaN(d.getTime())) return '-'
+  const now = Date.now()
+  const daysLeft = Math.round((Number(ms) - now) / (1000 * 3600 * 24))
+  const dateStr = d.toLocaleDateString('fa-IR', { year: 'numeric', month: 'short', day: 'numeric' })
+  if (daysLeft > 0) return `${dateStr} (${daysLeft} روز باقیمانده)`
+  if (daysLeft === 0) return `${dateStr} (امروز منقضی می‌شود)`
+  return `${dateStr} (${Math.abs(daysLeft)} روز گذشته - منقضی شده)`
+}
+
+const getExpiryInputDate = (ms) => {
+  if (!ms || Number(ms) <= 0) return ''
+  const d = new Date(Number(ms))
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+const onDateInputChange = (e) => {
+  const val = e.target.value
+  if (!val) {
+    serviceEditForm.value.expiry_time = 0
+    return
+  }
+  const parts = val.split('-').map(Number)
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const dt = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59)
+    serviceEditForm.value.expiry_time = dt.getTime()
+  }
+}
+
+const extendServiceExpiry = (days) => {
+  const now = Date.now()
+  const base = (serviceEditForm.value.expiry_time && Number(serviceEditForm.value.expiry_time) > now)
+    ? Number(serviceEditForm.value.expiry_time)
+    : now
+  serviceEditForm.value.expiry_time = base + (days * 24 * 3600 * 1000)
+}
+
+const setServiceExpiryDays = (days) => {
+  if (days <= 0) {
+    serviceEditForm.value.expiry_time = 0
+  } else {
+    serviceEditForm.value.expiry_time = Date.now() + (days * 24 * 3600 * 1000)
+  }
+}
+
+const selectAllServiceInbounds = (selected) => {
+  if (serviceEditForm.value.all_inbounds) {
+    serviceEditForm.value.all_inbounds.forEach(i => i.selected = selected)
+  }
+}
+
+const openEditServiceModal = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) {
+    showNotify('شناسه یا ایمیل سرویس مشخص نیست.', false)
+    return
+  }
+  showServiceModal.value = true
+  loadingServiceModal.value = true
+  serviceEditForm.value = {
+    email: email,
+    display_name: (typeof s === 'object' && (s.display_name || s.sub_id)) || email,
+    total_gb: 0,
+    used_gb: 0,
+    limit_ip: 0,
+    expiry_time: 0,
+    enable: true,
+    reset_traffic: false,
+    all_inbounds: [],
+    inbound_ids: []
+  }
+
+  try {
+    const res = await getAdminServiceDetails(email)
+    const d = res.data
+    serviceEditForm.value = {
+      email: d.email || email,
+      display_name: (typeof s === 'object' && s.display_name) || d.email || email,
+      total_gb: d.total_gb ?? 0,
+      used_gb: d.used_gb ?? 0,
+      limit_ip: d.limit_ip ?? 0,
+      expiry_time: d.expiry_time ?? 0,
+      enable: d.enable !== false,
+      reset_traffic: false,
+      all_inbounds: (d.all_inbounds || []).map(i => ({ ...i })),
+      inbound_ids: d.inbound_ids || []
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در دریافت جزئیات سرویس از پنل سنائی', false)
+  } finally {
+    loadingServiceModal.value = false
+  }
+}
+
+const handleSaveService = async () => {
+  if (!serviceEditForm.value.email) return
+  savingService.value = true
+  try {
+    const selectedInbounds = (serviceEditForm.value.all_inbounds || [])
+      .filter(i => i.selected)
+      .map(i => i.id)
+
+    await updateAdminService(serviceEditForm.value.email, {
+      volume_gb: Number(serviceEditForm.value.total_gb) || 0,
+      limit_ip: Number(serviceEditForm.value.limit_ip) || 0,
+      expiry_time: Number(serviceEditForm.value.expiry_time) || 0,
+      enable: serviceEditForm.value.enable,
+      reset_traffic: serviceEditForm.value.reset_traffic,
+      inbound_ids: selectedInbounds
+    })
+
+    showNotify('سرویس کاربر با موفقیت در پنل سنائی بروزرسانی شد.')
+    showServiceModal.value = false
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ذخیره تغییرات سرویس', false)
+  } finally {
+    savingService.value = false
+  }
+}
+
+const handleQuickResetTraffic = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) return
+  if (!confirm(`آیا از صفر کردن حجم مصرفی سرویس "${email}" اطمینان دارید؟`)) return
+  try {
+    const res = await resetAdminServiceTraffic(email)
+    showNotify(res.data?.message || 'حجم مصرفی سرویس ریست شد.')
+    if (showServiceModal.value && serviceEditForm.value.email === email) {
+      serviceEditForm.value.used_gb = 0
+    }
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در ریست حجم سرویس', false)
+  }
+}
+
+const handleDeleteService = async (s) => {
+  const email = typeof s === 'string' ? s : (s.email || s.service_email || s.sub_id)
+  if (!email) return
+  if (!confirm(`هشدار: آیا از حذف کامل سرویس "${email}" از پنل سنائی و ربات اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`)) return
+  try {
+    await deleteAdminService(email)
+    showNotify('سرویس با موفقیت حذف شد.')
+    showServiceModal.value = false
+    if (selectedUserDetail.value?.user?.id) {
+      await openUserDetailModal(selectedUserDetail.value.user.id)
+    }
+  } catch (err) {
+    showNotify(err.response?.data?.detail || 'خطا در حذف سرویس', false)
+  }
+}
+
 const openUserDetailModal = async (userId) => {
   try {
+    userHistoryTab.value = 'purchases'
     const res = await getAdminUserDetail(userId)
     selectedUserDetail.value = res.data
   } catch (err) {
@@ -2269,6 +5180,7 @@ const handleSavePayments = async () => {
       card_number: paymentsConfig.value.card.card_number,
       card_holder: paymentsConfig.value.card.card_holder,
       bank_name: paymentsConfig.value.card.bank_name,
+      card_photo: paymentsConfig.value.card.card_photo || '',
       zibal_enabled: paymentsConfig.value.zibal.enabled,
       zibal_merchant: paymentsConfig.value.zibal.merchant,
       zibal_sandbox: paymentsConfig.value.zibal.sandbox,
@@ -2331,9 +5243,12 @@ const handleSaveBranding = async () => {
   if (!uiTitle.value.trim()) return
   savingBranding.value = true
   try {
-    await saveAdminBranding({ webapp_title: uiTitle.value.trim() })
+    await saveAdminBranding({
+      webapp_title: uiTitle.value.trim(),
+      customer_menu: customerMenu.value
+    })
     auth.setAppTitle(uiTitle.value.trim())
-    showNotify('عنوان وب‌اپ ذخیره شد.')
+    showNotify('تنظیمات عنوان و منوی مشتریان ذخیره شد.')
   } catch (err) {
     showNotify(err.response?.data?.detail || 'خطا در ذخیره عنوان', false)
   } finally {

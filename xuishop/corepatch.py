@@ -3,7 +3,7 @@ import time
 from html import escape
 
 from . import context as C
-from . import trial, ui
+from . import trial, ui, VERSION
 
 
 PROXY_SCHEMES = ("vless://", "vmess://", "trojan://", "ss://", "hysteria://", "hysteria2://", "hy2://")
@@ -297,7 +297,7 @@ def apply():
             try:
                 response = core.requests.get(
                     core._subscription_url(sub_id),
-                    headers={"Accept": "text/plain", "User-Agent": "SpeedyBot/5.0.0"},
+                    headers={"Accept": "text/plain", "User-Agent": f"VizzPNShopBot/{VERSION}"},
                     proxies=request_proxies,
                     timeout=15,
                     verify=not core.DEVELOPMENT_MODE,

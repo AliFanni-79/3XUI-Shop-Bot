@@ -29,7 +29,7 @@ jobs:
           script: |
             set -e
             APP_DIR="${SPEEDYBOT_APP_DIR:-/root/SpeedyBot}"
-            echo "🚀 Connecting to server for SpeedyBot update..."
+            echo "🚀 Connecting to server for X-UI Shop Bot update..."
             cd "$APP_DIR"
             
             if [ "${{ inputs.force_update }}" = "true" ]; then
@@ -40,4 +40,4 @@ jobs:
               bash update.sh
             fi
             
-            echo "✅ SpeedyBot auto-update completed successfully!"
+            echo "✅ X-UI Shop Bot auto-update completed successfully!"

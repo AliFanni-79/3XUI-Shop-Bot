@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import MagicMock
 
-from speedybot import context as C, corepatch, linked_services, storage, updates
+from xuishop import context as C, corepatch, linked_services, storage, updates
 
 
 class FakeTypes:
@@ -103,7 +103,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(C.setting("trial_default_ip_limit", ""), "0")
 
     def test_brand_and_customer_menu_defaults_are_seeded(self):
-        self.assertEqual(C.brand_name(), "Shop")
+        self.assertEqual(C.brand_name(), "VizzPN Shop Bot")
         for key in C.CUSTOMER_MENU_KEYS:
             self.assertTrue(C.menu_visible(key), key)
         C.set_setting("menu_guide_visible", "0")
@@ -195,7 +195,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(stored, [2])
 
     def test_resolve_unique_service_email_sanitization_and_increment(self):
-        from speedybot.db import resolve_unique_service_email
+        from xuishop.db import resolve_unique_service_email
         con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, service_email TEXT)")
         con.execute("CREATE TABLE IF NOT EXISTS trial_services (service_email TEXT)")
@@ -230,12 +230,12 @@ class StorageTests(unittest.TestCase):
         con.close()
 
     def test_brand_name_and_slug_resolution(self):
-        from speedybot.db import get_brand_name, get_brand_slug
+        from xuishop.db import get_brand_name, get_brand_slug
         con = sqlite3.connect("app.db")
         # Reset brand settings
         con.execute("DELETE FROM settings WHERE key IN ('webapp_title', 'brand_name')")
         con.commit()
-        self.assertEqual(get_brand_name(conn=con), "Shop")
+        self.assertEqual(get_brand_name(conn=con), "VizzPN Shop Bot")
 
         # Brand name set
         con.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('brand_name', 'VizzPN')")
@@ -252,7 +252,7 @@ class StorageTests(unittest.TestCase):
         con.close()
 
     def test_legacy_speedping_db_migration(self):
-        from speedybot.db import get_db_path
+        from xuishop.db import get_db_path
         with tempfile.TemporaryDirectory() as td:
             old_cwd = os.getcwd()
             try:
@@ -283,7 +283,7 @@ class StorageTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
     def test_corepatch_checkout_accepts_custom_name(self):
-        from speedybot import corepatch, context as C
+        from xuishop import corepatch, context as C
         # Mock ORIGINALS checkout
         received = {}
         def fake_orig_checkout(uid, plan, payment_method, kind="NEW", target_service_email=None, extra_volume_gb=0, custom_name=None, **kwargs):
@@ -320,7 +320,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(received["uid"], 123)
 
     def test_trial_monthly_eligibility_and_defaults(self):
-        from speedybot import trial
+        from xuishop import trial
         con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE IF NOT EXISTS trial_services (user_id INTEGER PRIMARY KEY, status TEXT, created_at INTEGER, activated_at INTEGER)")
         con.execute("DELETE FROM trial_services")
@@ -359,7 +359,7 @@ class StorageTests(unittest.TestCase):
         con.close()
 
     def test_trial_override_precedence(self):
-        from speedybot import trial, context as C
+        from xuishop import trial
         con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE IF NOT EXISTS trial_overrides (user_id INTEGER PRIMARY KEY, volume_gb REAL, days INTEGER, ip_limit INTEGER, note TEXT, updated_at INTEGER, updated_by INTEGER)")
         con.execute("DELETE FROM trial_overrides")
@@ -386,7 +386,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(ip, 3)
 
     def test_trial_issue_flow_records_email_and_custom_name(self):
-        from speedybot import trial, context as C
+        from xuishop import trial, context as C
         con = sqlite3.connect("app.db")
         con.execute("CREATE TABLE IF NOT EXISTS trial_services (user_id INTEGER PRIMARY KEY, email TEXT, status TEXT, last_error TEXT, sub_id TEXT, created_at INTEGER, activated_at INTEGER)")
         con.execute("DELETE FROM trial_services")

@@ -1,4 +1,4 @@
-"""FastAPI application — SpeedyBot Mini App REST layer.
+"""FastAPI application — X-UI Shop Bot Mini App REST layer.
 
 Endpoints:
   GET  /api/auth/me                  → validate initData, return profile + is_admin
@@ -25,22 +25,28 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
+import mimetypes
 import os
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, unquote
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from . import VERSION, core, ops, db
+
+logger = logging.getLogger("xuishop.api")
 
 # ---------------------------------------------------------------------------
 # App instance
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="SpeedyBot Mini App API", version="1.0.0", docs_url="/api/docs")
+app = FastAPI(title="VizzPN Shop Bot Mini App API", version=VERSION, docs_url="/api/docs")
 
 app.add_middleware(
     CORSMiddleware,
@@ -273,6 +279,11 @@ class InitWalletOrderRequest(BaseModel):
     custom_name: Optional[str] = None
 
 
+class ApplyCodeRequest(BaseModel):
+    code: str
+    price: Optional[int] = None
+
+
 class BroadcastRequest(BaseModel):
     message: str
     audience: str = "all"  # all | customers | trial | expired_trial | never_bought
@@ -287,6 +298,7 @@ class BuilderCalculateRequest(BaseModel):
     volume_gb: int
     ip_limit: int
     discount_code: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitCustomCardOrderRequest(BaseModel):
@@ -295,6 +307,7 @@ class InitCustomCardOrderRequest(BaseModel):
     ip_limit: int
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitCustomWalletOrderRequest(BaseModel):
@@ -303,6 +316,7 @@ class InitCustomWalletOrderRequest(BaseModel):
     ip_limit: int
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
 
 
 class InitGatewayOrderRequest(BaseModel):
@@ -313,6 +327,31 @@ class InitGatewayOrderRequest(BaseModel):
     ip_limit: Optional[int] = None
     discount_code: Optional[str] = None
     custom_name: Optional[str] = None
+    server_ids: Optional[List[int]] = None
+
+
+class ServerProfileCreateRequest(BaseModel):
+    name: str
+    price: int = 0
+    inbound_ids: List[int] = []
+    is_custom: int = 0
+    contact_support: int = 0
+    support_target_type: str = "bot"
+    support_target_url: str = ""
+    active: int = 1
+    sort_order: int = 100
+
+
+class ServerProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    price: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
+    is_custom: Optional[int] = None
+    contact_support: Optional[int] = None
+    support_target_type: Optional[str] = None
+    support_target_url: Optional[str] = None
+    active: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 class AdminGatewaySettingsRequest(BaseModel):
@@ -326,6 +365,7 @@ class AdminGatewaySettingsRequest(BaseModel):
 
 class BrandingRequest(BaseModel):
     webapp_title: str
+    customer_menu: Optional[Dict[str, bool]] = None
 
 
 class InitStarsOrderRequest(BaseModel):
@@ -339,6 +379,89 @@ class TrialClaimRequest(BaseModel):
     custom_name: Optional[str] = None
 
 
+class AdminTrialSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    volume_gb: Optional[float] = None
+    days: Optional[int] = None
+    ip_limit: Optional[int] = None
+    cooldown_days: Optional[int] = None
+    followup_enabled: Optional[bool] = None
+    followup_delay_hours: Optional[int] = None
+
+
+class AdminTrialOverrideRequest(BaseModel):
+    user_id: int
+    volume_gb: float
+    days: int
+    ip_limit: int
+    note: Optional[str] = ""
+
+
+class InboundToggleRequest(BaseModel):
+    inbound_id: int
+
+
+class AdminUpdateServiceRequest(BaseModel):
+    volume_gb: Optional[float] = None
+    limit_ip: Optional[int] = None
+    expiry_time: Optional[int] = None
+    enable: Optional[bool] = None
+    reset_traffic: Optional[bool] = False
+    inbound_ids: Optional[List[int]] = None
+
+
+class AdminCategoryCreateRequest(BaseModel):
+    name: str
+    active: int = 1
+    sort_order: int = 100
+
+
+class AdminCategoryUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    active: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class AdminVolumePackCreateRequest(BaseModel):
+    name: str
+    volume_gb: float
+    price: int
+    active: int = 1
+    sort_order: int = 100
+
+
+class AdminVolumePackUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    volume_gb: Optional[float] = None
+    price: Optional[int] = None
+    active: Optional[int] = None
+    sort_order: Optional[int] = None
+
+
+class AdminCrmSettingsRequest(BaseModel):
+    acquisition_survey_enabled: Optional[bool] = None
+    custom_service_names_enabled: Optional[bool] = None
+    existing_service_link_enabled: Optional[bool] = None
+
+
+class AdminRejectClaimRequest(BaseModel):
+    reason: Optional[str] = "Rejected by admin"
+
+
+class AdminGuideCreateRequest(BaseModel):
+    platform: str
+    app_name: Optional[str] = None
+    media_type: str = "TEXT"
+    body: str
+    sort_order: Optional[int] = None
+    media_file_id: Optional[str] = None
+
+
+class AdminAuditSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    chat_id: Optional[str] = None
+
+
 class AdminPlanCreateRequest(BaseModel):
     name: str
     price: int
@@ -348,6 +471,8 @@ class AdminPlanCreateRequest(BaseModel):
     active: int = 1
     sort_order: int = 100
     group_name: Optional[str] = None
+    category_id: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
 
 
 class AdminPlanUpdateRequest(BaseModel):
@@ -359,6 +484,8 @@ class AdminPlanUpdateRequest(BaseModel):
     active: Optional[int] = None
     sort_order: Optional[int] = None
     group_name: Optional[str] = None
+    category_id: Optional[int] = None
+    inbound_ids: Optional[List[int]] = None
 
 
 class ReplaceDomainRequest(BaseModel):
@@ -432,6 +559,8 @@ class ContentSecurityRequest(BaseModel):
     service_notifications_enabled: Optional[bool] = None
     service_volume_warning_percent: Optional[int] = None
     service_expiry_warning_hours: Optional[int] = None
+    service_username_mode: Optional[str] = None
+    service_notification_interval: Optional[int] = None
 
 
 class AdminBuilderDefaultsRequest(BaseModel):
@@ -476,6 +605,7 @@ class AdminPaymentsSettingsRequest(BaseModel):
     card_number: Optional[str] = None
     card_holder: Optional[str] = None
     bank_name: Optional[str] = None
+    card_photo: Optional[str] = None
     zibal_enabled: Optional[bool] = None
     zibal_merchant: Optional[str] = None
     zibal_sandbox: Optional[bool] = None
@@ -492,10 +622,12 @@ class AdminPaymentsSettingsRequest(BaseModel):
 
 @app.get("/api/app/config")
 async def get_app_config():
-    """Public webapp configuration (title, branding)."""
+    """Public webapp configuration (title, branding, version)."""
     app_title = _brand_name()
     return {
         "webapp_title": app_title,
+        "version": VERSION,
+        "guides_enabled": core.connection_guides_enabled(),
     }
 
 
@@ -518,6 +650,8 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
         "is_admin": user.get("is_admin", False),
         "app_title": app_title,
         "webapp_title": app_title,
+        "version": VERSION,
+        "guides_enabled": core.connection_guides_enabled(),
     }
 
 
@@ -706,6 +840,40 @@ async def claim_trial(
 # ---------------------------------------------------------------------------
 
 def _get_builder_config() -> Dict[str, Any]:
+    conn = _db()
+    servers = []
+    try:
+        s_rows = conn.execute("SELECT * FROM server_profiles WHERE active = 1 ORDER BY sort_order, id").fetchall()
+        for r in s_rows:
+            inbound_ids = []
+            try:
+                inbound_ids = json.loads(r["inbound_ids"] or "[]")
+            except Exception:
+                pass
+            servers.append({
+                "id": r["id"],
+                "name": r["name"],
+                "price": int(r["price"] or 0),
+                "inbound_ids": inbound_ids,
+                "is_custom": bool(r["is_custom"]),
+                "contact_support": bool(r["contact_support"]),
+                "support_target_type": r["support_target_type"] or "bot",
+                "support_target_url": r["support_target_url"] or "",
+            })
+    except Exception:
+        servers = []
+    finally:
+        conn.close()
+
+    bot_username = ""
+    try:
+        from . import core as _core
+        if hasattr(_core, 'bot') and _core.bot:
+            me = _core.bot.get_me()
+            bot_username = me.username if me else ""
+    except Exception:
+        pass
+
     return {
         "enabled": _setting("builder_enabled", "1") == "1",
         "month_price": int(_setting("builder_month_price", "120000")),
@@ -732,6 +900,8 @@ def _get_builder_config() -> Dict[str, Any]:
             0: int(_setting("builder_user_cost_unlimited", "65000")),
         },
         "user_unlimited_safety_ip": int(_setting("builder_user_unlimited_safety_ip", "8")),
+        "servers": servers,
+        "bot_username": bot_username,
     }
 
 
@@ -740,7 +910,8 @@ def _calculate_builder_plan(
     volume_gb: int,
     ip_limit: int,
     discount_code: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    server_ids: Optional[List[int]] = None
 ) -> Dict[str, Any]:
     cfg = _get_builder_config()
 
@@ -790,7 +961,38 @@ def _calculate_builder_plan(
     user_label = "نامحدود" if ip_limit == 0 else f"{ip_limit} کاربر"
     effective_ip = cfg["user_unlimited_safety_ip"] if ip_limit == 0 else ip_limit
 
-    subtotal = duration_price + traffic_price + user_cost
+    # 4. Servers calculation
+    servers_price = 0
+    selected_servers = []
+    has_support_server = False
+    if server_ids:
+        conn = _db()
+        try:
+            placeholders = ','.join('?' for _ in server_ids)
+            s_rows = conn.execute(
+                f"SELECT * FROM server_profiles WHERE id IN ({placeholders}) AND active = 1",
+                [int(x) for x in server_ids]
+            ).fetchall()
+            for sr in s_rows:
+                sp = int(sr["price"] or 0)
+                servers_price += sp
+                is_supp = bool(sr["contact_support"])
+                if is_supp:
+                    has_support_server = True
+                selected_servers.append({
+                    "id": sr["id"],
+                    "name": sr["name"],
+                    "price": sp,
+                    "contact_support": is_supp,
+                    "support_target_type": sr["support_target_type"] or "bot",
+                    "support_target_url": sr["support_target_url"] or ""
+                })
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    subtotal = duration_price + traffic_price + user_cost + servers_price
 
     # 4. Optional discount code or active campaign check
     code_discount = 0
@@ -837,6 +1039,9 @@ def _calculate_builder_plan(
             "is_unlimited": ip_limit == 0,
             "cost": user_cost,
         },
+        "servers": selected_servers,
+        "servers_price": servers_price,
+        "has_support_server": has_support_server,
         "subtotal": subtotal,
         "discount_code": valid_code,
         "discount_code_amount": code_discount,
@@ -863,7 +1068,8 @@ async def calculate_builder_price(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=user["id"]
+        user_id=user["id"],
+        server_ids=body.server_ids
     )
 
 
@@ -893,70 +1099,177 @@ def _format_service(row) -> Dict[str, Any]:
 
 @app.get("/api/services")
 async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
-    """Return all user's VPN services: paid, trial, and linked."""
+    """Return all user's VPN services: active (paid, trial, linked) and
+    deactivated services (expired/revoked non-trial) from at most a month ago.
+    """
     from . import core as _core
     uid = user["id"]
+    now_ts = int(time.time())
+    one_month_ago = now_ts - (30 * 86400)
     conn = _db()
+    try:
+        active_plan_rows = conn.execute(
+            "SELECT id, name, category_id, price, days, volume_gb, ip_limit FROM plans WHERE active = 1"
+        ).fetchall()
+        active_plans_map = {int(p["id"]): dict(p) for p in active_plan_rows}
 
-    paid = conn.execute(
-        """SELECT id, service_email AS email, sub_id, custom_name, kind, status, plan_name_snapshot,
-                  plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot, approved_at
-           FROM transactions
-           WHERE user_id = ? AND status = 'APPROVED' AND kind = 'NEW'
-           ORDER BY id DESC""",
-        (uid,),
-    ).fetchall()
+        tx_rows = conn.execute(
+            """SELECT id, user_id, plan_id, service_email AS email, sub_id, custom_name, kind, status,
+                      plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot, plan_ip_limit_snapshot,
+                      created_at, approved_at
+               FROM transactions
+               WHERE user_id = ?
+               ORDER BY id DESC""",
+            (uid,),
+        ).fetchall()
 
-    trial = conn.execute(
-        "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
-        (uid,),
-    ).fetchone()
+        trial_row = conn.execute(
+            "SELECT user_id, email, sub_id, status, created_at, activated_at FROM trial_services WHERE user_id = ?",
+            (uid,),
+        ).fetchone()
 
-    linked = conn.execute(
-        "SELECT id, email, linked_at, source FROM linked_services WHERE user_id = ? ORDER BY id DESC",
-        (uid,),
-    ).fetchall()
+        linked = conn.execute(
+            "SELECT id, email, linked_at, source FROM linked_services WHERE user_id = ? ORDER BY id DESC",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
 
-    conn.close()
+    services_by_key = {}
+    for r in tx_rows:
+        row = dict(r)
+        st = str(row.get("status") or "").strip().upper()
+        if st not in ("APPROVED", "ACTIVE", "EXPIRED", "REVOKED", "PROCESSING", "CREATING"):
+            continue
 
-    services = []
-    for row in paid:
-        svc = _format_service(dict(row))
-        svc["kind"] = "PAID"
-        services.append(svc)
+        key = str(row.get("email") or row.get("sub_id") or "").strip()
+        if not key:
+            key = f"tx_{row['id']}"
 
-    if trial:
-        status_val = trial["status"]
-        if status_val in ("ACTIVE", "CREATING", "EXPIRED"):
-            svc = {
-                "email": trial["email"],
-                "sub_url": _core.get_client_sub_url(trial["email"], trial["sub_id"]),
+        if key not in services_by_key:
+            services_by_key[key] = row
+        else:
+            existing = services_by_key[key]
+            for field in (
+                "plan_id",
+                "plan_name_snapshot",
+                "plan_days_snapshot",
+                "plan_volume_gb_snapshot",
+                "plan_ip_limit_snapshot",
+                "sub_id",
+                "custom_name",
+            ):
+                if not existing.get(field) and row.get(field):
+                    existing[field] = row.get(field)
+
+    active_services = []
+    deactivated_services = []
+
+    for row in services_by_key.values():
+        st = str(row.get("status") or "").strip().upper()
+        is_active_svc = st in ("APPROVED", "ACTIVE", "PROCESSING", "CREATING")
+
+        # Deactivated services: only include non-trial if within the last 30 days
+        if not is_active_svc:
+            ts = max(int(row.get("approved_at") or 0), int(row.get("created_at") or 0))
+            if ts < one_month_ago:
+                continue
+
+        email = str(row.get("email") or row.get("sub_id") or "").strip()
+        sub_id = row.get("sub_id")
+        sub_url = _core.get_client_sub_url(email, sub_id) if (is_active_svc and email) else None
+
+        pid = int(row.get("plan_id") or 0)
+        matched_plan = active_plans_map.get(pid)
+        plan_available = bool(matched_plan)
+        category_id = matched_plan.get("category_id") if matched_plan else None
+
+        svc = {
+            "email": email,
+            "custom_name": row.get("custom_name") or email or f"سرویس #{row['id']}",
+            "sub_url": sub_url,
+            "kind": row.get("kind") or "PAID",
+            "status": "APPROVED" if st == "ACTIVE" else st,
+            "is_active": is_active_svc,
+            "plan_id": pid if pid > 0 else None,
+            "plan_available": plan_available,
+            "category_id": category_id,
+            "plan_name": row.get("plan_name_snapshot")
+            or (matched_plan.get("name") if matched_plan else "")
+            or "سرویس اشتراکی",
+            "days": int(row.get("plan_days_snapshot") or (matched_plan.get("days") if matched_plan else 0) or 0),
+            "volume_gb": float(
+                row.get("plan_volume_gb_snapshot") or (matched_plan.get("volume_gb") if matched_plan else 0) or 0
+            ),
+            "ip_limit": int(
+                row.get("plan_ip_limit_snapshot") or (matched_plan.get("ip_limit") if matched_plan else 1) or 1
+            ),
+            "approved_at": row.get("approved_at"),
+            "created_at": row.get("created_at"),
+            "tx_id": row.get("id"),
+        }
+        if is_active_svc:
+            active_services.append(svc)
+        else:
+            deactivated_services.append(svc)
+
+    # Trial service (only show if active; user requirement: "(expired or revoked if not trial)")
+    if trial_row:
+        t_status = str(trial_row["status"] or "").strip().upper()
+        if t_status in ("ACTIVE", "TRIAL_ACTIVE", "CREATING"):
+            t_email = str(trial_row["email"] or "").strip()
+            active_services.append({
+                "email": t_email,
+                "custom_name": t_email or "تست رایگان",
+                "sub_url": _core.get_client_sub_url(t_email, trial_row["sub_id"]) if t_email else None,
                 "kind": "TRIAL",
-                "status": status_val,
+                "status": "ACTIVE",
+                "is_active": True,
+                "plan_id": None,
+                "plan_available": False,
+                "category_id": None,
                 "plan_name": "تست رایگان",
                 "days": int(_setting("trial_default_days", "1")),
                 "volume_gb": float(_setting("trial_default_volume_gb", "1")),
                 "ip_limit": int(_setting("trial_default_ip_limit", "1")),
-                "approved_at": trial.get("activated_at"),
+                "approved_at": trial_row["activated_at"],
+                "created_at": trial_row["created_at"],
                 "tx_id": None,
-            }
-            services.append(svc)
+            })
 
+    # Linked services (always active)
     for row in linked:
-        services.append({
-            "email": row["email"],
-            "sub_url": _core.get_client_sub_url(row["email"], None),
+        l_email = str(row["email"] or "").strip()
+        active_services.append({
+            "email": l_email,
+            "custom_name": l_email or "سرویس لینک‌شده",
+            "sub_url": _core.get_client_sub_url(l_email, None) if l_email else None,
             "kind": "LINKED",
             "status": "ACTIVE",
+            "is_active": True,
+            "plan_id": None,
+            "plan_available": False,
+            "category_id": None,
             "plan_name": "سرویس لینک‌شده",
             "days": 0,
             "volume_gb": 0,
             "ip_limit": 0,
-            "approved_at": row.get("linked_at"),
+            "approved_at": row["linked_at"],
+            "created_at": row["linked_at"],
             "tx_id": row["id"],
         })
 
-    return {"services": services}
+    # Active services first (latest approved/created first), then deactivated services (latest first)
+    active_services.sort(
+        key=lambda s: int(s.get("approved_at") or s.get("created_at") or s.get("tx_id") or 0),
+        reverse=True,
+    )
+    deactivated_services.sort(
+        key=lambda s: int(s.get("approved_at") or s.get("created_at") or s.get("tx_id") or 0),
+        reverse=True,
+    )
+
+    return {"services": active_services + deactivated_services}
 
 
 # ---------------------------------------------------------------------------
@@ -1050,6 +1363,107 @@ async def get_wallet_saved_discounts(user: Dict[str, Any] = Depends(get_current_
     return {"discounts": discounts}
 
 
+@app.post("/api/codes/apply")
+async def apply_or_check_code(
+    body: ApplyCodeRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Validate and apply a discount code or redeem a gift code."""
+    uid = user["id"]
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="لطفاً کد را وارد کنید.")
+
+    # 1. Check if it's a gift code
+    conn = _db()
+    gift = conn.execute("SELECT * FROM gift_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+    if gift:
+        conn.close()
+        from . import core as _core  # noqa: PLC0415
+        ok, msg = _core.redeem_gift_code(uid, code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg)
+        conn = _db()
+        u_row = conn.execute("SELECT balance FROM users WHERE id = ?", (uid,)).fetchone()
+        new_balance = int(u_row["balance"] or 0) if u_row else 0
+        conn.close()
+        return {
+            "type": "gift",
+            "code": str(gift["code"]),
+            "amount": int(gift["amount"]),
+            "new_balance": new_balance,
+            "message": f"کد هدیه با موفقیت اعمال شد و مبلغ {int(gift['amount']):,} تومان به موجودی کیف پول شما افزوده شد.",
+        }
+
+    # 2. Check if it's a discount code
+    disc = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+    if disc:
+        now_ts = int(time.time())
+        if not int(disc["active"] or 0):
+            conn.close()
+            raise HTTPException(status_code=400, detail="این کد تخفیف غیرفعال شده است.")
+        if disc["expires_at"] and int(disc["expires_at"]) <= now_ts:
+            conn.close()
+            raise HTTPException(status_code=400, detail="اعتبار این کد تخفیف به پایان رسیده است.")
+
+        # If price was not provided (e.g. checked in Wallet view)
+        if body.price is None or int(body.price) <= 0:
+            conn.close()
+            return {
+                "type": "discount",
+                "code": str(disc["code"]),
+                "is_discount_only": True,
+                "message": "این کد یک کد تخفیف است و فقط در منوی خرید قابل استفاده می‌باشد.",
+            }
+
+        price = int(body.price)
+        min_p = int(disc["min_purchase"] or 0)
+        if price < min_p:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"حداقل مبلغ خرید برای استفاده از این کد تخفیف {min_p:,} تومان است.",
+            )
+
+        used_total = conn.execute(
+            "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')",
+            (disc["code"],),
+        ).fetchone()["c"]
+        if int(disc["max_uses"] or 0) > 0 and int(used_total) >= int(disc["max_uses"]):
+            conn.close()
+            raise HTTPException(status_code=400, detail="ظرفیت استفاده از این کد تخفیف تکمیل شده است.")
+
+        used_user = conn.execute(
+            "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND user_id = ? AND status IN ('RESERVED','APPLIED')",
+            (disc["code"], int(uid)),
+        ).fetchone()["c"]
+        if int(disc["per_user_limit"] or 0) > 0 and int(used_user) >= int(disc["per_user_limit"]):
+            conn.close()
+            raise HTTPException(status_code=400, detail="شما قبلاً از این کد تخفیف استفاده کرده‌اید.")
+
+        conn.close()
+
+        if str(disc["discount_type"]).upper() == "PERCENT":
+            discount_amount = int(round(price * float(disc["value"]) / 100.0))
+        else:
+            discount_amount = int(round(float(disc["value"])))
+        discount_amount = max(0, min(discount_amount, price))
+        final_price = max(0, price - discount_amount)
+
+        return {
+            "type": "discount",
+            "code": str(disc["code"]),
+            "discount_type": disc["discount_type"],
+            "discount_value": disc["value"],
+            "discount_amount": discount_amount,
+            "final_price": final_price,
+            "message": f"کد تخفیف {disc['code']} با موفقیت اعمال شد ({discount_amount:,} تومان تخفیف).",
+        }
+
+    conn.close()
+    raise HTTPException(status_code=400, detail="کد وارد شده معتبر نیست یا وجود ندارد.")
+
+
 # ---------------------------------------------------------------------------
 # Referral
 # ---------------------------------------------------------------------------
@@ -1120,7 +1534,7 @@ async def get_referral(user: Dict[str, Any] = Depends(get_current_user)):
 async def get_guides(_user: Dict[str, Any] = Depends(get_current_user)):
     conn = _db()
     rows = conn.execute(
-        "SELECT id, platform, media_type, body, file_id, sort_order FROM guide_items WHERE active = 1 ORDER BY sort_order, id"
+        "SELECT id, platform, media_type, body, file_id, sort_order, app_name FROM guide_items WHERE active = 1 ORDER BY sort_order, id"
     ).fetchall()
     conn.close()
     return {
@@ -1128,13 +1542,128 @@ async def get_guides(_user: Dict[str, Any] = Depends(get_current_user)):
             {
                 "id": r["id"],
                 "platform": r["platform"],
+                "app_name": r["app_name"] or "",
                 "media_type": r["media_type"],
                 "body": r["body"] or "",
                 "file_id": r["file_id"],
+                "media_url": f"/api/guides/{r['id']}/media" if r["file_id"] else "",
             }
             for r in rows
         ]
     }
+
+
+@app.get("/api/guides/{guide_id}/media")
+async def get_guide_media(guide_id: int):
+    """Serve photo or video media for a guide item, caching Telegram files locally."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT id, media_type, file_id FROM guide_items WHERE id = ?",
+        (guide_id,),
+    ).fetchone()
+    conn.close()
+    if not row or not row["file_id"]:
+        raise HTTPException(status_code=404, detail="رسانه‌ای برای این راهنما یافت نشد.")
+
+    file_id = str(row["file_id"]).strip()
+    media_type = str(row["media_type"] or "PHOTO").upper()
+
+    # External HTTP(S) URL
+    if file_id.startswith(("http://", "https://")):
+        return RedirectResponse(url=file_id, status_code=307)
+
+    cache_dir = os.path.join(os.path.dirname(db.get_db_path()), "media_cache")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception:
+        pass
+
+    file_hash = hashlib.sha256(file_id.encode("utf-8")).hexdigest()[:24]
+
+    # Check cache first
+    if os.path.exists(cache_dir):
+        for fname in os.listdir(cache_dir):
+            if fname.startswith(file_hash):
+                cached_path = os.path.join(cache_dir, fname)
+                ctype, _ = mimetypes.guess_type(cached_path)
+                if not ctype:
+                    ctype = "image/jpeg" if media_type == "PHOTO" else "video/mp4"
+                return FileResponse(
+                    cached_path,
+                    media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=604800"},
+                )
+
+    # Fetch from Telegram
+    try:
+        if not hasattr(core.bot, "get_file") or not hasattr(core.bot, "download_file"):
+            raise ValueError("Telegram Bot not configured for downloading files")
+        file_info = core.bot.get_file(file_id)
+        raw_path = getattr(file_info, "file_path", None)
+        if not raw_path:
+            raise ValueError("No file path returned by Telegram")
+        ext = os.path.splitext(raw_path)[1].lower()
+        if not ext:
+            ext = ".jpg" if media_type == "PHOTO" else ".mp4"
+        file_bytes = core.bot.download_file(raw_path)
+        if not file_bytes:
+            raise ValueError("Empty file content")
+        cached_path = os.path.join(cache_dir, f"{file_hash}{ext}")
+        with open(cached_path, "wb") as f:
+            f.write(file_bytes)
+        ctype, _ = mimetypes.guess_type(cached_path)
+        if not ctype:
+            ctype = "image/jpeg" if media_type == "PHOTO" else "video/mp4"
+        return FileResponse(
+            cached_path,
+            media_type=ctype,
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch Telegram media for guide %s: %s", guide_id, e)
+        raise HTTPException(status_code=404, detail="دانلود رسانه از تلگرام امکان‌پذیر نبود.")
+
+
+@app.get("/api/media/telegram/{file_id}")
+async def get_telegram_media(file_id: str, media_type: str = "PHOTO"):
+    """Serve any Telegram file_id by caching and streaming."""
+    file_id = file_id.strip()
+    if file_id.startswith(("http://", "https://")):
+        return RedirectResponse(url=file_id, status_code=307)
+    cache_dir = os.path.join(os.path.dirname(db.get_db_path()), "media_cache")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception:
+        pass
+    file_hash = hashlib.sha256(file_id.encode("utf-8")).hexdigest()[:24]
+    mtype = media_type.upper()
+    if os.path.exists(cache_dir):
+        for fname in os.listdir(cache_dir):
+            if fname.startswith(file_hash):
+                cached_path = os.path.join(cache_dir, fname)
+                ctype, _ = mimetypes.guess_type(cached_path)
+                if not ctype:
+                    ctype = "image/jpeg" if mtype == "PHOTO" else "video/mp4"
+                return FileResponse(cached_path, media_type=ctype, headers={"Cache-Control": "public, max-age=604800"})
+    try:
+        if not hasattr(core.bot, "get_file") or not hasattr(core.bot, "download_file"):
+            raise ValueError("Telegram Bot not configured for downloading files")
+        file_info = core.bot.get_file(file_id)
+        raw_path = getattr(file_info, "file_path", None)
+        if not raw_path:
+            raise ValueError("No file path returned by Telegram")
+        ext = os.path.splitext(raw_path)[1].lower() or (".jpg" if mtype == "PHOTO" else ".mp4")
+        file_bytes = core.bot.download_file(raw_path)
+        if not file_bytes:
+            raise ValueError("Empty file content")
+        cached_path = os.path.join(cache_dir, f"{file_hash}{ext}")
+        with open(cached_path, "wb") as f:
+            f.write(file_bytes)
+        ctype, _ = mimetypes.guess_type(cached_path) or ("image/jpeg" if mtype == "PHOTO" else "video/mp4")
+        return FileResponse(cached_path, media_type=ctype, headers={"Cache-Control": "public, max-age=604800"})
+    except Exception as e:
+        logger.warning("Failed to fetch Telegram media %s: %s", file_id, e)
+        raise HTTPException(status_code=404, detail="دانلود رسانه از تلگرام امکان‌پذیر نبود.")
 
 
 # ---------------------------------------------------------------------------
@@ -1154,13 +1683,6 @@ async def init_card_order(
     plan = _get_plan(body.plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
-
-    # Optionally pre-load a discount code
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err_msg)
 
     # Use existing core function to create the transaction and trigger the bot message
     try:
@@ -1187,12 +1709,6 @@ async def init_wallet_order(
     plan = _get_plan(body.plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found or inactive")
-
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err_msg)
 
     from . import core as _core  # noqa: PLC0415
     result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name, explicit_code=body.discount_code)
@@ -1224,7 +1740,8 @@ async def init_custom_card_order(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=uid
+        user_id=uid,
+        server_ids=body.server_ids
     )
 
     custom_plan = {
@@ -1237,13 +1754,8 @@ async def init_custom_card_order(
         "ip_limit": calc["effective_ip_limit"],
         "sort_order": 0,
         "active": True,
+        "server_ids": body.server_ids or None,
     }
-
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err_msg)
 
     try:
         from . import core as _core  # noqa: PLC0415
@@ -1271,7 +1783,8 @@ async def init_custom_wallet_order(
         volume_gb=body.volume_gb,
         ip_limit=body.ip_limit,
         discount_code=body.discount_code,
-        user_id=uid
+        user_id=uid,
+        server_ids=body.server_ids
     )
 
     custom_plan = {
@@ -1284,13 +1797,8 @@ async def init_custom_wallet_order(
         "ip_limit": calc["effective_ip_limit"],
         "sort_order": 0,
         "active": True,
+        "server_ids": body.server_ids or None,
     }
-
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err_msg)
 
     from . import core as _core  # noqa: PLC0415
     result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name, explicit_code=body.discount_code)
@@ -1330,6 +1838,21 @@ async def get_active_gateways(_user: Dict[str, Any] = Depends(get_current_user))
     }
 
 
+def _calc_discount(code: str, price: int, user_id: int) -> int:
+    """Calculate and return discount amount for a given code and price."""
+    if not code:
+        return 0
+    conn = _db()
+    try:
+        from . import core as _core
+        promo = _core.resolve_checkout_promotion(conn, user_id, price, explicit_code=code)
+        return int(promo.get("discount_amount") or 0)
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
 @app.post("/api/orders/init-stars")
 async def init_stars_order(
     body: InitStarsOrderRequest,
@@ -1361,10 +1884,12 @@ async def init_stars_order(
         plan_name = p["name"]
         base_price = int(p["price"])
     elif body.custom_spec:
+        server_ids_input = body.custom_spec.get("server_ids")
         calc = _calculate_builder_plan(
             months=int(body.custom_spec.get("months", 1)),
             volume_gb=int(body.custom_spec.get("volume_gb", 0)),
             ip_limit=int(body.custom_spec.get("ip_limit", 1)),
+            server_ids=server_ids_input,
         )
         plan_name = calc["plan_name"]
         base_price = int(calc.get("subtotal", calc.get("total_price", 0)))
@@ -1398,8 +1923,8 @@ async def init_stars_order(
             INSERT INTO transactions (
                 user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb
-            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb, server_ids
+            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
             """,
             (
                 uid,
@@ -1417,6 +1942,7 @@ async def init_stars_order(
                 discount_code,
                 discount_amount,
                 promo_cb,
+                json.dumps(server_ids_input) if server_ids_input else None,
             ),
         )
         tx_id = int(c.lastrowid)
@@ -1493,7 +2019,8 @@ async def init_gateway_order(
             volume_gb=body.volume_gb or 0,
             ip_limit=body.ip_limit if body.ip_limit is not None else 1,
             discount_code=body.discount_code,
-            user_id=uid
+            user_id=uid,
+            server_ids=body.server_ids
         )
         plan = {
             "id": 0,
@@ -1505,15 +2032,10 @@ async def init_gateway_order(
             "ip_limit": calc["effective_ip_limit"],
             "sort_order": 0,
             "active": True,
+            "server_ids": body.server_ids or None,
         }
     else:
         raise HTTPException(status_code=400, detail="مشخصات پلن ارسال نشده است.")
-
-    if body.discount_code:
-        from . import core as _core  # noqa: PLC0415
-        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
-        if not ok:
-            raise HTTPException(status_code=400, detail=err_msg)
 
     # 2. Create pending transaction
     from . import core as _core  # noqa: PLC0415
@@ -1531,7 +2053,7 @@ async def init_gateway_order(
 
     # 3. Determine base URL for callback
     base_url = str(request.base_url).rstrip("/")
-    configured_url = _setting("webapp_url", "").strip() or os.getenv("WEBAPP_URL", "").strip()
+    configured_url = os.getenv("WEBAPP_URL", "").strip() or _setting("webapp_url", "").strip()
     if configured_url:
         base_url = configured_url.rstrip("/")
 
@@ -1691,6 +2213,7 @@ async def payment_callback_zibal(
     if not is_verified:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error=? WHERE id=?", (err or "Zibal verify failed", int(order_id)))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -1751,6 +2274,7 @@ async def payment_callback_zarinpal(
     if str(Status).upper() != "OK" or not Authority:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error='Zarinpal cancelled by user' WHERE id=?", (int(order_id),))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -1771,6 +2295,7 @@ async def payment_callback_zarinpal(
     if not is_verified:
         conn = _db()
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error=? WHERE id=?", (err or "Zarinpal verify failed", int(order_id)))
+        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(order_id),))
         conn.commit()
         conn.close()
         return HTMLResponse(
@@ -1849,10 +2374,13 @@ async def admin_save_gateways(
 
 @app.get("/api/admin/branding")
 async def get_admin_branding(_admin: Dict[str, Any] = Depends(get_admin_user)):
-    """Return current webapp branding / title."""
+    """Return current webapp branding / title and customer menu settings."""
     app_title = _brand_name()
+    menu_keys = ["buy", "account", "trial", "affiliate", "guide", "faq", "rewards", "support"]
+    customer_menu = {k: _setting(f"menu_{k}_visible", "1") == "1" for k in menu_keys}
     return {
         "webapp_title": app_title,
+        "customer_menu": customer_menu,
     }
 
 
@@ -1861,7 +2389,7 @@ async def save_admin_branding(
     body: BrandingRequest,
     _admin: Dict[str, Any] = Depends(get_admin_user),
 ):
-    """Save webapp UI title."""
+    """Save webapp UI title and customer menu toggles."""
     title = body.webapp_title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="عنوان وب‌اپ نمی‌تواند خالی باشد.")
@@ -1870,10 +2398,27 @@ async def save_admin_branding(
 
     _update_setting("webapp_title", title)
     _update_setting("brand_name", title)
+
+    if body.customer_menu:
+        key_aliases = {
+            "buy_service": "buy",
+            "my_services": "account",
+            "free_test": "trial",
+            "guides": "guide",
+            "pricing": "buy",
+            "wallet": "account",
+        }
+        for k, v in body.customer_menu.items():
+            target_key = key_aliases.get(k, k)
+            _update_setting(f"menu_{target_key}_visible", "1" if v else "0")
+
+    menu_keys = ["buy", "account", "trial", "affiliate", "guide", "faq", "rewards", "support"]
+    customer_menu = {k: _setting(f"menu_{k}_visible", "1") == "1" for k in menu_keys}
     return {
         "success": True,
         "webapp_title": title,
-        "message": "عنوان و نام وب‌اپ با موفقیت ذخیره شد.",
+        "customer_menu": customer_menu,
+        "message": "عنوان و تنظیمات منوی مشتری با موفقیت ذخیره شد.",
     }
 
 
@@ -1901,6 +2446,8 @@ async def admin_stats(_admin: Dict[str, Any] = Depends(get_admin_user)):
         "total_revenue": total_revenue,
         "pending_orders": pending_orders,
         "new_users_today": new_users_today,
+        "app_version": VERSION,
+        "brand_name": _brand_name(),
     }
 
 
@@ -2174,6 +2721,7 @@ async def admin_get_payments(_admin: Dict[str, Any] = Depends(get_admin_user)):
             "card_number": _setting("card_number", ""),
             "card_holder": _setting("card_holder", ""),
             "bank_name": _setting("bank_name", ""),
+            "card_photo": _setting("card_photo", ""),
         },
         "zibal": {
             "enabled": _setting("gateway_zibal_enabled", "0") == "1",
@@ -2203,6 +2751,8 @@ async def admin_save_payments(
         _update_setting("card_holder", body.card_holder.strip())
     if body.bank_name is not None:
         _update_setting("bank_name", body.bank_name.strip())
+    if body.card_photo is not None:
+        _update_setting("card_photo", body.card_photo.strip())
 
     if body.zibal_enabled is not None:
         _update_setting("gateway_zibal_enabled", "1" if body.zibal_enabled else "0")
@@ -2285,20 +2835,94 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
 
     transactions = conn.execute(
         """
-        SELECT id, plan_name_snapshot, price, status, payment_method, created_at, approved_at
-        FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 20
+        SELECT id, plan_name_snapshot, price, status, payment_method, created_at, approved_at,
+               discount_code, discount_amount, wallet_used, cash_amount, kind
+        FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 50
         """,
         (user_id,),
     ).fetchall()
 
-    services = conn.execute(
+    wallet_transactions = conn.execute(
         """
-        SELECT id, sub_id, plan_id, status, created_at, expires_at
-        FROM linked_services WHERE user_id = ? ORDER BY id DESC LIMIT 10
+        SELECT id, amount, balance_after, type, description, related_tx_id, created_at
+        FROM wallet_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 50
         """,
         (user_id,),
     ).fetchall()
+
+    tx_services = conn.execute(
+        """
+        SELECT id, COALESCE(custom_name, service_email, sub_id, 'سرویس #' || id) AS display_name,
+               sub_id, service_email, plan_name_snapshot, status, created_at, approved_at
+        FROM transactions
+        WHERE user_id = ? AND (status = 'APPROVED' OR service_email IS NOT NULL OR sub_id IS NOT NULL)
+        ORDER BY id DESC LIMIT 15
+        """,
+        (user_id,),
+    ).fetchall()
+
+    linked_services = conn.execute(
+        """
+        SELECT id, email, linked_at, source
+        FROM linked_services
+        WHERE user_id = ?
+        ORDER BY id DESC LIMIT 15
+        """,
+        (user_id,),
+    ).fetchall()
+    trial_service = conn.execute(
+        """
+        SELECT user_id, email, status, created_at, activated_at, sub_id
+        FROM trial_services
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
     conn.close()
+
+    services_list = []
+    for s in tx_services:
+        em = str(s["service_email"] or s["sub_id"] or "").strip()
+        services_list.append({
+            "id": s["id"],
+            "email": em,
+            "service_email": str(s["service_email"] or "").strip(),
+            "sub_id": s["sub_id"] or em,
+            "display_name": s["display_name"] or em or f"سرویس #{s['id']}",
+            "plan_id": None,
+            "status": s["status"],
+            "created_at": s["created_at"],
+            "expires_at": None,
+            "source": "TRANSACTION",
+        })
+    for ls in linked_services:
+        em = str(ls["email"] or "").strip()
+        services_list.append({
+            "id": ls["id"],
+            "email": em,
+            "service_email": em,
+            "sub_id": em,
+            "display_name": em,
+            "plan_id": None,
+            "status": "LINKED",
+            "created_at": ls["linked_at"],
+            "expires_at": None,
+            "source": "LINKED",
+        })
+    if trial_service:
+        t_em = str(trial_service["email"] or "").strip()
+        services_list.append({
+            "id": f"trial_{user_id}",
+            "email": t_em,
+            "service_email": t_em,
+            "sub_id": trial_service["sub_id"] or t_em,
+            "display_name": f"تست رایگان ({t_em})",
+            "plan_id": None,
+            "status": f"TRIAL_{trial_service['status']}",
+            "created_at": trial_service["created_at"],
+            "expires_at": None,
+            "source": "TRIAL",
+        })
 
     return {
         "user": {
@@ -2315,22 +2939,29 @@ async def admin_user_detail(user_id: int, _admin: Dict[str, Any] = Depends(get_a
                 "price": int(t["price"] or 0),
                 "status": t["status"],
                 "method": t["payment_method"],
+                "kind": t["kind"],
+                "discount_code": t["discount_code"],
+                "discount_amount": int(t["discount_amount"] or 0),
+                "wallet_used": int(t["wallet_used"] or 0),
+                "cash_amount": int(t["cash_amount"] or 0),
                 "created_at": t["created_at"],
                 "approved_at": t["approved_at"],
             }
             for t in transactions
         ],
-        "services": [
+        "wallet_transactions": [
             {
-                "id": s["id"],
-                "sub_id": s["sub_id"],
-                "plan_id": s["plan_id"],
-                "status": s["status"],
-                "created_at": s["created_at"],
-                "expires_at": s["expires_at"],
+                "id": wt["id"],
+                "amount": int(wt["amount"] or 0),
+                "balance_after": int(wt["balance_after"] or 0),
+                "type": wt["type"],
+                "description": wt["description"] or wt["type"],
+                "related_tx_id": wt["related_tx_id"],
+                "created_at": wt["created_at"],
             }
-            for s in services
+            for wt in wallet_transactions
         ],
+        "services": services_list,
     }
 
 
@@ -2400,80 +3031,117 @@ async def admin_toggle_user_status(user_id: int, _admin: Dict[str, Any] = Depend
 @app.get("/api/admin/plans")
 async def admin_plans(_admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    rows = conn.execute(
-        "SELECT id, name, price, volume_gb, days, ip_limit, active, sort_order, group_name FROM plans ORDER BY sort_order, id"
-    ).fetchall()
-    conn.close()
-    return {
-        "plans": [
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "price": r["price"],
-                "volume_gb": float(r["volume_gb"] or 0),
-                "days": r["days"],
-                "ip_limit": r["ip_limit"],
-                "active": bool(r["active"]),
-                "sort_order": r["sort_order"],
-                "group_name": r["group_name"] or "",
-            }
-            for r in rows
-        ]
-    }
+    try:
+        rows = conn.execute(
+            """SELECT p.id, p.name, p.price, p.volume_gb, p.days, p.ip_limit, p.active, p.sort_order, p.group_name, p.category_id,
+                      c.name AS category_name
+               FROM plans p
+               LEFT JOIN plan_categories c ON c.id = p.category_id
+               ORDER BY p.sort_order, p.id"""
+        ).fetchall()
+        inbounds_map = {}
+        ib_rows = conn.execute("SELECT plan_id, inbound_id FROM plan_inbounds").fetchall()
+        for ir in ib_rows:
+            inbounds_map.setdefault(ir["plan_id"], []).append(int(ir["inbound_id"]))
+        return {
+            "plans": [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "price": r["price"],
+                    "volume_gb": float(r["volume_gb"] or 0),
+                    "days": r["days"],
+                    "ip_limit": r["ip_limit"],
+                    "active": bool(r["active"]),
+                    "sort_order": r["sort_order"],
+                    "group_name": r["group_name"] or "",
+                    "category_id": r["category_id"],
+                    "category_name": r["category_name"] or "عمومی",
+                    "inbound_ids": inbounds_map.get(r["id"], []),
+                }
+                for r in rows
+            ]
+        }
+    finally:
+        conn.close()
 
 
 @app.post("/api/admin/plans")
 async def admin_create_plan(body: AdminPlanCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
     now = int(time.time())
     conn = _db()
-    c = conn.cursor()
-    c.execute(
-        """
-        INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, group_name, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, (body.group_name or "").strip() or None, now, now),
-    )
-    plan_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return {"status": "created", "plan_id": plan_id, "message": "پلن جدید با موفقیت اضافه شد."}
+    try:
+        c = conn.cursor()
+        cat_id = body.category_id
+        if cat_id is None:
+            cat_row = conn.execute("SELECT id FROM plan_categories WHERE active = 1 ORDER BY sort_order, id LIMIT 1").fetchone()
+            cat_id = cat_row["id"] if cat_row else 1
+        c.execute(
+            """
+            INSERT INTO plans (name, price, volume_gb, days, ip_limit, active, sort_order, group_name, category_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (body.name.strip(), body.price, body.volume_gb, body.days, body.ip_limit, body.active, body.sort_order, (body.group_name or "").strip() or None, cat_id, now, now),
+        )
+        plan_id = c.lastrowid
+        if body.inbound_ids is not None:
+            c.execute("DELETE FROM plan_inbounds WHERE plan_id = ?", (plan_id,))
+            for iid in body.inbound_ids:
+                c.execute("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)", (plan_id, int(iid)))
+        conn.commit()
+        return {"status": "created", "plan_id": plan_id, "message": "پلن جدید با موفقیت اضافه شد."}
+    finally:
+        conn.close()
 
 
 @app.put("/api/admin/plans/{plan_id}")
 async def admin_update_plan(plan_id: int, body: AdminPlanUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
-    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
-    if not plan:
+    try:
+        plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+        if not plan:
+            raise HTTPException(status_code=404, detail="پلن یافت نشد.")
+
+        now = int(time.time())
+        name = body.name.strip() if body.name is not None else plan["name"]
+        price = body.price if body.price is not None else plan["price"]
+        volume_gb = body.volume_gb if body.volume_gb is not None else plan["volume_gb"]
+        days = body.days if body.days is not None else plan["days"]
+        ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
+        active = body.active if body.active is not None else plan["active"]
+        sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
+        group_name = body.group_name.strip() if body.group_name is not None else (plan["group_name"] if "group_name" in plan.keys() else None)
+        category_id = body.category_id if body.category_id is not None else (plan["category_id"] if "category_id" in plan.keys() else None)
+
+        conn.execute(
+            """
+            UPDATE plans
+            SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, group_name = ?, category_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, price, volume_gb, days, ip_limit, active, sort_order, (group_name or "").strip() or None, category_id, now, plan_id),
+        )
+        if body.inbound_ids is not None:
+            conn.execute("DELETE FROM plan_inbounds WHERE plan_id = ?", (plan_id,))
+            for iid in body.inbound_ids:
+                conn.execute("INSERT OR IGNORE INTO plan_inbounds (plan_id, inbound_id) VALUES (?, ?)", (plan_id, int(iid)))
+        conn.commit()
+        return {"status": "updated", "message": "پلن با موفقیت ویرایش شد."}
+    finally:
         conn.close()
-        raise HTTPException(status_code=404, detail="پلن یافت نشد.")
-
-    now = int(time.time())
-    name = body.name.strip() if body.name is not None else plan["name"]
-    price = body.price if body.price is not None else plan["price"]
-    volume_gb = body.volume_gb if body.volume_gb is not None else plan["volume_gb"]
-    days = body.days if body.days is not None else plan["days"]
-    ip_limit = body.ip_limit if body.ip_limit is not None else plan["ip_limit"]
-    active = body.active if body.active is not None else plan["active"]
-    sort_order = body.sort_order if body.sort_order is not None else plan["sort_order"]
-    group_name = body.group_name.strip() if body.group_name is not None else (plan["group_name"] if "group_name" in plan.keys() else None)
-
-    conn.execute(
-        """
-        UPDATE plans
-        SET name = ?, price = ?, volume_gb = ?, days = ?, ip_limit = ?, active = ?, sort_order = ?, group_name = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (name, price, volume_gb, days, ip_limit, active, sort_order, (group_name or "").strip() or None, now, plan_id),
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "updated", "message": "پلن با موفقیت ویرایش شد."}
 
 
 @app.delete("/api/admin/plans/{plan_id}")
 async def admin_delete_plan(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
+    used = conn.execute("SELECT COUNT(*) FROM transactions WHERE plan_id = ?", (plan_id,)).fetchone()[0]
+    if used > 0:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"این پلان دارای {used} تراکنش ثبت‌شده است و برای حفظ سوابق مالی قابل حذف نیست. می‌توانید وضعیت آن را غیرفعال کنید."
+        )
+    conn.execute("DELETE FROM plan_inbounds WHERE plan_id = ?", (plan_id,))
     conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
     conn.commit()
     conn.close()
@@ -2720,6 +3388,14 @@ async def admin_broadcast(
             except Exception:
                 failed += 1
 
+    t = threading.Thread(target=_send, daemon=True)
+    t.start()
+    return {
+        "status": "started",
+        "total": len(audience_ids),
+        "message": f"ارسال پیام به {len(audience_ids)} کاربر آغاز شد.",
+    }
+
 # ---------------------------------------------------------------------------
 # Admin — Sanaei 3x-ui & Groups Management
 # ---------------------------------------------------------------------------
@@ -2808,6 +3484,175 @@ async def admin_xui_delete_client(body: DeleteClientRequest, _admin: Dict[str, A
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Admin — Customer Services Management (Edit, Quota, IPs, Expiry, Inbounds, Delete)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/services/{email}")
+async def admin_get_service_details(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import unquote
+    clean_email = unquote(email).strip()
+    client, inbound_ids = core._get_exported_client(clean_email)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"سرویس '{clean_email}' در پنل سنائی یافت نشد.")
+
+    used_bytes, total_bytes, expiry_ms = core._service_usage(client)
+    real_email = str(client.get("email") or clean_email)
+    sub_id = core._extract_subscription_id(client)
+    sub_url = core.get_client_sub_url(real_email, sub_id)
+
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception as exc:
+        logger.error("Failed to load active inbounds for service %s: %s", clean_email, exc)
+        active_inbounds = []
+
+    inbound_id_set = {int(x) for x in inbound_ids}
+    all_inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in inbound_id_set,
+        }
+        for ib in active_inbounds
+    ]
+
+    return {
+        "email": real_email,
+        "uuid": client.get("id"),
+        "total_gb": round(total_bytes / (1024 ** 3), 2) if total_bytes > 0 else 0,
+        "used_gb": round(used_bytes / (1024 ** 3), 2),
+        "used_bytes": used_bytes,
+        "total_bytes": total_bytes,
+        "limit_ip": int(client.get("limitIp") or 0),
+        "expiry_time": expiry_ms,
+        "enable": bool(client.get("enable", True)),
+        "sub_id": sub_id or "",
+        "sub_url": sub_url or "",
+        "inbound_ids": list(inbound_id_set),
+        "all_inbounds": all_inbounds_list,
+    }
+
+
+@app.post("/api/admin/services/{email}/reset-traffic")
+async def admin_reset_service_traffic(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    real_email = str(client.get("email") or clean_email) if client else clean_email
+    try:
+        res = requests.post(
+            core._xui_url(f"panel/api/clients/resetTraffic/{quote(real_email, safe='')}"),
+            headers=core._xui_headers(),
+            proxies=core._xui_proxies(),
+            timeout=15,
+            verify=not core.DEVELOPMENT_MODE,
+        )
+        data = core._safe_json(res)
+        if res.status_code == 200 and data.get("success"):
+            return {"status": "ok", "message": f"حجم مصرفی سرویس {real_email} با موفقیت ریست شد."}
+        raise RuntimeError(core._xui_response_error(res, "خطا در صفر کردن ترافیک"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/services/{email}")
+async def admin_update_service_details(
+    email: str,
+    body: AdminUpdateServiceRequest,
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"سرویس '{clean_email}' در پنل سنائی یافت نشد.")
+
+    real_email = str(client.get("email") or clean_email)
+
+    changes = {}
+    if body.volume_gb is not None:
+        changes["totalGB"] = 0 if float(body.volume_gb) <= 0 else int(float(body.volume_gb) * (1024 ** 3))
+    if body.limit_ip is not None:
+        changes["limitIp"] = max(0, int(body.limit_ip))
+    if body.expiry_time is not None:
+        changes["expiryTime"] = max(0, int(body.expiry_time))
+    if body.enable is not None:
+        changes["enable"] = bool(body.enable)
+
+    if changes:
+        try:
+            core._update_exported_client(real_email, changes)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در به‌روزرسانی سرویس در پنل: {e}")
+
+    if body.reset_traffic:
+        try:
+            res = requests.post(
+                core._xui_url(f"panel/api/clients/resetTraffic/{quote(real_email, safe='')}"),
+                headers=core._xui_headers(),
+                proxies=core._xui_proxies(),
+                timeout=15,
+                verify=not core.DEVELOPMENT_MODE,
+            )
+            data = core._safe_json(res)
+            if res.status_code != 200 or not data.get("success"):
+                raise RuntimeError(core._xui_response_error(res, "خطا در صفر کردن ترافیک"))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در صفر کردن حجم مصرفی: {e}")
+
+    if body.inbound_ids is not None:
+        try:
+            core._sync_client_inbounds(real_email, [int(x) for x in body.inbound_ids])
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"خطا در همگام‌سازی اینباندها: {e}")
+
+    return {"status": "ok", "message": "اطلاعات سرویس با موفقیت ذخیره شد."}
+
+
+@app.delete("/api/admin/services/{email}")
+async def admin_delete_service(email: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    from urllib.parse import quote, unquote
+    import requests
+
+    clean_email = unquote(email).strip()
+    client, _ = core._get_exported_client(clean_email)
+    real_email = str(client.get("email") or clean_email) if client else clean_email
+
+    # 1. Delete from 3x-ui panel
+    try:
+        del_url = core._xui_url(f"panel/api/clients/del/{quote(real_email, safe='')}") + "?keepTraffic=0"
+        res = requests.post(
+            del_url,
+            headers=core._xui_headers(),
+            proxies=core._xui_proxies(),
+            timeout=15,
+            verify=not core.DEVELOPMENT_MODE,
+        )
+        data = core._safe_json(res)
+        if res.status_code != 200 or not data.get("success"):
+            logger.warning("Notice on 3x-ui del client %s: %s", real_email, data.get("msg") or res.text)
+    except Exception as e:
+        logger.error("Error deleting client from 3x-ui %s: %s", real_email, e)
+
+    # 2. Update local DB records
+    conn = _db()
+    conn.execute("UPDATE transactions SET status = 'REVOKED' WHERE service_email = ? OR sub_id = ?", (real_email, real_email))
+    conn.execute("DELETE FROM linked_services WHERE email = ?", (real_email,))
+    conn.execute("UPDATE trial_services SET status = 'EXPIRED' WHERE email = ?", (real_email,))
+    conn.commit()
+    conn.close()
+
+    return {"status": "ok", "message": f"سرویس {real_email} با موفقیت از پنل و ربات حذف گردید."}
 
 
 # ---------------------------------------------------------------------------
@@ -3084,6 +3929,8 @@ async def admin_get_content_security(_admin: Dict[str, Any] = Depends(get_admin_
         "service_notifications_enabled": _setting("service_notifications_enabled", "1") == "1",
         "service_volume_warning_percent": int(_setting("service_volume_warning_percent", "90") or 90),
         "service_expiry_warning_hours": int(_setting("service_expiry_warning_hours", "24") or 24),
+        "service_username_mode": _setting("service_username_mode", "telegram_tx"),
+        "service_notification_interval": int(_setting("service_notification_interval", "600") or 600),
     }
 
 
@@ -3107,7 +3954,956 @@ async def admin_save_content_security(body: ContentSecurityRequest, _admin: Dict
         _update_setting("service_volume_warning_percent", str(body.service_volume_warning_percent))
     if body.service_expiry_warning_hours is not None:
         _update_setting("service_expiry_warning_hours", str(body.service_expiry_warning_hours))
+    if body.service_username_mode is not None:
+        _update_setting("service_username_mode", body.service_username_mode.strip())
+    if body.service_notification_interval is not None and body.service_notification_interval > 0:
+        _update_setting("service_notification_interval", str(body.service_notification_interval))
     return {"status": "saved"}
+
+
+@app.post("/api/admin/notifications/check-now")
+async def admin_notifications_check_now(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    try:
+        result = core.check_service_notifications(force=True)
+        return {"status": "ok", "result": result, "message": "بررسی وضعیت اعلان سرویس‌ها با موفقیت انجام شد."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در بررسی اعلان‌ها: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Admin — Plan Inbounds Routing
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/plans/{plan_id}/inbounds")
+async def admin_get_plan_inbounds(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception:
+        active_inbounds = []
+    configured = core._configured_inbound_ids('plan', plan_id)
+    configured_set = set(configured)
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in configured_set,
+        }
+        for ib in active_inbounds
+    ]
+    return {
+        "plan_id": plan_id,
+        "configured_inbounds": configured,
+        "active_inbounds": inbounds_list,
+        "inbounds": inbounds_list,
+    }
+
+
+@app.post("/api/admin/plans/{plan_id}/inbounds/toggle")
+async def admin_toggle_plan_inbound(plan_id: int, body: InboundToggleRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    selected = core._set_inbound_toggle('plan', body.inbound_id, plan_id)
+    return {"status": "ok", "selected": selected}
+
+
+@app.post("/api/admin/plans/{plan_id}/inbounds/reset")
+async def admin_reset_plan_inbounds(plan_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    core._clear_inbound_selection('plan', plan_id)
+    return {"status": "reset", "message": "تمامی اینباندهای فعال برای این پلان انتخاب شدند."}
+
+
+@app.get("/api/admin/inbounds")
+async def admin_get_all_inbounds(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception:
+        active_inbounds = []
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+        }
+        for ib in active_inbounds
+    ]
+    return {"inbounds": inbounds_list}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Server Profiles (Servers / Inbounds Grouping)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/servers")
+async def admin_get_servers(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        rows = conn.execute("SELECT * FROM server_profiles ORDER BY sort_order, id").fetchall()
+        servers = []
+        for r in rows:
+            inbound_ids = []
+            try:
+                inbound_ids = json.loads(r["inbound_ids"] or "[]")
+            except Exception:
+                pass
+            servers.append({
+                "id": r["id"],
+                "name": r["name"],
+                "price": int(r["price"] or 0),
+                "inbound_ids": inbound_ids,
+                "is_custom": bool(r["is_custom"]),
+                "contact_support": bool(r["contact_support"]),
+                "support_target_type": r["support_target_type"] or "bot",
+                "support_target_url": r["support_target_url"] or "",
+                "active": bool(r["active"]),
+                "sort_order": r["sort_order"],
+            })
+        return {"servers": servers}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers")
+async def admin_create_server(body: ServerProfileCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    conn = _db()
+    try:
+        c = conn.cursor()
+        inbound_ids_json = json.dumps([int(x) for x in body.inbound_ids])
+        c.execute(
+            """
+            INSERT INTO server_profiles (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (body.name.strip(), body.price, inbound_ids_json, body.is_custom, body.contact_support, body.support_target_type.strip(), body.support_target_url.strip(), body.active, body.sort_order, now, now),
+        )
+        server_id = c.lastrowid
+        conn.commit()
+        return {"status": "created", "server_id": server_id, "message": "سرور جدید با موفقیت ایجاد شد."}
+    finally:
+        conn.close()
+
+
+@app.put("/api/admin/servers/{server_id}")
+async def admin_update_server(server_id: int, body: ServerProfileUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        row = conn.execute("SELECT * FROM server_profiles WHERE id = ?", (server_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="سرور یافت نشد.")
+
+        now = int(time.time())
+        name = body.name.strip() if body.name is not None else row["name"]
+        price = body.price if body.price is not None else row["price"]
+        inbound_ids = json.dumps([int(x) for x in body.inbound_ids]) if body.inbound_ids is not None else row["inbound_ids"]
+        is_custom = body.is_custom if body.is_custom is not None else row["is_custom"]
+        contact_support = body.contact_support if body.contact_support is not None else row["contact_support"]
+        support_target_type = body.support_target_type.strip() if body.support_target_type is not None else row["support_target_type"]
+        support_target_url = body.support_target_url.strip() if body.support_target_url is not None else row["support_target_url"]
+        active = body.active if body.active is not None else row["active"]
+        sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
+
+        conn.execute(
+            """
+            UPDATE server_profiles
+            SET name = ?, price = ?, inbound_ids = ?, is_custom = ?, contact_support = ?, support_target_type = ?, support_target_url = ?, active = ?, sort_order = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, now, server_id),
+        )
+        conn.commit()
+        return {"status": "updated", "message": "سرور با موفقیت ویرایش شد."}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/admin/servers/{server_id}")
+async def admin_delete_server(server_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        conn.execute("DELETE FROM server_profiles WHERE id = ?", (server_id,))
+        conn.commit()
+        return {"status": "deleted", "message": "سرور با موفقیت حذف شد."}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers/{server_id}/toggle")
+async def admin_toggle_server(server_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    try:
+        row = conn.execute("SELECT active FROM server_profiles WHERE id = ?", (server_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="سرور یافت نشد.")
+        new_state = 0 if row["active"] else 1
+        conn.execute("UPDATE server_profiles SET active = ?, updated_at = ? WHERE id = ?", (new_state, int(time.time()), server_id))
+        conn.commit()
+        return {"status": "toggled", "active": bool(new_state)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/servers/auto-group")
+async def admin_auto_group_servers(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Automatically group active inbounds by remark/tag into server profiles."""
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"خطا در دریافت اینباندها از پنل سنائی: {exc}")
+
+    if not active_inbounds:
+        return {"status": "ok", "created": 0, "message": "اینباند فعالی در پنل یافت نشد."}
+
+    groups: Dict[str, List[int]] = {}
+    for ib in active_inbounds:
+        title = (ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}").strip()
+        groups.setdefault(title, []).append(int(ib["id"]))
+
+    now = int(time.time())
+    conn = _db()
+    created_count = 0
+    try:
+        existing_names = {r["name"] for r in conn.execute("SELECT name FROM server_profiles").fetchall()}
+        c = conn.cursor()
+        order = 10
+        for name, iids in groups.items():
+            if name in existing_names:
+                c.execute("UPDATE server_profiles SET inbound_ids = ?, updated_at = ? WHERE name = ?", (json.dumps(iids), now, name))
+            else:
+                c.execute(
+                    """
+                    INSERT INTO server_profiles (name, price, inbound_ids, is_custom, contact_support, support_target_type, support_target_url, active, sort_order, created_at, updated_at)
+                    VALUES (?, 0, ?, 0, 0, 'bot', '', 1, ?, ?, ?)
+                    """,
+                    (name, json.dumps(iids), order, now, now)
+                )
+                created_count += 1
+            order += 10
+        conn.commit()
+        return {"status": "ok", "created": created_count, "total_groups": len(groups), "message": f"{len(groups)} سرور از اینباندهای پنل همگام و گروه‌بندی شد."}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Admin — Plan Categories
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/categories")
+async def admin_get_categories(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute(
+        """SELECT c.id, c.name, c.active, c.sort_order, COUNT(p.id) AS plans_count
+           FROM plan_categories c
+           LEFT JOIN plans p ON p.category_id = c.id
+           GROUP BY c.id
+           ORDER BY c.sort_order, c.id"""
+    ).fetchall()
+    conn.close()
+    return {
+        "categories": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "active": bool(r["active"]),
+                "sort_order": r["sort_order"],
+                "plans_count": r["plans_count"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/admin/categories")
+async def admin_create_category(body: AdminCategoryCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="نام دسته نمی‌تواند خالی باشد.")
+    conn = _db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO plan_categories (name, active, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (name, 1 if body.active else 0, body.sort_order, now, now),
+        )
+        cat_id = cur.lastrowid
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"خطا در ایجاد دسته (نام تکراری): {e}")
+    conn.close()
+    return {"status": "created", "category_id": cat_id, "message": "دسته جدید ایجاد شد."}
+
+
+@app.put("/api/admin/categories/{cat_id}")
+async def admin_update_category(cat_id: int, body: AdminCategoryUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    conn = _db()
+    row = conn.execute("SELECT * FROM plan_categories WHERE id = ?", (cat_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="دسته یافت نشد.")
+    name = body.name.strip() if body.name is not None else row["name"]
+    active = (1 if body.active else 0) if body.active is not None else row["active"]
+    sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
+    conn.execute(
+        "UPDATE plan_categories SET name = ?, active = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+        (name, active, sort_order, now, cat_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "message": "دسته با موفقیت بروزرسانی شد."}
+
+
+@app.delete("/api/admin/categories/{cat_id}")
+async def admin_delete_category(cat_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    cat = conn.execute("SELECT id, name FROM plan_categories WHERE id = ?", (cat_id,)).fetchone()
+    if not cat:
+        conn.close()
+        raise HTTPException(status_code=404, detail="دسته یافت نشد.")
+    fallback = conn.execute(
+        "SELECT id, name FROM plan_categories WHERE id <> ? ORDER BY CASE WHEN name='عمومی' THEN 0 ELSE 1 END, active DESC, sort_order, id LIMIT 1",
+        (cat_id,),
+    ).fetchone()
+    if not fallback:
+        conn.close()
+        raise HTTPException(status_code=400, detail="تنها دسته‌بندی موجود قابل حذف نیست. ابتدا دسته دیگری بسازید.")
+    moved = conn.execute("SELECT COUNT(*) FROM plans WHERE category_id = ?", (cat_id,)).fetchone()[0]
+    now = int(time.time())
+    conn.execute("UPDATE plans SET category_id = ?, updated_at = ? WHERE category_id = ?", (fallback["id"], now, cat_id))
+    conn.execute("DELETE FROM plan_categories WHERE id = ?", (cat_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "message": f"دسته حذف شد و {moved} پلان به دسته «{fallback['name']}» منتقل گردید."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Volume Packs (بسته‌های حجم اضافه)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/volume-packs")
+async def admin_get_volume_packs(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute("SELECT * FROM volume_packs ORDER BY sort_order, id").fetchall()
+    conn.close()
+    return {
+        "volume_packs": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "volume_gb": float(r["volume_gb"]),
+                "price": int(r["price"]),
+                "active": bool(r["active"]),
+                "sort_order": r["sort_order"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/admin/volume-packs")
+async def admin_create_volume_pack(body: AdminVolumePackCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="نام بسته نمی‌تواند خالی باشد.")
+    conn = _db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO volume_packs (name, volume_gb, price, active, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, body.volume_gb, body.price, 1 if body.active else 0, body.sort_order, now),
+    )
+    pack_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"status": "created", "pack_id": pack_id, "message": "بسته حجم اضافه ایجاد شد."}
+
+
+@app.put("/api/admin/volume-packs/{pack_id}")
+async def admin_update_volume_pack(pack_id: int, body: AdminVolumePackUpdateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    row = conn.execute("SELECT * FROM volume_packs WHERE id = ?", (pack_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="بسته حجم یافت نشد.")
+    name = body.name.strip() if body.name is not None else row["name"]
+    volume_gb = body.volume_gb if body.volume_gb is not None else row["volume_gb"]
+    price = body.price if body.price is not None else row["price"]
+    active = (1 if body.active else 0) if body.active is not None else row["active"]
+    sort_order = body.sort_order if body.sort_order is not None else row["sort_order"]
+    conn.execute(
+        "UPDATE volume_packs SET name = ?, volume_gb = ?, price = ?, active = ?, sort_order = ? WHERE id = ?",
+        (name, volume_gb, price, active, sort_order, pack_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "message": "بسته حجم با موفقیت ویرایش شد."}
+
+
+@app.delete("/api/admin/volume-packs/{pack_id}")
+async def admin_delete_volume_pack(pack_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM volume_packs WHERE id = ?", (pack_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "message": "بسته حجم با موفقیت حذف شد."}
+
+
+@app.post("/api/admin/volume-packs/{pack_id}/toggle")
+async def admin_toggle_volume_pack(pack_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    row = conn.execute("SELECT active FROM volume_packs WHERE id = ?", (pack_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="بسته حجم یافت نشد.")
+    new_state = 0 if row["active"] else 1
+    conn.execute("UPDATE volume_packs SET active = ? WHERE id = ?", (new_state, pack_id))
+    conn.commit()
+    conn.close()
+    return {"status": "toggled", "active": bool(new_state)}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Trial Plan Management (تست رایگان)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/trial/settings")
+async def admin_get_trial_settings(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    from . import trial
+    gb, days, ip = trial.default_values()
+    cooldown = int(_setting("trial_cooldown_days", "30") or 30)
+    followup_en = core.trial_followup_enabled()
+    followup_hours = int(_setting("trial_followup_delay_hours", "6") or 6)
+    configured = core._configured_inbound_ids('trial')
+    try:
+        active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
+    except Exception:
+        active_inbounds = []
+    conn = _db()
+    total_trials = conn.execute("SELECT COUNT(*) FROM trial_services").fetchone()[0]
+    active_trials = conn.execute("SELECT COUNT(*) FROM trial_services WHERE status = 'ACTIVE'").fetchone()[0]
+    expired_trials = conn.execute("SELECT COUNT(*) FROM trial_services WHERE status = 'EXPIRED'").fetchone()[0]
+    conn.close()
+
+    configured_set = set(configured)
+    inbounds_list = [
+        {
+            "id": int(ib["id"]),
+            "tag": str(ib.get("remark") or ib.get("tag") or f"اینباند #{ib['id']}"),
+            "remark": str(ib.get("remark") or ""),
+            "protocol": str(ib.get("protocol") or ""),
+            "port": int(ib.get("port") or 0),
+            "selected": int(ib["id"]) in configured_set,
+        }
+        for ib in active_inbounds
+    ]
+    return {
+        "enabled": core.trial_enabled(),
+        "volume_gb": gb,
+        "days": days,
+        "ip_limit": ip,
+        "cooldown_days": cooldown,
+        "followup_enabled": followup_en,
+        "followup_delay_hours": followup_hours,
+        "configured_inbounds": configured,
+        "active_inbounds": inbounds_list,
+        "inbounds": inbounds_list,
+        "stats": {
+            "total_trials": total_trials,
+            "active_trials": active_trials,
+            "expired_trials": expired_trials,
+        },
+    }
+
+
+@app.post("/api/admin/trial/settings")
+async def admin_save_trial_settings(body: AdminTrialSettingsRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    if body.enabled is not None:
+        _update_setting("trial_enabled", "1" if body.enabled else "0")
+    if body.volume_gb is not None and body.volume_gb > 0:
+        _update_setting("trial_default_volume_gb", f"{body.volume_gb:g}")
+    if body.days is not None and body.days > 0:
+        _update_setting("trial_default_days", str(body.days))
+    if body.ip_limit is not None and body.ip_limit >= 0:
+        _update_setting("trial_default_ip_limit", str(body.ip_limit))
+    if body.cooldown_days is not None and body.cooldown_days >= 0:
+        _update_setting("trial_cooldown_days", str(body.cooldown_days))
+    if body.followup_enabled is not None:
+        _update_setting("trial_followup_enabled", "1" if body.followup_enabled else "0")
+    if body.followup_delay_hours is not None and body.followup_delay_hours > 0:
+        _update_setting("trial_followup_delay_hours", str(body.followup_delay_hours))
+    return {"status": "saved", "message": "تنظیمات تست رایگان با موفقیت ذخیره شد."}
+
+
+@app.post("/api/admin/trial/inbounds/toggle")
+async def admin_toggle_trial_inbound(body: InboundToggleRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    selected = core._set_inbound_toggle('trial', body.inbound_id)
+    return {"status": "ok", "selected": selected}
+
+
+@app.post("/api/admin/trial/inbounds/reset")
+async def admin_reset_trial_inbounds(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    core._clear_inbound_selection('trial')
+    return {"status": "reset", "message": "تمامی اینباندهای فعال برای تست رایگان انتخاب شدند."}
+
+
+@app.get("/api/admin/trial/overrides")
+async def admin_get_trial_overrides(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute("SELECT * FROM trial_overrides ORDER BY updated_at DESC").fetchall()
+    conn.close()
+    return {
+        "overrides": [
+            {
+                "user_id": r["user_id"],
+                "volume_gb": float(r["volume_gb"]),
+                "days": int(r["days"]),
+                "ip_limit": int(r["ip_limit"]),
+                "note": r["note"] or "",
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/admin/trial/overrides")
+async def admin_save_trial_override(body: AdminTrialOverrideRequest, admin: Dict[str, Any] = Depends(get_admin_user)):
+    now = int(time.time())
+    actor = admin.get("id", 0)
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO trial_overrides(user_id, volume_gb, days, ip_limit, note, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            volume_gb = excluded.volume_gb,
+            days = excluded.days,
+            ip_limit = excluded.ip_limit,
+            note = excluded.note,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by
+        """,
+        (body.user_id, body.volume_gb, body.days, body.ip_limit, (body.note or "")[:500], now, actor),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "message": f"تست اختصاصی برای کاربر {body.user_id} ذخیره شد."}
+
+
+@app.delete("/api/admin/trial/overrides/{user_id}")
+async def admin_delete_trial_override(user_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM trial_overrides WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "message": "محدودیت تست اختصاصی کاربر با موفقیت حذف شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — CRM & Acquisition Survey & Service Claims
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/crm")
+async def admin_get_crm(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    sources_raw = conn.execute(
+        "SELECT source, COUNT(*) AS count FROM user_acquisition WHERE answered_at IS NOT NULL GROUP BY source ORDER BY count DESC"
+    ).fetchall()
+    claims_raw = conn.execute(
+        "SELECT id, user_id, email, status, created_at, resolved_at FROM service_claims ORDER BY id DESC LIMIT 50"
+    ).fetchall()
+    followup_stats = {
+        "scheduled": conn.execute("SELECT COUNT(*) FROM trial_followups").fetchone()[0],
+        "sent": conn.execute("SELECT COUNT(*) FROM trial_followups WHERE sent_at IS NOT NULL").fetchone()[0],
+        "answered": conn.execute("SELECT COUNT(*) FROM trial_followups WHERE answered_at IS NOT NULL").fetchone()[0],
+    }
+    conn.close()
+
+    source_labels = {
+        "telegram": "کانال تلگرام",
+        "friend": "دوستان و آشنایان",
+        "instagram": "اینستاگرام",
+        "google": "جستجوی گوگل",
+        "other": "سایر موارد",
+    }
+
+    return {
+        "acquisition_survey_enabled": core.acquisition_survey_enabled(),
+        "custom_service_names_enabled": core.custom_service_names_enabled(),
+        "existing_service_link_enabled": core.existing_service_link_enabled(),
+        "sources": [
+            {
+                "source": r["source"],
+                "label": source_labels.get(r["source"], r["source"]),
+                "count": r["count"],
+            }
+            for r in sources_raw
+        ],
+        "claims": [
+            {
+                "id": r["id"],
+                "user_id": r["user_id"],
+                "email": r["email"],
+                "status": r["status"],
+                "created_at": r["created_at"],
+                "resolved_at": r["resolved_at"],
+            }
+            for r in claims_raw
+        ],
+        "followup_stats": followup_stats,
+    }
+
+
+@app.post("/api/admin/crm/settings")
+async def admin_save_crm_settings(body: AdminCrmSettingsRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    if body.acquisition_survey_enabled is not None:
+        _update_setting("acquisition_survey_enabled", "1" if body.acquisition_survey_enabled else "0")
+    if body.custom_service_names_enabled is not None:
+        _update_setting("custom_service_names_enabled", "1" if body.custom_service_names_enabled else "0")
+    if body.existing_service_link_enabled is not None:
+        _update_setting("existing_service_link_enabled", "1" if body.existing_service_link_enabled else "0")
+    return {"status": "saved", "message": "تنظیمات CRM با موفقیت بروز شد."}
+
+
+@app.post("/api/admin/crm/claims/{claim_id}/approve")
+async def admin_approve_claim(claim_id: int, admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    claim = conn.execute("SELECT * FROM service_claims WHERE id = ? AND status = 'PENDING'", (claim_id,)).fetchone()
+    if not claim:
+        conn.close()
+        raise HTTPException(status_code=404, detail="درخواست یافت نشد یا قبلاً تعیین وضعیت شده است.")
+    now = int(time.time())
+    actor = admin.get("id", 0)
+    try:
+        conn.execute(
+            "INSERT INTO linked_services (user_id, email, linked_at, source, approved_by) VALUES (?, ?, ?, 'ADMIN', ?)",
+            (claim["user_id"], claim["email"], now, actor),
+        )
+        conn.execute(
+            "UPDATE service_claims SET status = 'APPROVED', resolved_at = ?, resolved_by = ? WHERE id = ?",
+            (now, actor, claim_id),
+        )
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"خطا در اتصال سرویس: {e}")
+    conn.close()
+
+    try:
+        core.bot.send_message(
+            int(claim["user_id"]),
+            f"✅ سرویس قبلی شما با نام `{claim['email']}` توسط مدیریت تایید و به حساب شما متصل گردید.",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+    return {"status": "approved", "message": "درخواست اتصال سرویس با موفقیت تایید شد."}
+
+
+@app.post("/api/admin/crm/claims/{claim_id}/reject")
+async def admin_reject_claim(claim_id: int, body: AdminRejectClaimRequest, admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    claim = conn.execute("SELECT * FROM service_claims WHERE id = ? AND status = 'PENDING'", (claim_id,)).fetchone()
+    if not claim:
+        conn.close()
+        raise HTTPException(status_code=404, detail="درخواست یافت نشد یا قبلاً تعیین وضعیت شده است.")
+    now = int(time.time())
+    actor = admin.get("id", 0)
+    conn.execute(
+        "UPDATE service_claims SET status = 'REJECTED', resolved_at = ?, resolved_by = ? WHERE id = ?",
+        (now, actor, claim_id),
+    )
+    conn.commit()
+    conn.close()
+
+    try:
+        reason_txt = f"\nدلیل: {body.reason}" if body.reason else ""
+        core.bot.send_message(
+            int(claim["user_id"]),
+            f"❌ درخواست اتصال سرویس `{claim['email']}` توسط مدیریت رد شد.{reason_txt}",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+    return {"status": "rejected", "message": "درخواست رد شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Connection Guides (راهنمای اتصال)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/guides")
+async def admin_get_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute("SELECT id, platform, media_type, body, file_id, sort_order, active, app_name FROM guide_items ORDER BY platform, sort_order, id").fetchall()
+    conn.close()
+    return {
+        "enabled": core.connection_guides_enabled(),
+        "items": [
+            {
+                "id": r["id"],
+                "platform": (r["platform"] or "").lower(),
+                "app_name": r["app_name"] or "",
+                "media_type": r["media_type"],
+                "body": r["body"] or "",
+                "media_file_id": r["file_id"] or "",
+                "media_url": f"/api/guides/{r['id']}/media" if r["file_id"] else "",
+                "sort_order": r["sort_order"],
+                "active": bool(r["active"]),
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/admin/guides")
+async def admin_create_guide(body: AdminGuideCreateRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    platform = body.platform.lower().strip()
+    if platform not in ["android", "ios", "windows", "macos", "linux", "tv"]:
+        raise HTTPException(status_code=400, detail="پلتفرم نامعتبر است.")
+    media_type = body.media_type.upper().strip()
+    if media_type not in ["TEXT", "PHOTO", "VIDEO"]:
+        raise HTTPException(status_code=400, detail="نوع رسانه باید TEXT, PHOTO یا VIDEO باشد.")
+    if not body.body.strip():
+        raise HTTPException(status_code=400, detail="متن یا لینک راهنما نمی‌تواند خالی باشد.")
+
+    app_name = (body.app_name or "").strip() or None
+    conn = _db()
+    order = body.sort_order
+    if order is None:
+        m = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 FROM guide_items WHERE LOWER(platform) = ?", (platform,)).fetchone()[0]
+        order = int(m)
+    now = int(time.time())
+    file_id = body.media_file_id.strip() if body.media_file_id else None
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at, app_name) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+        (platform, media_type, body.body.strip(), file_id, order, now, app_name),
+    )
+    item_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"status": "created", "item_id": item_id, "message": "آیتم راهنما ایجاد شد."}
+
+
+@app.post("/api/admin/guides/prompt-bot")
+async def admin_guides_prompt_bot(
+    platform: str = Query(..., description="Platform identifier"),
+    app_name: Optional[str] = Query(None, description="App name identifier"),
+    _admin: Dict[str, Any] = Depends(get_admin_user),
+):
+    plat = platform.lower().strip()
+    if plat not in core.GUIDE_PLATFORMS:
+        raise HTTPException(status_code=400, detail="پلتفرم نامعتبر است.")
+    admin_id = _admin.get("id")
+    if not admin_id:
+        raise HTTPException(status_code=400, detail="شناسه ادمین نامشخص است.")
+
+    plat_title = core.GUIDE_PLATFORMS.get(plat, plat)
+    chosen_app = (app_name or "").strip()
+
+    def _save_guide(msg, app_val):
+        if not core.is_admin(msg.from_user.id):
+            return
+        raw_text = (msg.text or '').strip()
+        if raw_text in ['/cancel', 'انصراف', 'لغو']:
+            core._admin_reply(msg, "عملیات افزودن راهنما لغو شد.")
+            return
+
+        mtype = 'TEXT'
+        file_id = None
+        body = raw_text
+        if msg.photo:
+            mtype = 'PHOTO'
+            file_id = msg.photo[-1].file_id
+            body = (msg.caption or '').strip() or None
+        elif msg.video:
+            mtype = 'VIDEO'
+            file_id = msg.video.file_id
+            body = (msg.caption or '').strip() or None
+        elif not body:
+            core._admin_reply(msg, "❌ پیام ارسالی نامعتبر است. باید متن، عکس یا ویدیو باشد.")
+            return
+
+        conn = core._db_connect()
+        order = int(conn.execute('SELECT COALESCE(MAX(sort_order),0)+10 n FROM guide_items WHERE LOWER(platform)=?', (plat,)).fetchone()['n'])
+        cur = conn.execute(
+            'INSERT INTO guide_items (platform, media_type, body, file_id, active, sort_order, created_at, app_name) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+            (plat, mtype, body, file_id, order, int(time.time()), app_val or None)
+        )
+        conn.commit()
+        iid = cur.lastrowid
+        conn.close()
+        app_tag = f" (برنامه {app_val})" if app_val else ""
+        core._admin_reply(msg, f"✅ آموزش راهنمای `#{iid}` با موفقیت برای **{plat_title}**{app_tag} ذخیره شد و در پنل وب و ربات فعال گردید.", parse_mode="Markdown")
+
+    def _ask_guide_content(msg, app_val):
+        if not core.is_admin(msg.from_user.id):
+            return
+        content_prompt = (
+            f"📲 **راهنمای اتصال برای {plat_title} (نرم‌افزار {app_val})**\n\n"
+            f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
+            f"(برای انصراف عبارت /cancel را ارسال کنید)"
+        )
+        sent = core.bot.send_message(admin_id, content_prompt, parse_mode="Markdown")
+        core.bot.register_next_step_handler(sent, lambda m: _save_guide(m, app_val))
+
+    def _capture_app_name(msg):
+        if not core.is_admin(msg.from_user.id):
+            return
+        raw_text = (msg.text or '').strip()
+        if raw_text in ['/cancel', 'انصراف', 'لغو']:
+            core._admin_reply(msg, "عملیات افزودن راهنما لغو شد.")
+            return
+        if not raw_text:
+            core._admin_reply(msg, "❌ لطفاً نام نرم‌افزار را به صورت متنی ارسال فرمایید:")
+            core.bot.register_next_step_handler(msg, _capture_app_name)
+            return
+        _ask_guide_content(msg, raw_text)
+
+    try:
+        if chosen_app:
+            prompt_txt = (
+                f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title} (نرم‌افزار {chosen_app})**\n\n"
+                f"لطفاً مطلب راهنما (متن کامل، تصویر همراه توضیحات، یا ویدیو) را همینجا ارسال فرمایید:\n"
+                f"(برای انصراف عبارت /cancel را ارسال کنید)"
+            )
+            sent_msg = core.bot.send_message(admin_id, prompt_txt, parse_mode="Markdown")
+            core.bot.register_next_step_handler(sent_msg, lambda m: _save_guide(m, chosen_app))
+        else:
+            step1_txt = (
+                f"📲 **افزودن آموزش راهنمای اتصال برای {plat_title}**\n\n"
+                f"لطفاً نام نرم‌افزار / برنامه را ارسال فرمایید (مثلاً: V2RayNG یا Streisand یا Hiddify):\n"
+                f"(برای انصراف عبارت /cancel را ارسال کنید)"
+            )
+            sent_msg = core.bot.send_message(admin_id, step1_txt, parse_mode="Markdown")
+            core.bot.register_next_step_handler(sent_msg, _capture_app_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"امکان ارسال پیام به تلگرام مدیر وجود ندارد: {str(e)[:150]}")
+
+    bot_username = None
+    try:
+        me = core.bot.get_me()
+        bot_username = me.username
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": f"دستور ثبت آموزش برای {plat_title} به تلگرام شما ارسال شد. لطفاً به ربات مراجعه کرده و محتوا را ارسال فرمایید.",
+        "bot_username": bot_username,
+    }
+
+
+@app.delete("/api/admin/guides/{item_id}")
+async def admin_delete_guide(item_id: int, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    conn.execute("DELETE FROM guide_items WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "message": "آیتم راهنما حذف شد."}
+
+
+@app.post("/api/admin/guides/toggle")
+async def admin_toggle_guides(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    cur = core.connection_guides_enabled()
+    new_state = "0" if cur else "1"
+    _update_setting("connection_guides_enabled", new_state)
+    return {"status": "toggled", "enabled": new_state == "1"}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Audit Log (لاگ حسابرسی مدیران)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/audit")
+async def admin_get_audit(limit: int = 50, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    rows = conn.execute("SELECT * FROM audit_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    return {
+        "enabled": _setting("audit_enabled", "1") == "1",
+        "chat_id": _setting("audit_chat_id", ""),
+        "events": [
+            {
+                "id": r["id"],
+                "event_type": r["event_type"],
+                "actor_id": r["actor_id"],
+                "target_id": r["target_id"] or "",
+                "detail": r["detail"] or "",
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/admin/audit/settings")
+async def admin_save_audit_settings(body: AdminAuditSettingsRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    if body.enabled is not None:
+        _update_setting("audit_enabled", "1" if body.enabled else "0")
+    if body.chat_id is not None:
+        _update_setting("audit_chat_id", body.chat_id.strip())
+    return {"status": "saved", "message": "تنظیمات لاگ حسابرسی ذخیره شد."}
+
+
+# ---------------------------------------------------------------------------
+# Admin — Panel Snapshot
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/snapshot")
+async def admin_get_snapshot(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    try:
+        r = core.requests.get(
+            core._xui_url('panel/api/clients/export'),
+            headers=core._xui_headers(),
+            proxies=core._xui_proxies(),
+            timeout=15,
+            verify=not core.DEVELOPMENT_MODE,
+        )
+        data = core._safe_json(r)
+        clients = data.get("obj") or []
+        conn = _db()
+        users_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        tx_count = conn.execute("SELECT COUNT(*) FROM transactions WHERE status='APPROVED'").fetchone()[0]
+        revenue = conn.execute("SELECT COALESCE(SUM(price),0) FROM transactions WHERE status='APPROVED'").fetchone()[0]
+        conn.close()
+        return {
+            "version": VERSION,
+            "clients_count": len(clients),
+            "users_count": users_count,
+            "orders_count": tx_count,
+            "revenue": revenue,
+            "timestamp": int(time.time()),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در ایجاد Snapshot: {e}")
+
+
+@app.post("/api/admin/snapshot/send")
+async def admin_send_snapshot(admin: Dict[str, Any] = Depends(get_admin_user)):
+    uid = admin.get("id")
+    if not uid:
+        raise HTTPException(status_code=400, detail="شناسه ادمین در دسترس نیست.")
+    try:
+        ops.send_panel_snapshot(uid, uid)
+        return {"status": "sent", "message": "فایل Snapshot به چت تلگرام شما ارسال شد."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ارسال ناموفق بود: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Admin — Version
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/version")
+async def admin_get_version():
+    return {"version": VERSION}
 
 
 # ---------------------------------------------------------------------------
@@ -3115,6 +4911,16 @@ async def admin_save_content_security(body: ContentSecurityRequest, _admin: Dict
 # ---------------------------------------------------------------------------
 
 _WEBAPP_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webapp", "dist")
+
+_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+_STATIC_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
 
 
 def _mount_static():
@@ -3127,7 +4933,7 @@ def _mount_static():
     async def spa_root():
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
         return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
     @app.get("/{full_path:path}", include_in_schema=False)
@@ -3137,10 +4943,12 @@ def _mount_static():
             raise HTTPException(status_code=404)
         fp = os.path.join(_WEBAPP_DIST, full_path)
         if os.path.isfile(fp):
-            return FileResponse(fp)
+            if full_path.startswith("assets/"):
+                return FileResponse(fp, headers=_STATIC_CACHE_HEADERS)
+            return FileResponse(fp, headers=_NO_CACHE_HEADERS)
         index_file = os.path.join(_WEBAPP_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
         return JSONResponse({"message": "Mini App API is running. Build the webapp to serve the Mini App."})
 
 

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 try:
-    import telebot
+    import telebot  # noqa: F401
 except ImportError:
     class MockTelebot:
         class TeleBot:
@@ -56,7 +56,7 @@ except ImportError:
     sys.modules['telebot.apihelper'] = m.apihelper
 
 try:
-    import requests
+    import requests  # noqa: F401
 except ImportError:
     import types
     mock_requests = types.ModuleType("requests")
@@ -71,7 +71,7 @@ except ImportError:
     sys.modules["requests.exceptions"] = mock_requests.exceptions
 
 os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
-from speedybot import env_manager, core
+from xuishop import env_manager, core
 
 
 class FakeMessage:
@@ -107,7 +107,7 @@ class XuiAndCardTests(unittest.TestCase):
             "plan_id INTEGER, status TEXT, price INTEGER, payment_method TEXT, wallet_used INTEGER, cash_amount INTEGER, "
             "created_at INTEGER, approved_at INTEGER, service_email TEXT, last_error TEXT, kind TEXT, "
             "plan_name_snapshot TEXT, plan_days_snapshot INTEGER, plan_volume_gb_snapshot REAL, plan_ip_limit_snapshot INTEGER, "
-            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL, sub_id TEXT, custom_name TEXT)"
+            "discount_code TEXT, discount_amount INTEGER, extra_volume_gb REAL, sub_id TEXT, custom_name TEXT, server_ids TEXT)"
         )
         con.execute(
             "CREATE TABLE plans(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, volume_gb REAL, "
@@ -278,16 +278,38 @@ class XuiAndCardTests(unittest.TestCase):
         con.close()
 
         assigned_groups = []
-        with patch("speedybot.core._selected_inbound_ids_for", return_value=[1]):
-            with patch("speedybot.core._get_client_data", return_value={"id": 1, "email": "test_user_email"}):
-                with patch("speedybot.core._sync_client_inbounds"):
-                    with patch("speedybot.core._xui_assign_group", side_effect=lambda email, group: assigned_groups.append((email, group))):
-                        with patch("speedybot.core._get_client_subscription_id", return_value="sub_123"):
-                            with patch("speedybot.core._get_delivery_links", return_value=["vless://123"]):
+        with patch("xuishop.core._selected_inbound_ids_for", return_value=[1]):
+            with patch("xuishop.core._get_client_data", return_value={"id": 1, "email": "test_user_email"}):
+                with patch("xuishop.core._sync_client_inbounds"):
+                    with patch("xuishop.core._xui_assign_group", side_effect=lambda email, group: assigned_groups.append((email, group))):
+                        with patch("xuishop.core._get_client_subscription_id", return_value="sub_123"):
+                            with patch("xuishop.core._get_delivery_links", return_value=["vless://123"]):
                                 sub_id, links = core.provision_xui_service(123456789, 1, 99, "test_user_email")
                                 self.assertEqual(sub_id, "sub_123")
                                 self.assertEqual(links, ["vless://123"])
                                 self.assertEqual(assigned_groups, [("test_user_email", "VIP_Group")])
+
+    def test_rate_limit_exception_handler(self):
+        handler = core._RateLimitExceptionHandler()
+        # Mock ApiException with 429
+        class MockApiException(Exception):
+            def __init__(self, error_code, result_json=None):
+                self.error_code = error_code
+                self.result_json = result_json
+                msg = f"Error code: {error_code}. Too Many Requests: retry after 5" if error_code == 429 else f"Error code: {error_code}. Bad Request"
+                super().__init__(msg)
+
+        with patch("telebot.apihelper.ApiException", MockApiException):
+            exc = MockApiException(429, {"parameters": {"retry_after": 5}})
+            with patch("time.sleep") as mock_sleep:
+                handled = handler.handle(exc)
+                self.assertTrue(handled)
+                mock_sleep.assert_called_once_with(7)  # 5 + 2
+
+        # Non-429 exception should not be handled
+        with patch("telebot.apihelper.ApiException", MockApiException):
+            exc_other = MockApiException(400)
+            self.assertFalse(handler.handle(exc_other))
 
 
 if __name__ == "__main__":

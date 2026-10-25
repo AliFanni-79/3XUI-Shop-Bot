@@ -1,7 +1,7 @@
-"""SpeedyBot production entrypoint.
+"""VizzPN Shop Bot production entrypoint.
 
-SpeedyBot v4 is a single integrated application. The business core and the
-Control Center live in the ``speedybot`` package; this file is the canonical
+VizzPN Shop Bot is a single integrated application. The business core and the
+Control Center live in the ``xuishop`` package; this file is the canonical
 runtime entrypoint used by systemd, manual runs, installation and updates.
 
 Architecture (Phase 2+):
@@ -11,15 +11,15 @@ Architecture (Phase 2+):
 import os
 import threading
 
-from speedybot import core
-import speedybot
+from xuishop import core
+import xuishop
 
 
 def _start_api_server():
     """Start the FastAPI / Uvicorn server in a daemon thread."""
     try:
         import uvicorn
-        from speedybot.api import app  # noqa: PLC0415
+        from xuishop.api import app  # noqa: PLC0415
 
         port = int(os.getenv("WEBAPP_PORT", "8080"))
         host = os.getenv("WEBAPP_HOST", "0.0.0.0")
@@ -35,6 +35,10 @@ def _start_api_server():
     except ImportError:
         print("⚠️  uvicorn / fastapi not installed — Mini App API disabled.")
         print("   Run: pip install -r requirements.txt")
+    except Exception as exc:
+        print(f"❌ Uvicorn API server error: {exc}")
+        import logging
+        logging.getLogger("xuishop.api").exception("Fatal error in Uvicorn API server:")
 
 
 def run():
@@ -48,14 +52,14 @@ def run():
         print("=" * 60 + "\n")
         return
 
-    speedybot.install(core)
-    print(f"SpeedyBot {speedybot.VERSION} is running...")
+    xuishop.install(core)
+    print(f"VizzPN Shop Bot {xuishop.VERSION} is running...")
     core.bot.remove_webhook()
     core.recover_processing_transactions()
     core.reconcile_missing_referral_commissions()
     core.start_startup_panel_reconcile()
     core.start_service_monitor()
-    speedybot.start_background()
+    xuishop.start_background()
 
     # Start FastAPI in a background thread (daemon=False keeps process alive)
     api_thread = threading.Thread(target=_start_api_server, name="uvicorn", daemon=True)
@@ -63,16 +67,28 @@ def run():
 
     # Configure Telegram Chat Menu Button to open Mini App if WEBAPP_URL is set
     try:
-        webapp_url = core.get_db_setting("webapp_url", "").strip() or os.getenv("WEBAPP_URL", "").strip()
+        env_webapp_url = os.getenv("WEBAPP_URL", "").strip()
+        db_webapp_url = core.get_db_setting("webapp_url", "").strip()
+        # Environment variable / .env takes precedence over stale DB settings
+        webapp_url = env_webapp_url or db_webapp_url
+
+        if env_webapp_url and env_webapp_url != db_webapp_url:
+            try:
+                core.update_db_setting("webapp_url", env_webapp_url)
+            except Exception:
+                pass
+
         if webapp_url and hasattr(core.types, "MenuButtonWebApp"):
+            sep = "&" if "?" in webapp_url else "?"
+            button_url = f"{webapp_url}{sep}v={xuishop.VERSION}"
             core.bot.set_chat_menu_button(
                 menu_button=core.types.MenuButtonWebApp(
                     type="web_app",
                     text="🚀 Enter Shop",
-                    web_app=core.types.WebAppInfo(url=webapp_url)
+                    web_app=core.types.WebAppInfo(url=button_url)
                 )
             )
-            print(f"📱 Telegram Menu Button configured: {webapp_url}")
+            print(f"📱 Telegram Menu Button configured: {button_url}")
     except Exception as exc:
         print(f"ℹ️ Notice on setting menu button: {exc}")
 

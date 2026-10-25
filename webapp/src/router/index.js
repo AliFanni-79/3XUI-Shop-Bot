@@ -35,4 +35,13 @@ const router = createRouter({
   routes
 })
 
+router.beforeEach((to, from, next) => {
+  if (typeof window !== 'undefined' && window.location.hash && window.location.hash.startsWith('#/')) {
+    const targetPath = window.location.hash.slice(1)
+    window.location.hash = ''
+    return next(targetPath)
+  }
+  next()
+})
+
 export default router

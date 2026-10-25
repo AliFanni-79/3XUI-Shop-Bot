@@ -80,6 +80,7 @@
       </router-link>
 
       <router-link
+        v-if="auth.guidesEnabled"
         to="/guides"
         class="flex flex-col items-center py-1 px-3 rounded-xl transition text-xs"
         :class="$route.path === '/guides' ? 'text-tg-button font-bold' : 'text-tg-hint hover:text-tg'"

@@ -1,4 +1,4 @@
-"""Register SpeedyBot user/admin handlers."""
+"""Register X-UI Shop Bot user/admin handlers."""
 
 
 def register():

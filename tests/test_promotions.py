@@ -6,7 +6,7 @@ import time
 import unittest
 
 os.environ.setdefault("BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
-from speedybot import core, storage, context as C
+from xuishop import core, storage, context as C
 
 
 class TieredPromotionsTest(unittest.TestCase):
@@ -316,7 +316,7 @@ class TieredPromotionsTest(unittest.TestCase):
 
     def test_wallet_api_endpoints(self):
         from fastapi.testclient import TestClient
-        from speedybot.api import app, get_current_user
+        from xuishop.api import app, get_current_user
 
         # Override user auth dependency for user 1001
         app.dependency_overrides[get_current_user] = lambda: {"id": 1001, "balance": 500000}

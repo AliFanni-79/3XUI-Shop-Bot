@@ -1,4 +1,4 @@
-"""Backup and restore management for SpeedyBot SQLite databases.
+"""Backup and restore management for X-UI Shop Bot SQLite databases.
 
 Provides safe validation, online database backups, safety snapshots,
 and comprehensive restore operations for both in-bot and CLI tools.
@@ -15,7 +15,7 @@ REQUIRED_TABLES = {"users", "settings", "plans"}
 
 
 def validate_database_file(db_path: str) -> Tuple[bool, str, Dict[str, Any]]:
-    """Validate SQLite database integrity and verify essential SpeedyBot tables.
+    """Validate SQLite database integrity and verify essential X-UI Shop Bot tables.
 
     Returns:
         (is_valid, message, stats_dict)
