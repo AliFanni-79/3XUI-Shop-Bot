@@ -370,21 +370,47 @@ class DeleteClientRequest(BaseModel):
     email: str
 
 
+class DiscountStepItem(BaseModel):
+    discount_type: str = "PERCENT"
+    discount_value: float = 0.0
+    cashback_percent: float = 0.0
+    repeat_after: bool = False
+    label: Optional[str] = None
+
+
 class CreateDiscountRequest(BaseModel):
     code: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    is_auto: bool = False
     discount_type: str = "PERCENT"  # "PERCENT" or "FIXED"
-    value: float
+    value: float = 0.0
+    cashback_percent: float = 0.0
     min_purchase: int = 0
     max_uses: int = 0
     per_user_limit: int = 1
+    days: Optional[int] = None
     expires_at: Optional[int] = None
+    steps: Optional[List[DiscountStepItem]] = None
+
+
+class ValidateDiscountRequest(BaseModel):
+    code: Optional[str] = None
+    base_price: int = 0
+    kind: str = "NEW"
+
+
+class WalletCodeRedeemRequest(BaseModel):
+    code: str
 
 
 class CreateGiftRequest(BaseModel):
     code: str
     amount: int
     max_uses: int = 1
+    days: Optional[int] = None
     expires_at: Optional[int] = None
+    description: Optional[str] = None
 
 
 class CashbackUpdateRequest(BaseModel):
@@ -501,7 +527,9 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.get("/api/plans")
 async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
-    """Return active plans grouped by category and trial info."""
+    """Return active plans grouped by category, trial info, and active promotion/campaign."""
+    from . import core as _core, trial as _trial  # noqa: PLC0415
+    uid = user["id"]
     conn = _db()
     cats = conn.execute(
         "SELECT id, name FROM plan_categories WHERE active = 1 ORDER BY sort_order, id"
@@ -514,7 +542,10 @@ async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
            WHERE p.active = 1
            ORDER BY p.sort_order, p.id"""
     ).fetchall()
-    conn.close()
+
+    promo_info = _core.resolve_checkout_promotion(conn, uid, 0, kind="NEW")
+    active_promo = promo_info.get("eval") or _core.get_active_campaign_for_user(uid, base_price=0, conn=conn, check_min_purchase=False)
+    global_cb = _core.get_cashback_percent()
 
     grouped: Dict[int, Dict] = {}
     for cat in cats:
@@ -524,17 +555,27 @@ async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
         cid = p["category_id"] or 0
         if cid not in grouped:
             grouped[cid] = {"id": cid, "name": p["category_name"] or "عمومی", "plans": []}
+        base_p = int(p["price"])
+        p_promo = _core.resolve_checkout_promotion(conn, uid, base_p, kind="NEW")
+        disc_amt = int(p_promo["discount_amount"])
+        final_p = int(p_promo["final_price"])
+        cb_pct = max(float(p_promo["cashback_percent"] or 0), global_cb)
+        cb_amt = int(round(final_p * cb_pct / 100.0)) if cb_pct > 0 else 0
         grouped[cid]["plans"].append({
             "id": p["id"],
             "name": p["name"],
-            "price": p["price"],
+            "price": base_p,
+            "final_price": final_p,
+            "discount_amount": disc_amt,
+            "discount_code": p_promo["code"],
+            "cashback_percent": cb_pct,
+            "cashback_amount": cb_amt,
             "volume_gb": float(p["volume_gb"] or 0),
             "days": p["days"],
             "ip_limit": p["ip_limit"],
         })
+    conn.close()
 
-    from . import core as _core, trial as _trial  # noqa: PLC0415
-    uid = user["id"]
     eligible, rem_days, last_ts, trial_status = _trial.get_trial_eligibility(uid)
     gb, days, ip, _ = _trial.values(uid)
 
@@ -556,7 +597,71 @@ async def get_plans(user: Dict[str, Any] = Depends(get_current_user)):
     return {
         "categories": [v for v in grouped.values() if v["plans"]],
         "trial_info": trial_info,
+        "active_promotion": active_promo,
+        "global_cashback_percent": global_cb,
     }
+
+
+@app.get("/api/promotions/active")
+async def get_active_promotions(user: Dict[str, Any] = Depends(get_current_user)):
+    """Return active campaign / pending discount status for current user."""
+    from . import core as _core  # noqa: PLC0415
+    uid = user["id"]
+    conn = _db()
+    promo_info = _core.resolve_checkout_promotion(conn, uid, 0, kind="NEW")
+    active_promo = promo_info.get("eval") or _core.get_active_campaign_for_user(uid, base_price=0, conn=conn, check_min_purchase=False)
+    conn.close()
+    return {
+        "active_promotion": active_promo,
+        "global_cashback_percent": _core.get_cashback_percent(),
+    }
+
+
+@app.post("/api/discounts/validate")
+async def validate_discount_endpoint(
+    body: ValidateDiscountRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Preview and validate a discount code or active campaign for a given base price."""
+    from . import core as _core  # noqa: PLC0415
+    uid = user["id"]
+    code_str = (body.code or "").strip().upper()
+    conn = _db()
+    try:
+        global_cb = _core.get_cashback_percent()
+        if code_str:
+            row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code_str,)).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="کد تخفیف یافت نشد.")
+            ev = _core.evaluate_discount_row_for_user(conn, row, uid, base_price=int(body.base_price or 0), check_min_purchase=(body.base_price > 0))
+            if not ev.get("eligible"):
+                raise HTTPException(status_code=400, detail=ev.get("reason") or "کد تخفیف معتبر نیست.")
+            cb_pct = max(float(ev.get("cashback_percent") or 0), global_cb)
+            final_p = int(ev.get("final_price") or 0)
+            ev["effective_cashback_percent"] = cb_pct
+            ev["cashback_amount"] = int(round(final_p * cb_pct / 100.0)) if cb_pct > 0 else 0
+            return ev
+        else:
+            promo = _core.resolve_checkout_promotion(conn, uid, int(body.base_price or 0), kind=body.kind)
+            ev = promo.get("eval")
+            if ev:
+                cb_pct = max(float(ev.get("cashback_percent") or 0), global_cb)
+                final_p = int(ev.get("final_price") or 0)
+                ev["effective_cashback_percent"] = cb_pct
+                ev["cashback_amount"] = int(round(final_p * cb_pct / 100.0)) if cb_pct > 0 else 0
+                return ev
+            cb_amt = int(round(int(body.base_price or 0) * global_cb / 100.0)) if global_cb > 0 else 0
+            return {
+                "eligible": False,
+                "base_price": int(body.base_price or 0),
+                "discount_amount": 0,
+                "final_price": int(body.base_price or 0),
+                "cashback_percent": global_cb,
+                "effective_cashback_percent": global_cb,
+                "cashback_amount": cb_amt,
+            }
+    finally:
+        conn.close()
 
 
 @app.get("/api/trial/status")
@@ -687,16 +792,21 @@ def _calculate_builder_plan(
 
     subtotal = duration_price + traffic_price + user_cost
 
-    # 4. Optional discount code check
+    # 4. Optional discount code or active campaign check
     code_discount = 0
     valid_code = None
-    if discount_code and user_id:
+    cashback_pct = 0.0
+    if user_id:
         conn = _db()
         from . import core as _core
-        valid_code, code_discount, _ = _core._calculate_pending_discount(conn, user_id, subtotal)
+        promo = _core.resolve_checkout_promotion(conn, user_id, subtotal, explicit_code=discount_code, kind="NEW")
+        valid_code = promo["code"]
+        code_discount = int(promo["discount_amount"])
+        cashback_pct = max(float(promo["cashback_percent"] or 0), _core.get_cashback_percent())
         conn.close()
 
     final_price = max(0, subtotal - code_discount)
+    cashback_amount = int(round(final_price * cashback_pct / 100.0)) if cashback_pct > 0 else 0
     plan_name = f"پلن اختصاصی | {months} ماهه - {traffic_label} - {user_label}"
 
     return {
@@ -730,6 +840,8 @@ def _calculate_builder_plan(
         "subtotal": subtotal,
         "discount_code": valid_code,
         "discount_code_amount": code_discount,
+        "cashback_percent": cashback_pct,
+        "cashback_amount": cashback_amount,
         "total_price": final_price,
     }
 
@@ -882,6 +994,62 @@ async def get_wallet(user: Dict[str, Any] = Depends(get_current_user)):
     }
 
 
+@app.post("/api/wallet/code/redeem")
+async def wallet_redeem_code(
+    body: WalletCodeRedeemRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    from . import core as _core  # noqa: PLC0415
+    uid = user["id"]
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="کد وارد شده نمی‌تواند خالی باشد.")
+
+    conn = _db()
+    try:
+        # 1. Check if it's a gift code
+        gift = conn.execute("SELECT * FROM gift_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+        if gift:
+            ok, msg = _core.redeem_gift_code(uid, code)
+            if not ok:
+                raise HTTPException(status_code=400, detail=msg or "کد هدیه نامعتبر یا منقضی شده است.")
+            ub = conn.execute("SELECT balance FROM users WHERE id = ?", (uid,)).fetchone()
+            new_bal = int(ub["balance"] or 0) if ub else 0
+            desc = (gift["description"] if "description" in gift.keys() else "") or ""
+            return {
+                "type": "GIFT",
+                "amount": int(gift["amount"]),
+                "balance": new_bal,
+                "description": desc,
+                "message": msg or f"کد هدیه به مبلغ {int(gift['amount']):,} تومان با موفقیت اعمال و به موجودی اضافه شد.",
+            }
+
+        # 2. Check if it's a discount code
+        row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="کد تخفیف یا هدیه وارد شده یافت نشد.")
+
+        ok, msg, ev = _core.save_user_discount(uid, code, conn=conn)
+        if not ok:
+            raise HTTPException(status_code=400, detail=msg or "این کد تخفیف در حال حاضر قابل استفاده نیست.")
+
+        return {
+            "type": "DISCOUNT",
+            "discount": ev,
+            "message": msg or "کد تخفیف با موفقیت بررسی و در پنل شما ذخیره شد.",
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/wallet/discounts")
+async def get_wallet_saved_discounts(user: Dict[str, Any] = Depends(get_current_user)):
+    from . import core as _core  # noqa: PLC0415
+    uid = user["id"]
+    discounts = _core.get_user_saved_discounts(uid)
+    return {"discounts": discounts}
+
+
 # ---------------------------------------------------------------------------
 # Referral
 # ---------------------------------------------------------------------------
@@ -990,12 +1158,14 @@ async def init_card_order(
     # Optionally pre-load a discount code
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
+        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err_msg)
 
     # Use existing core function to create the transaction and trigger the bot message
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, plan, custom_name=body.custom_name)
+        _core._start_card_checkout(uid, uid, plan, custom_name=body.custom_name, explicit_code=body.discount_code)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -1020,10 +1190,12 @@ async def init_wallet_order(
 
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
+        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err_msg)
 
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, plan, "WALLET", custom_name=body.custom_name, explicit_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی ناکافی")
 
@@ -1034,6 +1206,8 @@ async def init_wallet_order(
         "status": "processing",
         "tx_id": tx_id,
         "price": result.get("price", plan.get("price", 0)),
+        "discount": result.get("discount", 0),
+        "cashback_percent": result.get("cashback_percent", 0),
         "message": "خرید از کیف پول ثبت شد",
     }
 
@@ -1056,7 +1230,7 @@ async def init_custom_card_order(
     custom_plan = {
         "id": 0,
         "name": calc["plan_name"],
-        "price": calc["total_price"],
+        "price": calc["subtotal"],
         "days": calc["days"],
         "volume_gb": calc["effective_volume_gb"],
         "volume": calc["effective_volume_gb"],
@@ -1067,11 +1241,13 @@ async def init_custom_card_order(
 
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
+        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err_msg)
 
     try:
         from . import core as _core  # noqa: PLC0415
-        _core._start_card_checkout(uid, uid, custom_plan, custom_name=body.custom_name)
+        _core._start_card_checkout(uid, uid, custom_plan, custom_name=body.custom_name, explicit_code=body.discount_code)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initiate checkout: {exc}")
 
@@ -1101,7 +1277,7 @@ async def init_custom_wallet_order(
     custom_plan = {
         "id": 0,
         "name": calc["plan_name"],
-        "price": calc["total_price"],
+        "price": calc["subtotal"],
         "days": calc["days"],
         "volume_gb": calc["effective_volume_gb"],
         "volume": calc["effective_volume_gb"],
@@ -1112,10 +1288,12 @@ async def init_custom_wallet_order(
 
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
+        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err_msg)
 
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, custom_plan, "WALLET", custom_name=body.custom_name, explicit_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "موجودی کیف پول ناکافی است")
 
@@ -1126,6 +1304,8 @@ async def init_custom_wallet_order(
         "status": "processing",
         "tx_id": tx_id,
         "price": result["price"],
+        "discount": result.get("discount", 0),
+        "cashback_percent": result.get("cashback_percent", 0),
         "plan_name": calc["plan_name"],
         "message": "خرید پلن اختصاصی از کیف پول با موفقیت ثبت شد",
     }
@@ -1167,7 +1347,7 @@ async def init_stars_order(
 
     import math  # noqa: PLC0415
     plan_name = "سرویس"
-    price = 0
+    base_price = 0
     plan_id = None
     custom_spec = None
 
@@ -1179,7 +1359,7 @@ async def init_stars_order(
             raise HTTPException(status_code=404, detail="پلن انتخابی یافت نشد.")
         plan_id = int(p["id"])
         plan_name = p["name"]
-        price = int(p["price"])
+        base_price = int(p["price"])
     elif body.custom_spec:
         calc = _calculate_builder_plan(
             months=int(body.custom_spec.get("months", 1)),
@@ -1187,24 +1367,30 @@ async def init_stars_order(
             ip_limit=int(body.custom_spec.get("ip_limit", 1)),
         )
         plan_name = calc["plan_name"]
-        price = calc.get("total_price", calc.get("final_price", 0))
+        base_price = int(calc.get("subtotal", calc.get("total_price", 0)))
         custom_spec = calc
     else:
         raise HTTPException(status_code=400, detail="مشخصات پلن یا پلن انتخابی الزامی است.")
 
-    discount_amount = 0
-    if body.discount_code:
-        d = _calc_discount(body.discount_code.strip(), price, uid)
-        if d > 0:
-            discount_amount = d
-            price = max(1000, price - discount_amount)
-
-    stars_amount = max(1, math.ceil(price / stars_rate))
     now = int(time.time())
+    from . import core as _core  # noqa: PLC0415
 
     conn = _db()
     try:
         from .db import resolve_unique_service_email, get_brand_name
+        promo = _core.resolve_checkout_promotion(conn, uid, base_price, explicit_code=body.discount_code, kind="CUSTOM" if custom_spec else "NEW")
+        discount_code = promo["code"]
+        discount_amount = int(promo["discount_amount"])
+        promo_cb = float(promo["cashback_percent"])
+        price = int(promo["final_price"])
+        if price <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="مبلغ سفارش با تخفیف ۱۰۰٪ صفر است و نیازی به پرداخت استارز نیست. لطفاً از گزینه فعال‌سازی یا کیف پول استفاده کنید."
+            )
+        step_idx = int(promo["step_index"])
+        stars_amount = max(1, math.ceil(max(1000, price) / stars_rate)) if price > 0 else 1
+
         service_email = resolve_unique_service_email(body.custom_name, user_id=uid, tx_id=0, conn=conn)
         c = conn.cursor()
         c.execute(
@@ -1212,8 +1398,8 @@ async def init_stars_order(
             INSERT INTO transactions (
                 user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb
-            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb
+            ) VALUES (?, 'stars', ?, 'PENDING', ?, 'STARS', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 uid,
@@ -1228,16 +1414,18 @@ async def init_stars_order(
                 int(custom_spec.get("days", 30)) if custom_spec else 30,
                 float(custom_spec.get("volume_gb", 0)) if custom_spec else 0.0,
                 int(custom_spec.get("ip_limit", 1)) if custom_spec else 1,
-                body.discount_code,
+                discount_code,
                 discount_amount,
+                promo_cb,
             ),
         )
-        tx_id = c.lastrowid
+        tx_id = int(c.lastrowid)
+        if discount_code and (discount_amount > 0 or promo_cb > 0):
+            _core._reserve_discount(conn, uid, tx_id, discount_code, discount_amount, cashback_percent=promo_cb, step_index=step_idx)
         conn.commit()
     finally:
         conn.close()
 
-    from . import core as _core  # noqa: PLC0415
     from telebot import types as _tele_types  # noqa: PLC0415
 
     try:
@@ -1250,7 +1438,6 @@ async def init_stars_order(
             prices=[_tele_types.LabeledPrice(label=plan_name, amount=stars_amount)],
         )
     except Exception as e:
-        logger.error("Failed to generate Telegram Stars invoice: %s", e)
         raise HTTPException(status_code=500, detail=f"خطا در ایجاد فاکتور تلگرام استارز: {e}")
 
     return {
@@ -1260,6 +1447,8 @@ async def init_stars_order(
         "stars": stars_amount,
         "stars_amount": stars_amount,
         "price_tomans": price,
+        "discount": discount_amount,
+        "cashback_percent": promo_cb,
         "currency": "XTR",
     }
 
@@ -1309,7 +1498,7 @@ async def init_gateway_order(
         plan = {
             "id": 0,
             "name": calc["plan_name"],
-            "price": calc["total_price"],
+            "price": calc["subtotal"],
             "days": calc["days"],
             "volume_gb": calc["effective_volume_gb"],
             "volume": calc["effective_volume_gb"],
@@ -1322,16 +1511,23 @@ async def init_gateway_order(
 
     if body.discount_code:
         from . import core as _core  # noqa: PLC0415
-        _core.set_pending_discount(uid, body.discount_code)
+        ok, err_msg = _core.set_pending_discount(uid, body.discount_code)
+        if not ok:
+            raise HTTPException(status_code=400, detail=err_msg)
 
     # 2. Create pending transaction
     from . import core as _core  # noqa: PLC0415
-    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper(), custom_name=body.custom_name)
+    result, error = _core._create_checkout_transaction(uid, plan, gateway.upper(), custom_name=body.custom_name, explicit_code=body.discount_code)
     if not result:
         raise HTTPException(status_code=400, detail=error or "خطا در ایجاد تراکنش درگاه")
 
     tx_id = result["tx_id"]
     final_price = result["price"]
+    if int(final_price) <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="مبلغ سفارش با تخفیف ۱۰۰٪ صفر است و نیازی به درگاه پرداخت نیست. لطفاً از گزینه فعال‌سازی یا کیف پول استفاده کنید."
+        )
 
     # 3. Determine base URL for callback
     base_url = str(request.base_url).rstrip("/")
@@ -2620,31 +2816,53 @@ async def admin_xui_delete_client(body: DeleteClientRequest, _admin: Dict[str, A
 
 @app.get("/api/admin/rewards")
 async def admin_get_rewards(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    from . import core as _core  # noqa: PLC0415
     conn = _db()
+    _core.cleanup_expired_or_exhausted_discounts(conn)
     cashback = float(_setting("cashback_percent", "0") or 0)
-    discounts = conn.execute("SELECT * FROM discount_codes ORDER BY created_at DESC").fetchall()
+    discounts = conn.execute("SELECT * FROM discount_codes ORDER BY is_auto DESC, created_at DESC").fetchall()
     gifts = conn.execute("SELECT * FROM gift_codes ORDER BY created_at DESC").fetchall()
+    now_ts = int(time.time())
+    discount_list = []
+    for d in discounts:
+        keys = d.keys()
+        used_total = conn.execute(
+            "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')",
+            (d["code"],)
+        ).fetchone()["c"]
+        exp = d["expires_at"]
+        rem_days = max(0, int((int(exp) - now_ts + 86399) // 86400)) if exp else None
+        is_expired = bool(exp and int(exp) <= now_ts)
+        steps = _core.parse_discount_steps(d)
+        discount_list.append({
+            "code": d["code"],
+            "title": (d["title"] if "title" in keys else "") or "",
+            "description": (d["description"] if "description" in keys else "") or "",
+            "is_auto": bool(int((d["is_auto"] if "is_auto" in keys else 0) or 0)),
+            "discount_type": d["discount_type"],
+            "value": float(d["value"] or 0),
+            "cashback_percent": float((d["cashback_percent"] if "cashback_percent" in keys else 0) or 0),
+            "steps": steps,
+            "summary_text": _core.describe_discount_rule_fa(d),
+            "min_purchase": int(d["min_purchase"] or 0),
+            "max_uses": int(d["max_uses"] or 0),
+            "used_count": int(used_total or 0),
+            "per_user_limit": int(d["per_user_limit"] if d["per_user_limit"] is not None else 1),
+            "expires_at": exp,
+            "remaining_days": rem_days,
+            "is_expired": is_expired,
+            "active": bool(d["active"]),
+            "created_at": d["created_at"],
+        })
     conn.close()
     return {
         "cashback_percent": cashback,
-        "discount_codes": [
-            {
-                "code": d["code"],
-                "discount_type": d["discount_type"],
-                "value": float(d["value"]),
-                "min_purchase": int(d["min_purchase"] or 0),
-                "max_uses": int(d["max_uses"] or 0),
-                "per_user_limit": int(d["per_user_limit"] or 1),
-                "expires_at": d["expires_at"],
-                "active": bool(d["active"]),
-                "created_at": d["created_at"],
-            }
-            for d in discounts
-        ],
+        "discount_codes": discount_list,
         "gift_codes": [
             {
                 "code": g["code"],
                 "amount": int(g["amount"]),
+                "description": (g["description"] if "description" in g.keys() else "") or "",
                 "max_uses": int(g["max_uses"] or 1),
                 "expires_at": g["expires_at"],
                 "active": bool(g["active"]),
@@ -2663,30 +2881,111 @@ async def admin_set_cashback(body: CashbackUpdateRequest, _admin: Dict[str, Any]
 
 @app.post("/api/admin/rewards/discounts")
 async def admin_create_discount(body: CreateDiscountRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
-    code = body.code.strip()
+    now = int(time.time())
+    code = (body.code or "").strip().upper()
     if not code:
-        raise HTTPException(status_code=400, detail="کد تخفیف الزامی است.")
-    dtype = body.discount_type.upper()
+        if body.is_auto:
+            code = f"CAMP_{now}"
+        else:
+            raise HTTPException(status_code=400, detail="کد تخفیف الزامی است.")
+    dtype = (body.discount_type or "PERCENT").upper()
     if dtype not in ("PERCENT", "FIXED"):
         raise HTTPException(status_code=400, detail="نوع تخفیف باید PERCENT یا FIXED باشد.")
-    now = int(time.time())
+
+    steps_list = []
+    if body.steps:
+        for idx, s in enumerate(body.steps, 1):
+            s_type = (s.discount_type or "PERCENT").upper()
+            if s_type not in ("PERCENT", "FIXED"):
+                s_type = "PERCENT"
+            s_val = max(0.0, float(s.discount_value or 0))
+            if s_type == "PERCENT":
+                s_val = min(100.0, s_val)
+            s_cb = max(0.0, min(100.0, float(s.cashback_percent or 0)))
+            steps_list.append({
+                "step": idx,
+                "discount_type": s_type,
+                "discount_value": s_val,
+                "cashback_percent": s_cb,
+                "repeat_after": bool(s.repeat_after),
+                "label": (s.label or "").strip() or f"مرحله {idx}",
+            })
+
+    if steps_list:
+        first_step = steps_list[0]
+        dtype = first_step["discount_type"]
+        val = first_step["discount_value"]
+        cb_pct = first_step["cashback_percent"]
+        steps_json_str = json.dumps(steps_list, ensure_ascii=False)
+        # If last step has repeat_after, allow unlimited per-user uses unless admin explicitly set per_user_limit > len(steps_list)
+        if steps_list[-1].get("repeat_after"):
+            per_user = 0 if body.per_user_limit <= 1 else int(body.per_user_limit)
+        else:
+            per_user = len(steps_list)
+    else:
+        val = max(0.0, float(body.value or 0))
+        if dtype == "PERCENT":
+            val = min(100.0, val)
+        cb_pct = max(0.0, min(100.0, float(body.cashback_percent or 0)))
+        steps_json_str = None
+        per_user = int(body.per_user_limit if body.per_user_limit is not None else 1)
+
+    expires_at = body.expires_at
+    if body.days is not None and int(body.days) > 0:
+        expires_at = now + int(body.days) * 86400
+
+    title = (body.title or "").strip() or ("کمپین تخفیف ویژه" if body.is_auto else f"کد تخفیف {code}")
+    desc = (body.description or "").strip()
+
     conn = _db()
     conn.execute(
         """
-        INSERT OR REPLACE INTO discount_codes (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        INSERT OR REPLACE INTO discount_codes
+        (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at, is_auto, title, cashback_percent, steps_json, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
         """,
-        (code, dtype, body.value, body.min_purchase, body.max_uses, body.per_user_limit, body.expires_at, now)
+        (
+            code,
+            dtype,
+            val,
+            int(body.min_purchase or 0),
+            int(body.max_uses or 0),
+            per_user,
+            expires_at,
+            now,
+            1 if body.is_auto else 0,
+            title,
+            cb_pct,
+            steps_json_str,
+            desc,
+        )
     )
     conn.commit()
     conn.close()
     return {"status": "created", "code": code}
 
 
+@app.post("/api/admin/rewards/discounts/{code}/toggle")
+async def admin_toggle_discount(code: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
+    conn = _db()
+    row = conn.execute("SELECT active FROM discount_codes WHERE code = ? COLLATE NOCASE", (code.strip(),)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="کد یا کمپین تخفیف یافت نشد.")
+    new_active = 0 if int(row["active"] or 0) else 1
+    conn.execute("UPDATE discount_codes SET active = ? WHERE code = ? COLLATE NOCASE", (new_active, code.strip()))
+    if not new_active:
+        conn.execute("DELETE FROM user_saved_discounts WHERE code = ? COLLATE NOCASE", (code.strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "toggled", "code": code, "active": bool(new_active)}
+
+
 @app.delete("/api/admin/rewards/discounts/{code}")
 async def admin_delete_discount(code: str, _admin: Dict[str, Any] = Depends(get_admin_user)):
     conn = _db()
     conn.execute("DELETE FROM discount_codes WHERE code = ? COLLATE NOCASE", (code.strip(),))
+    conn.execute("DELETE FROM user_saved_discounts WHERE code = ? COLLATE NOCASE", (code.strip(),))
     conn.commit()
     conn.close()
     return {"status": "deleted", "code": code}
@@ -2694,17 +2993,21 @@ async def admin_delete_discount(code: str, _admin: Dict[str, Any] = Depends(get_
 
 @app.post("/api/admin/rewards/gifts")
 async def admin_create_gift(body: CreateGiftRequest, _admin: Dict[str, Any] = Depends(get_admin_user)):
-    code = body.code.strip()
+    code = body.code.strip().upper()
     if not code:
         raise HTTPException(status_code=400, detail="کد هدیه الزامی است.")
     now = int(time.time())
+    expires_at = body.expires_at
+    if body.days is not None and int(body.days) > 0:
+        expires_at = now + int(body.days) * 86400
+    desc = (body.description or "").strip()
     conn = _db()
     conn.execute(
         """
-        INSERT OR REPLACE INTO gift_codes (code, amount, max_uses, expires_at, active, created_at)
-        VALUES (?, ?, ?, ?, 1, ?)
+        INSERT OR REPLACE INTO gift_codes (code, amount, max_uses, expires_at, active, created_at, description)
+        VALUES (?, ?, ?, ?, 1, ?, ?)
         """,
-        (code, body.amount, body.max_uses, body.expires_at, now)
+        (code, body.amount, body.max_uses, expires_at, now, desc)
     )
     conn.commit()
     conn.close()

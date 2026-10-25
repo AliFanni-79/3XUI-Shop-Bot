@@ -22,6 +22,80 @@
     </div>
 
     <!-- ===================================================================== -->
+    <!-- ACTIVE PROMOTION / TIERED CAMPAIGN BANNER                             -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="activePromotion"
+      class="bg-gradient-to-br from-amber-500/15 via-purple-500/10 to-tg-sec rounded-2xl p-4 border border-amber-500/40 shadow-md space-y-2.5 relative overflow-hidden"
+    >
+      <div class="flex justify-between items-start gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🔥</span>
+          <div>
+            <h3 class="font-bold text-sm text-amber-300">
+              {{ activePromotion.title || 'جشنواره تخفیف و پاداش ویژه' }}
+            </h3>
+            <span class="text-[11px] text-emerald-300 font-bold block mt-0.5">
+              🎁 سهم این خرید شما (دفعه {{ activePromotion.current_step_number }}): {{ activePromotion.current_benefit_text }}
+            </span>
+          </div>
+        </div>
+        <span
+          v-if="activePromotion.remaining_days !== null && activePromotion.remaining_days !== undefined"
+          class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-200 border border-amber-500/40 shrink-0"
+        >
+          ⏳ {{ activePromotion.remaining_days }} روز مانده
+        </span>
+      </div>
+
+      <!-- Visual Step Progression Pills (for tiered campaigns) -->
+      <div v-if="activePromotion.is_tiered && activePromotion.steps?.length" class="space-y-1 pt-1">
+        <span class="text-[10px] text-tg-hint block">🪜 مراحل پلکانی جشنواره (بر اساس دفعات خرید شما):</span>
+        <div class="flex flex-wrap gap-1.5">
+          <div
+            v-for="(st, idx) in activePromotion.steps"
+            :key="idx"
+            class="px-2.5 py-1 rounded-xl text-[10px] border transition flex items-center gap-1"
+            :class="
+              idx === activePromotion.current_step_index
+                ? 'bg-amber-500 text-black font-black border-amber-400 shadow ring-2 ring-amber-400/40'
+                : idx < activePromotion.used_by_user
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 opacity-75'
+                  : 'bg-tg/70 text-tg-hint border-gray-700/40'
+            "
+          >
+            <span v-if="idx < activePromotion.used_by_user && idx !== activePromotion.current_step_index">✓</span>
+            <span v-else-if="idx === activePromotion.current_step_index">👈</span>
+            <span>
+              {{ idx === activePromotion.steps.length - 1 && st.repeat_after ? (idx === 0 ? 'همه خریدها:' : `دفعه ${idx + 1} به بعد:`) : `دفعه ${idx + 1}:` }}
+            </span>
+            <span v-if="Number(st.discount_value) > 0">
+              {{ st.discount_type === 'FIXED' ? Number(st.discount_value).toLocaleString('fa-IR') + ' ت تخفیف' : st.discount_value + '٪ تخفیف' }}
+            </span>
+            <span v-if="Number(st.discount_value) > 0 && Number(st.cashback_percent) > 0">+</span>
+            <span v-if="Number(st.cashback_percent) > 0">
+              {{ st.cashback_percent }}٪ کش‌بک
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Cashback Banner (if no active campaign, or as extra info) -->
+    <div
+      v-else-if="globalCashbackPercent > 0"
+      class="bg-gradient-to-r from-cyan-500/15 via-tg-sec to-tg-sec rounded-2xl p-3 border border-cyan-500/30 flex items-center justify-between text-xs"
+    >
+      <div class="flex items-center gap-2">
+        <span class="text-lg">💰</span>
+        <div>
+          <span class="font-bold text-cyan-300 block">پاداش بازگشت وجه (کش‌بک) فعال است!</span>
+          <span class="text-[10px] text-tg-hint">با هر خرید یا تمدید، {{ globalCashbackPercent }}٪ مبلغ پرداختی به کیف پول شما برمی‌گردد.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
     <!-- MODE 1: PRE-MADE CATALOG PLANS                                        -->
     <!-- ===================================================================== -->
     <div v-if="activeMode === 'catalog'" class="space-y-4">
@@ -109,9 +183,25 @@
           class="bg-tg-sec rounded-2xl p-4 border border-gray-700/20 shadow-sm flex flex-col justify-between hover:border-tg-button/40 transition"
         >
           <div>
-            <div class="flex justify-between items-start mb-2">
-              <h3 class="font-bold text-sm text-tg">{{ plan.name }}</h3>
-              <span class="text-xs bg-emerald-500/15 text-emerald-400 font-semibold px-2 py-0.5 rounded-full">
+            <div class="flex justify-between items-start mb-2 gap-2">
+              <div>
+                <h3 class="font-bold text-sm text-tg">{{ plan.name }}</h3>
+                <div v-if="plan.discount_amount > 0 || plan.cashback_percent > 0" class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    v-if="plan.discount_amount > 0"
+                    class="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-lg border border-amber-500/30"
+                  >
+                    🎁 {{ Number(plan.discount_amount).toLocaleString('fa-IR') }} تومان تخفیف
+                  </span>
+                  <span
+                    v-if="plan.cashback_percent > 0"
+                    class="text-[10px] bg-cyan-500/20 text-cyan-300 font-bold px-2 py-0.5 rounded-lg border border-cyan-500/30"
+                  >
+                    💰 +{{ plan.cashback_percent }}٪ کش‌بک ({{ Number(plan.cashback_amount || 0).toLocaleString('fa-IR') }} ت)
+                  </span>
+                </div>
+              </div>
+              <span class="text-xs bg-emerald-500/15 text-emerald-400 font-semibold px-2 py-0.5 rounded-full shrink-0">
                 {{ formatVolume(plan.volume_gb) }}
               </span>
             </div>
@@ -130,8 +220,14 @@
 
           <div class="flex items-center justify-between pt-2 border-t border-gray-700/30 mt-1">
             <div>
-              <span class="text-xs text-tg-hint block">قیمت</span>
-              <span class="text-sm font-bold text-tg">{{ Number(plan.price).toLocaleString('fa-IR') }} تومان</span>
+              <span class="text-xs text-tg-hint block">قیمت قابل پرداخت</span>
+              <div v-if="plan.discount_amount > 0" class="flex items-baseline gap-1.5">
+                <span class="text-xs text-gray-500 line-through">{{ Number(plan.price).toLocaleString('fa-IR') }}</span>
+                <span class="text-sm font-black text-emerald-400">
+                  {{ plan.final_price > 0 ? Number(plan.final_price).toLocaleString('fa-IR') + ' تومان' : 'رایگان (۱۰۰٪ تخفیف)' }}
+                </span>
+              </div>
+              <span v-else class="text-sm font-bold text-tg">{{ Number(plan.price).toLocaleString('fa-IR') }} تومان</span>
             </div>
             <button
               @click="openCheckoutModal(plan, false)"
@@ -336,14 +432,27 @@
             </span>
           </div>
 
+          <div v-if="calculatedBrief.promo_discount > 0" class="flex justify-between items-center text-amber-300">
+            <span>🔥 تخفیف جشنواره ({{ activePromotion?.title || 'کمپین' }}):</span>
+            <span class="font-bold">-{{ Number(calculatedBrief.promo_discount).toLocaleString('fa-IR') }} تومان</span>
+          </div>
+
           <div class="border-t border-gray-700/30 pt-2 flex justify-between items-baseline">
             <span class="font-bold text-xs text-tg">مبلغ کل نهایی:</span>
-            <div class="flex items-baseline gap-1">
+            <div class="flex items-baseline gap-1.5">
+              <span v-if="calculatedBrief.promo_discount > 0" class="line-through text-xs text-gray-500">
+                {{ Number(calculatedBrief.subtotal).toLocaleString('fa-IR') }}
+              </span>
               <span class="text-xl font-black text-emerald-400">
                 {{ Number(calculatedBrief.total_price).toLocaleString('fa-IR') }}
               </span>
               <span class="text-[10px] text-tg-hint">تومان</span>
             </div>
+          </div>
+
+          <div v-if="calculatedBrief.cashback_amount > 0" class="flex justify-between items-center text-[11px] text-cyan-300 bg-cyan-500/10 px-2.5 py-1.5 rounded-xl border border-cyan-500/20">
+            <span>💰 هدیه کش‌بک پس از خرید ({{ calculatedBrief.cashback_percent }}٪):</span>
+            <span class="font-bold">+{{ Number(calculatedBrief.cashback_amount).toLocaleString('fa-IR') }} تومان به کیف پول</span>
           </div>
         </div>
 
@@ -361,20 +470,46 @@
     <!-- CHECKOUT MODAL (For both catalog and custom plans)                    -->
     <!-- ===================================================================== -->
     <div v-if="activePlan" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="bg-tg-sec w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 border border-gray-700/40 space-y-4 animate-slide-up">
+      <div class="bg-tg-sec w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 border border-gray-700/40 space-y-3.5 animate-slide-up max-h-[92vh] overflow-y-auto">
         <div class="flex justify-between items-center pb-2 border-b border-gray-700/40">
           <h3 class="font-bold text-sm">انتخاب روش پرداخت</h3>
           <button @click="closeModal" class="text-tg-hint hover:text-tg text-lg">✕</button>
         </div>
 
-        <div class="bg-tg/50 p-3 rounded-xl border border-gray-700/30 text-xs space-y-1">
+        <!-- Invoice Summary Box -->
+        <div class="bg-tg/60 p-3 rounded-xl border border-gray-700/30 text-xs space-y-1.5">
           <div class="flex justify-between">
             <span class="text-tg-hint">پلن انتخابی:</span>
             <span class="font-bold">{{ activePlan.name }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-tg-hint">مبلغ قابل پرداخت:</span>
-            <span class="font-bold text-emerald-400">{{ Number(activePlan.price).toLocaleString('fa-IR') }} تومان</span>
+            <span class="text-tg-hint">مبلغ پایه:</span>
+            <span :class="checkoutSummary.discount_amount > 0 ? 'line-through text-gray-400' : 'font-bold'">
+              {{ Number(activePlan.price).toLocaleString('fa-IR') }} تومان
+            </span>
+          </div>
+          <div v-if="checkoutSummary.discount_amount > 0" class="flex justify-between text-amber-300">
+            <span>
+              🎁 تخفیف
+              <span v-if="checkoutSummary.title">({{ checkoutSummary.title }})</span>
+              <span v-if="checkoutSummary.total_steps > 1" class="text-[10px] text-purple-300">
+                [پله {{ checkoutSummary.step_number }}]
+              </span>:
+            </span>
+            <span class="font-bold">-{{ Number(checkoutSummary.discount_amount).toLocaleString('fa-IR') }} تومان</span>
+          </div>
+          <div class="flex justify-between pt-1 border-t border-gray-700/30">
+            <span class="text-tg font-bold">مبلغ نهایی قابل پرداخت:</span>
+            <span class="font-black text-sm text-emerald-400">
+              {{ checkoutSummary.final_price > 0 ? Number(checkoutSummary.final_price).toLocaleString('fa-IR') + ' تومان' : 'رایگان (۰ تومان)' }}
+            </span>
+          </div>
+          <div
+            v-if="checkoutSummary.cashback_amount > 0 || (checkoutSummary.effective_cashback_percent > 0 && checkoutSummary.final_price === 0)"
+            class="flex justify-between items-center text-[11px] text-cyan-300 bg-cyan-500/10 px-2.5 py-1.5 rounded-lg border border-cyan-500/20 mt-1"
+          >
+            <span>💰 بازگشت وجه به کیف پول ({{ checkoutSummary.effective_cashback_percent }}٪):</span>
+            <span class="font-bold">+{{ Number(checkoutSummary.cashback_amount).toLocaleString('fa-IR') }} تومان</span>
           </div>
         </div>
 
@@ -390,104 +525,142 @@
           />
         </div>
 
-        <!-- Discount Code Input -->
+        <!-- Discount Code Input + Check Button -->
         <div>
           <label class="block text-xs text-tg-hint mb-1">کد تخفیف (اختیاری):</label>
-          <input
-            v-model="discountCode"
-            type="text"
-            dir="ltr"
-            placeholder="DISCOUNT_CODE"
-            class="w-full bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center uppercase tracking-wider focus:outline-none focus:border-tg-button"
-          />
+          <div class="flex gap-1.5">
+            <input
+              v-model="discountCode"
+              type="text"
+              dir="ltr"
+              placeholder="DISCOUNT_CODE"
+              @keyup.enter="applyManualDiscountCode"
+              class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-3 py-2 text-xs text-center uppercase tracking-wider focus:outline-none focus:border-tg-button"
+            />
+            <button
+              type="button"
+              @click="applyManualDiscountCode"
+              :disabled="validatingDiscount"
+              class="px-3.5 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 text-blue-300 font-bold text-xs shrink-0 transition"
+            >
+              {{ validatingDiscount ? '...' : 'اعمال کد' }}
+            </button>
+          </div>
+          <p
+            v-if="discountPreviewMsg"
+            class="text-[11px] mt-1"
+            :class="discountPreviewOk ? 'text-emerald-400' : 'text-rose-400'"
+          >
+            {{ discountPreviewMsg }}
+          </p>
         </div>
 
         <!-- Payment Method Options -->
         <div class="space-y-2 pt-1">
-          <!-- Card to Card button -->
-          <button
-            @click="payCard"
-            :disabled="submitting"
-            class="w-full bg-tg hover:bg-gray-700/40 border border-gray-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-base">💳</span>
-              <div class="text-right">
-                <span class="font-bold block">کارت‌به‌کارت (ارسال فیش در چت تلگرام)</span>
-                <span class="text-[10px] text-tg-hint">پیام واریز در تلگرام ارسال شده و فیش در چت تایید می‌شود</span>
+          <!-- 100% Discount: Instant Free Activation Button -->
+          <template v-if="modalPrice <= 0">
+            <button
+              @click="payWallet"
+              :disabled="submitting"
+              class="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold p-3.5 rounded-xl flex items-center justify-between text-xs transition shadow-lg shadow-emerald-950/40 border border-emerald-400/40"
+            >
+              <div class="flex items-center gap-2.5">
+                <span class="text-xl">⚡️</span>
+                <div class="text-right">
+                  <span class="font-black text-sm block">فعال‌سازی آنی سرویس (تخفیف ۱۰۰٪)</span>
+                  <span class="text-[10px] text-emerald-100/90">سرویس شما به صورت کاملاً رایگان تحویل داده می‌شود</span>
+                </div>
               </div>
-            </div>
-            <span>←</span>
-          </button>
+              <span class="text-base font-bold">←</span>
+            </button>
+          </template>
 
-          <!-- Wallet button -->
-          <button
-            @click="payWallet"
-            :disabled="submitting"
-            class="w-full bg-tg hover:bg-gray-700/40 border border-gray-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-base">👛</span>
-              <div class="text-right">
-                <span class="font-bold block">پرداخت با موجودی کیف پول</span>
-                <span class="text-[10px] text-tg-hint">موجودی فعلی: {{ Number(auth.balance).toLocaleString('fa-IR') }} تومان</span>
+          <template v-else>
+            <!-- Card to Card button -->
+            <button
+              @click="payCard"
+              :disabled="submitting"
+              class="w-full bg-tg hover:bg-gray-700/40 border border-gray-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-base">💳</span>
+                <div class="text-right">
+                  <span class="font-bold block">کارت‌به‌کارت (ارسال فیش در چت تلگرام)</span>
+                  <span class="text-[10px] text-tg-hint">پیام واریز در تلگرام ارسال شده و فیش در چت تایید می‌شود</span>
+                </div>
               </div>
-            </div>
-            <span>←</span>
-          </button>
+              <span>←</span>
+            </button>
 
-          <!-- Zibal Online Gateway -->
-          <button
-            v-if="activeGateways.zibal"
-            @click="payGateway('zibal')"
-            :disabled="submitting"
-            class="w-full bg-tg hover:bg-gray-700/40 border border-emerald-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-base">⚡️</span>
-              <div class="text-right">
-                <span class="font-bold text-emerald-400 block">درگاه پرداخت آنلاین زیبال (شاپرک)</span>
-                <span class="text-[10px] text-tg-hint">پرداخت شتابی و فعال‌سازی آنی بدون نیاز به تایید دستی</span>
+            <!-- Wallet button -->
+            <button
+              @click="payWallet"
+              :disabled="submitting"
+              class="w-full bg-tg hover:bg-gray-700/40 border border-gray-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-base">👛</span>
+                <div class="text-right">
+                  <span class="font-bold block">پرداخت با موجودی کیف پول</span>
+                  <span class="text-[10px] text-tg-hint">موجودی فعلی: {{ Number(auth.balance).toLocaleString('fa-IR') }} تومان</span>
+                </div>
               </div>
-            </div>
-            <span>←</span>
-          </button>
+              <span>←</span>
+            </button>
 
-          <!-- Zarinpal Online Gateway -->
-          <button
-            v-if="activeGateways.zarinpal"
-            @click="payGateway('zarinpal')"
-            :disabled="submitting"
-            class="w-full bg-tg hover:bg-gray-700/40 border border-amber-500/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-base">🟡</span>
-              <div class="text-right">
-                <span class="font-bold text-amber-300 block">درگاه پرداخت زرین‌پال (شاپرک)</span>
-                <span class="text-[10px] text-tg-hint">پرداخت شتابی با تمام کارت‌های عضو شتاب</span>
+            <!-- Zibal Online Gateway -->
+            <button
+              v-if="activeGateways.zibal"
+              @click="payGateway('zibal')"
+              :disabled="submitting"
+              class="w-full bg-tg hover:bg-gray-700/40 border border-emerald-600/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-base">⚡️</span>
+                <div class="text-right">
+                  <span class="font-bold text-emerald-400 block">درگاه پرداخت آنلاین زیبال (شاپرک)</span>
+                  <span class="text-[10px] text-tg-hint">پرداخت شتابی و فعال‌سازی آنی بدون نیاز به تایید دستی</span>
+                </div>
               </div>
-            </div>
-            <span>←</span>
-          </button>
+              <span>←</span>
+            </button>
 
-          <!-- Telegram Stars Payment -->
-          <button
-            v-if="activeGateways.stars"
-            @click="payStars"
-            :disabled="submitting"
-            class="w-full bg-tg hover:bg-gray-700/40 border border-yellow-500/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
-          >
-            <div class="flex items-center gap-2">
-              <span class="text-base">⭐</span>
-              <div class="text-right">
-                <span class="font-bold text-yellow-300 block">پرداخت با تلگرام استارز (Telegram Stars)</span>
-                <span class="text-[10px] text-tg-hint">
-                  پرداخت مستقیم درون تلگرام (تقریباً {{ Math.max(1, Math.ceil(modalPrice / (activeGateways.stars_rate || 1500))).toLocaleString('fa-IR') }} استارز)
-                </span>
+            <!-- Zarinpal Online Gateway -->
+            <button
+              v-if="activeGateways.zarinpal"
+              @click="payGateway('zarinpal')"
+              :disabled="submitting"
+              class="w-full bg-tg hover:bg-gray-700/40 border border-amber-500/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-base">🟡</span>
+                <div class="text-right">
+                  <span class="font-bold text-amber-300 block">درگاه پرداخت زرین‌پال (شاپرک)</span>
+                  <span class="text-[10px] text-tg-hint">پرداخت شتابی با تمام کارت‌های عضو شتاب</span>
+                </div>
               </div>
-            </div>
-            <span>←</span>
-          </button>
+              <span>←</span>
+            </button>
+
+            <!-- Telegram Stars Payment -->
+            <button
+              v-if="activeGateways.stars"
+              @click="payStars"
+              :disabled="submitting"
+              class="w-full bg-tg hover:bg-gray-700/40 border border-yellow-500/50 p-3 rounded-xl flex items-center justify-between text-xs transition"
+            >
+              <div class="flex items-center gap-2">
+                <span class="text-base">⭐</span>
+                <div class="text-right">
+                  <span class="font-bold text-yellow-300 block">پرداخت با تلگرام استارز (Telegram Stars)</span>
+                  <span class="text-[10px] text-tg-hint">
+                    پرداخت مستقیم درون تلگرام (تقریباً {{ Math.max(1, Math.ceil(modalPrice / (activeGateways.stars_rate || 1500))).toLocaleString('fa-IR') }} استارز)
+                  </span>
+                </div>
+              </div>
+              <span>←</span>
+            </button>
+          </template>
         </div>
 
         <!-- Status / Alert message -->
@@ -584,7 +757,8 @@ import {
   getActiveGateways,
   initGatewayOrder,
   initStarsOrder,
-  claimFreeTrial
+  claimFreeTrial,
+  validateDiscountCode
 } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -596,6 +770,8 @@ const activeMode = ref('catalog') // 'catalog' | 'builder'
 const categories = ref([])
 const selectedCategoryId = ref(null)
 const trialInfo = ref(null)
+const activePromotion = ref(null)
+const globalCashbackPercent = ref(0)
 const trialModalOpen = ref(false)
 const trialServiceName = ref('')
 const submittingTrial = ref(false)
@@ -628,6 +804,20 @@ const activePlan = ref(null)
 const isCustomPlan = ref(false)
 const customServiceName = ref('')
 const discountCode = ref('')
+const validatingDiscount = ref(false)
+const discountPreviewMsg = ref('')
+const discountPreviewOk = ref(true)
+const checkoutSummary = ref({
+  base_price: 0,
+  discount_amount: 0,
+  final_price: 0,
+  code: null,
+  title: '',
+  step_number: 1,
+  total_steps: 1,
+  effective_cashback_percent: 0,
+  cashback_amount: 0,
+})
 const submitting = ref(false)
 const message = ref('')
 const isSuccess = ref(false)
@@ -678,6 +868,35 @@ const userOptions = computed(() => {
   ]
 })
 
+const computeAutoPromoForPrice = (subtotal) => {
+  const promo = activePromotion.value
+  let promoDiscount = 0
+  let cbPct = Number(globalCashbackPercent.value || 0)
+  if (promo && subtotal >= Number(promo.min_purchase || 0)) {
+    const dType = String(promo.discount_type || 'PERCENT').toUpperCase()
+    const dVal = Number(promo.discount_value || 0)
+    if (dVal > 0) {
+      if (dType === 'FIXED') {
+        promoDiscount = Math.min(subtotal, dVal)
+      } else {
+        promoDiscount = Math.min(subtotal, Math.round((subtotal * dVal) / 100))
+      }
+    }
+    if (Number(promo.cashback_percent || 0) > 0) {
+      cbPct = Number(promo.cashback_percent || 0)
+    }
+  }
+  const finalPrice = Math.max(0, subtotal - promoDiscount)
+  const cbBase = finalPrice > 0 ? finalPrice : subtotal
+  const cbAmt = cbPct > 0 ? Math.round((cbBase * cbPct) / 100) : 0
+  return {
+    promoDiscount,
+    finalPrice,
+    cashbackPercent: cbPct,
+    cashbackAmount: cbAmt,
+  }
+}
+
 const calculatedBrief = computed(() => {
   const m = selectedMonths.value
   const mPrice = builderConfig.value.month_price
@@ -709,7 +928,8 @@ const calculatedBrief = computed(() => {
   // Users
   const uCost = builderConfig.value.user_costs[selectedUsers.value] ?? 0
 
-  const total = durFinal + trafFinal + uCost
+  const subtotal = durFinal + trafFinal + uCost
+  const autoCalc = computeAutoPromoForPrice(subtotal)
 
   return {
     duration: {
@@ -729,8 +949,17 @@ const calculatedBrief = computed(() => {
       ip_limit: selectedUsers.value,
       cost: uCost
     },
-    total_price: total
+    subtotal,
+    promo_discount: autoCalc.promoDiscount,
+    total_price: autoCalc.finalPrice,
+    cashback_percent: autoCalc.cashbackPercent,
+    cashback_amount: autoCalc.cashbackAmount,
   }
+})
+
+const modalPrice = computed(() => {
+  if (!activePlan.value) return 0
+  return Number(checkoutSummary.value.final_price ?? activePlan.value.price ?? 0)
 })
 
 // Actions
@@ -749,11 +978,31 @@ const selectUserLimit = (val) => {
   selectedUsers.value = val
 }
 
+const resetCheckoutSummaryFromPlan = (plan) => {
+  const basePrice = Number(plan?.price || 0)
+  const autoCalc = computeAutoPromoForPrice(basePrice)
+  const promo = activePromotion.value
+  checkoutSummary.value = {
+    base_price: basePrice,
+    discount_amount: autoCalc.promoDiscount,
+    final_price: autoCalc.finalPrice,
+    code: autoCalc.promoDiscount > 0 || Number(promo?.cashback_percent || 0) > 0 ? promo?.code : null,
+    title: promo?.title || promo?.code || '',
+    step_number: Number(promo?.current_step_number || 1),
+    total_steps: Number(promo?.total_steps || 1),
+    effective_cashback_percent: autoCalc.cashbackPercent,
+    cashback_amount: autoCalc.cashbackAmount,
+  }
+}
+
 const openCheckoutModal = (plan, isCustom = false) => {
   activePlan.value = plan
   isCustomPlan.value = isCustom
   message.value = ''
   discountCode.value = ''
+  discountPreviewMsg.value = ''
+  discountPreviewOk.value = true
+  resetCheckoutSummaryFromPlan(plan)
 }
 
 const openCustomCheckoutModal = () => {
@@ -765,11 +1014,45 @@ const openCustomCheckoutModal = () => {
   openCheckoutModal({
     id: 0,
     name: planName,
-    price: brief.total_price,
+    price: brief.subtotal,
     days: brief.duration.months * 30,
     volume_gb: brief.traffic.volume_gb,
     ip_limit: brief.user_limit.ip_limit
   }, true)
+}
+
+const applyManualDiscountCode = async () => {
+  if (!activePlan.value) return
+  const code = discountCode.value.trim()
+  if (!code) {
+    discountPreviewMsg.value = ''
+    resetCheckoutSummaryFromPlan(activePlan.value)
+    return
+  }
+  validatingDiscount.value = true
+  discountPreviewMsg.value = ''
+  try {
+    const res = await validateDiscountCode(code, Number(activePlan.value.price || 0), 'NEW')
+    const data = res.data || {}
+    discountPreviewOk.value = Boolean(data.ok)
+    discountPreviewMsg.value = data.message || ''
+    checkoutSummary.value = {
+      base_price: Number(data.base_price ?? activePlan.value.price ?? 0),
+      discount_amount: Number(data.discount_amount || 0),
+      final_price: Number(data.final_price ?? activePlan.value.price ?? 0),
+      code: data.code || null,
+      title: data.title || data.code || '',
+      step_number: Number(data.step_number || 1),
+      total_steps: Number(data.total_steps || 1),
+      effective_cashback_percent: Number(data.effective_cashback_percent || 0),
+      cashback_amount: Number(data.cashback_amount || 0),
+    }
+  } catch (err) {
+    discountPreviewOk.value = false
+    discountPreviewMsg.value = err.response?.data?.detail || 'خطا در بررسی کد تخفیف'
+  } finally {
+    validatingDiscount.value = false
+  }
 }
 
 const closeModal = () => {
@@ -777,6 +1060,18 @@ const closeModal = () => {
   submitting.value = false
   customServiceName.value = ''
   discountCode.value = ''
+  discountPreviewMsg.value = ''
+}
+
+const refreshPlansAndPromos = async () => {
+  try {
+    const pRes = await getPlans()
+    categories.value = pRes.data?.categories || []
+    activePromotion.value = pRes.data?.active_promotion || null
+    globalCashbackPercent.value = Number(pRes.data?.global_cashback_percent || 0)
+  } catch (e) {
+    // ignore refresh error
+  }
 }
 
 const payCard = async () => {
@@ -797,6 +1092,7 @@ const payCard = async () => {
     }
     isSuccess.value = true
     message.value = '✅ پیام پرداخت و شماره کارت در چت تلگرام شما ارسال شد. لطفاً تصویر فیش را در چت ارسال فرمایید.'
+    await refreshPlansAndPromos()
     setTimeout(() => {
       if (window.Telegram?.WebApp) {
         window.Telegram.WebApp.close()
@@ -815,8 +1111,9 @@ const payWallet = async () => {
   message.value = ''
   try {
     const sName = customServiceName.value.trim() || null
+    let res
     if (isCustomPlan.value) {
-      await initCustomWalletOrder(
+      res = await initCustomWalletOrder(
         selectedMonths.value,
         isUnlimitedTraffic.value ? 0 : selectedGb.value,
         selectedUsers.value,
@@ -824,14 +1121,18 @@ const payWallet = async () => {
         sName
       )
     } else {
-      await initWalletOrder(activePlan.value.id, discountCode.value || null, sName)
+      res = await initWalletOrder(activePlan.value.id, discountCode.value || null, sName)
     }
     isSuccess.value = true
-    message.value = '🎉 پرداخت با کیف پول موفق بود و سرویس شما ثبت شد.'
+    const cbAmt = Number(res?.data?.cashback_amount || 0)
+    message.value = cbAmt > 0
+      ? `🎉 پرداخت موفق بود و سرویس شما ثبت شد! همچنین ${cbAmt.toLocaleString('fa-IR')} تومان کش‌بک به کیف پول شما واریز گردید.`
+      : '🎉 پرداخت با کیف پول موفق بود و سرویس شما ثبت شد.'
     await auth.fetchMe()
+    await refreshPlansAndPromos()
     setTimeout(() => {
       closeModal()
-    }, 2000)
+    }, 2200)
   } catch (err) {
     isSuccess.value = false
     message.value = err.response?.data?.detail || 'موجودی ناکافی یا خطای دیگر'
@@ -985,6 +1286,8 @@ onMounted(async () => {
       getActiveGateways().catch(() => null)
     ])
     categories.value = pRes.data.categories || []
+    activePromotion.value = pRes.data?.active_promotion || null
+    globalCashbackPercent.value = Number(pRes.data?.global_cashback_percent || 0)
     if (pRes.data?.trial_info) {
       trialInfo.value = pRes.data.trial_info
     }

@@ -297,8 +297,8 @@
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
         <div class="flex justify-between items-center">
           <div>
-            <h4 class="font-bold text-sm text-tg">💰 سیستم کش‌بک (بازگشت وجه به کیف پول)</h4>
-            <span class="text-[10px] text-tg-hint">درصدی از مبلغ هر خرید موفق به صورت خودکار به کیف پول خریدار واریز می‌شود</span>
+            <h4 class="font-bold text-sm text-tg">💰 سیستم کش‌بک پایه (بازگشت وجه سراسری)</h4>
+            <span class="text-[10px] text-tg-hint">درصدی از مبلغ هر خرید موفق به صورت پیش‌فرض به کیف پول خریدار واریز می‌شود (قابل ترکیب یا جایگزینی در کمپین‌ها)</span>
           </div>
         </div>
 
@@ -312,7 +312,7 @@
               v-model.number="rewardsData.cashback_percent"
               class="w-24 bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
             />
-            <span class="text-sm font-bold text-tg">% درصد پاداش</span>
+            <span class="text-sm font-bold text-tg">% درصد پاداش پایه</span>
           </div>
           <button
             @click="handleSaveCashback"
@@ -324,47 +324,157 @@
         </div>
       </div>
 
-      <!-- Discount Codes Box -->
+      <!-- Discount Codes & Tiered Campaigns Box -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
-        <div class="flex justify-between items-center">
+        <div class="flex justify-between items-center flex-wrap gap-2">
           <div>
-            <h4 class="font-bold text-sm text-tg">🎟 کدهای تخفیف</h4>
-            <span class="text-[10px] text-tg-hint">تعداد فعال: {{ rewardsData.discount_codes.length }}</span>
+            <h4 class="font-bold text-sm text-tg">🔥 کمپین‌های فروشگاهی و کدهای تخفیف (ساده / پلکانی / ترکیبی)</h4>
+            <span class="text-[10px] text-tg-hint">
+              پشتیبانی از تخفیف زمان‌دار (روزانه)، پلکانی چندمرحله‌ای (دفعه اول، دوم، بعدی) و ترکیب تخفیف با کش‌بک
+            </span>
           </div>
           <button
-            @click="showDiscountModal = true"
-            class="btn-tg py-1.5 px-3 rounded-xl font-bold shadow text-xs flex items-center gap-1"
+            @click="openCreateDiscountModal"
+            class="btn-tg py-2 px-3.5 rounded-xl font-bold shadow text-xs flex items-center gap-1.5"
           >
             <span>➕</span>
-            <span>کد تخفیف جدید</span>
+            <span>تعریف تخفیف / جشنواره جدید</span>
           </button>
         </div>
 
-        <div v-if="rewardsData.discount_codes.length" class="space-y-1.5 max-h-60 overflow-y-auto">
+        <div v-if="rewardsData.discount_codes.length" class="space-y-2.5 max-h-[30rem] overflow-y-auto pr-0.5">
           <div
             v-for="d in rewardsData.discount_codes"
             :key="d.code"
-            class="bg-tg p-2.5 rounded-xl border border-gray-700/30 flex justify-between items-center"
+            class="bg-tg p-3 rounded-xl border transition-all space-y-2"
+            :class="[
+              !d.active || d.is_expired
+                ? 'border-gray-700/30 opacity-65'
+                : d.is_auto
+                  ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/5 to-transparent'
+                  : 'border-blue-500/30'
+            ]"
           >
-            <div>
-              <span class="font-mono font-bold text-sm text-blue-400 block">{{ d.code }}</span>
-              <span class="text-[10px] text-tg-hint">
-                {{ d.discount_type === 'PERCENT' ? (d.value + '% درصد') : (Number(d.value).toLocaleString('fa-IR') + ' تومان') }}
-                <span v-if="d.max_uses > 0"> | ظرفیت: {{ d.max_uses }}</span>
-                <span v-if="d.min_purchase > 0"> | حداقل خرید: {{ Number(d.min_purchase).toLocaleString('fa-IR') }}</span>
-              </span>
+            <div class="flex justify-between items-start gap-2">
+              <div class="space-y-1">
+                <div class="flex items-center flex-wrap gap-1.5">
+                  <span
+                    v-if="d.is_auto"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  >
+                    🔥 کمپین خودکار (بدون کد)
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                  >
+                    🎟 کد تخفیف
+                  </span>
+
+                  <span
+                    v-if="d.is_tiered"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                  >
+                    🪜 پلکانی ({{ d.steps?.length || 0 }} مرحله)
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-gray-700/50 text-gray-300"
+                  >
+                    تک‌مرحله‌ای
+                  </span>
+
+                  <span
+                    v-if="d.is_expired"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-500/20 text-rose-300"
+                  >
+                    ⌛ منقضی‌شده
+                  </span>
+                  <span
+                    v-else-if="d.remaining_days !== null && d.remaining_days !== undefined"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/15 text-emerald-300"
+                  >
+                    ⏳ {{ d.remaining_days }} روز مانده
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded-lg text-[10px] text-tg-hint bg-gray-800/60"
+                  >
+                    ♾ بدون محدودیت زمانی
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-2 pt-0.5">
+                  <span v-if="d.title" class="font-bold text-sm text-tg">{{ d.title }}</span>
+                  <span class="font-mono font-bold text-xs px-2 py-0.5 rounded bg-black/30 text-blue-400" dir="ltr">
+                    {{ d.code }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  @click="handleToggleDiscount(d.code)"
+                  class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition"
+                  :class="d.active ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30' : 'bg-gray-700/40 text-gray-400 hover:bg-gray-700/60'"
+                  :title="d.active ? 'غیرفعال کردن' : 'فعال کردن'"
+                >
+                  {{ d.active ? 'فعال ✓' : 'غیرفعال' }}
+                </button>
+                <button
+                  @click="openEditDiscountModal(d)"
+                  class="p-1.5 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 rounded-lg text-xs"
+                  title="ویرایش"
+                >
+                  ✏️
+                </button>
+                <button
+                  @click="handleDeleteDiscount(d.code)"
+                  class="p-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg text-xs"
+                  title="حذف"
+                >
+                  🗑
+                </button>
+              </div>
             </div>
-            <button
-              @click="handleDeleteDiscount(d.code)"
-              class="p-1.5 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg text-xs"
-              title="حذف کد"
-            >
-              🗑
-            </button>
+
+            <!-- Step Pills or Summary -->
+            <div v-if="d.steps && d.steps.length" class="flex flex-wrap gap-1.5 pt-1">
+              <div
+                v-for="(st, idx) in d.steps"
+                :key="idx"
+                class="px-2.5 py-1 rounded-lg bg-tg-sec border border-gray-700/40 text-[11px] flex items-center gap-1"
+              >
+                <span class="font-bold text-amber-300">
+                  {{ idx === d.steps.length - 1 && st.repeat_after ? (idx === 0 ? 'همه خریدها:' : `خرید ${idx + 1} به بعد:`) : `دفعه ${idx + 1}:` }}
+                </span>
+                <span v-if="Number(st.discount_value) > 0" class="text-emerald-300 font-bold">
+                  {{ st.discount_type === 'FIXED' ? Number(st.discount_value).toLocaleString('fa-IR') + ' تومان تخفیف' : st.discount_value + '% تخفیف' }}
+                </span>
+                <span v-if="Number(st.discount_value) > 0 && Number(st.cashback_percent) > 0" class="text-tg-hint">+</span>
+                <span v-if="Number(st.cashback_percent) > 0" class="text-cyan-300 font-bold">
+                  {{ st.cashback_percent }}% کش‌بک
+                </span>
+              </div>
+            </div>
+            <div v-else class="text-[11px] text-emerald-300 font-bold">
+              {{ d.summary_text }}
+            </div>
+
+            <p v-if="d.description" class="text-[11px] text-tg-hint bg-tg-sec/70 p-2 rounded-lg border border-gray-700/20 italic">
+              📝 {{ d.description }}
+            </p>
+
+            <div class="flex flex-wrap items-center gap-3 text-[10px] text-tg-hint border-t border-gray-700/20 pt-1.5">
+              <span>📊 استفاده کل: <b class="text-tg">{{ d.used_count || 0 }}</b>{{ d.max_uses > 0 ? ' / ' + d.max_uses : ' (نامحدود)' }}</span>
+              <span v-if="!d.is_tiered">👤 سقف هر کاربر: <b class="text-tg">{{ d.per_user_limit > 0 ? d.per_user_limit + ' بار' : 'نامحدود' }}</b></span>
+              <span v-if="d.min_purchase > 0">💳 حداقل خرید: <b class="text-tg">{{ Number(d.min_purchase).toLocaleString('fa-IR') }} تومان</b></span>
+              <span>🎯 شامل: <b class="text-tg">خرید سرویس و تمدید</b></span>
+            </div>
           </div>
         </div>
-        <div v-else class="text-center py-4 text-tg-hint text-[10px] bg-tg rounded-xl">
-          کد تخفیفی تعریف نشده است.
+        <div v-else class="text-center py-6 text-tg-hint text-xs bg-tg rounded-xl border border-dashed border-gray-700/40">
+          هنوز هیچ کد تخفیف یا کمپین جشنواره‌ای تعریف نشده است.
         </div>
       </div>
 
@@ -373,7 +483,7 @@
         <div class="flex justify-between items-center">
           <div>
             <h4 class="font-bold text-sm text-tg">🎁 کدهای شارژ هدیه کیف پول</h4>
-            <span class="text-[10px] text-tg-hint">تعداد فعال: {{ rewardsData.gift_codes.length }}</span>
+            <span class="text-[10px] text-tg-hint">تعداد کل: {{ rewardsData.gift_codes.length }}</span>
           </div>
           <button
             @click="showGiftModal = true"
@@ -393,8 +503,11 @@
             <div>
               <span class="font-mono font-bold text-sm text-emerald-400 block">{{ g.code }}</span>
               <span class="text-[10px] text-tg-hint">
-                مبلغ: {{ Number(g.amount).toLocaleString('fa-IR') }} تومان | سقف استفاده: {{ g.max_uses }}
+                مبلغ: {{ Number(g.amount).toLocaleString('fa-IR') }} تومان | استفاده: {{ g.used_count || 0 }} / {{ g.max_uses }}
               </span>
+              <p v-if="g.description" class="text-[10px] text-tg-hint italic mt-0.5">
+                📝 {{ g.description }}
+              </p>
             </div>
             <button
               @click="handleDeleteGift(g.code)"
@@ -1312,40 +1425,321 @@
       </div>
     </div>
 
-    <!-- Modal 6: Create Discount Code -->
-    <div v-if="showDiscountModal" class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-sm w-full p-4 space-y-3 text-xs shadow-2xl">
-        <h4 class="font-bold text-sm">ایجاد کد تخفیف جدید</h4>
+    <!-- Modal 6: Create / Edit Discount or Tiered Campaign -->
+    <div v-if="showDiscountModal" class="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
+      <div class="bg-tg-sec border border-gray-700/50 rounded-2xl max-w-lg w-full p-4 space-y-3.5 text-xs shadow-2xl my-auto max-h-[92vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-gray-700/30 pb-2">
+          <h4 class="font-bold text-sm text-tg">
+            {{ isEditingDiscount ? '✏️ ویرایش تخفیف / جشنواره' : '➕ تعریف تخفیف یا جشنواره جدید' }}
+          </h4>
+          <button @click="showDiscountModal = false" class="text-tg-hint hover:text-tg text-sm px-2">✕</button>
+        </div>
+
+        <!-- Mode Selector: Auto Campaign vs Discount Code -->
+        <div class="grid grid-cols-2 gap-2 bg-tg p-1 rounded-xl border border-gray-700/40">
+          <button
+            type="button"
+            @click="discountForm.is_auto = true"
+            class="py-2 px-2 rounded-lg font-bold transition text-center"
+            :class="discountForm.is_auto ? 'bg-amber-500 text-black shadow' : 'text-tg-hint hover:text-tg'"
+          >
+            🔥 کمپین خودکار (بدون کد)
+          </button>
+          <button
+            type="button"
+            @click="discountForm.is_auto = false"
+            class="py-2 px-2 rounded-lg font-bold transition text-center"
+            :class="!discountForm.is_auto ? 'bg-blue-500 text-white shadow' : 'text-tg-hint hover:text-tg'"
+          >
+            🎟 کد تخفیف (ورود کد)
+          </button>
+        </div>
+
+        <p class="text-[10px] text-tg-hint leading-relaxed bg-tg/60 p-2 rounded-xl border border-gray-700/20">
+          <span v-if="discountForm.is_auto">
+            💡 <b>کمپین خودکار:</b> بدون نیاز به وارد کردن کد توسط کاربر، به صورت خودکار روی قیمت‌های فروشگاه و ربات برای تمام کاربران واجد شرایط اعمال و نمایش داده می‌شود.
+          </span>
+          <span v-else>
+            💡 <b>کد تخفیف:</b> کاربر هنگام خرید سرویس یا تمدید، کد را وارد می‌کند و بر اساس پله خرید خودش از تخفیف یا کش‌بک بهره‌مند می‌شود.
+          </span>
+        </p>
+
+        <!-- Title & Code -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">عنوان نمایشی به کاربر (اختیاری):</label>
+            <input
+              type="text"
+              v-model="discountForm.title"
+              placeholder="مثلاً: جشنواره وفاداری بهاره"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">
+              {{ discountForm.is_auto ? 'شناسه کمپین (اختیاری - انگلیسی):' : 'کد تخفیف (انگلیسی):' }}
+            </label>
+            <input
+              type="text"
+              v-model="discountForm.code"
+              :disabled="isEditingDiscount"
+              :placeholder="discountForm.is_auto ? 'SPRING_AUTO' : 'OFF30'"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left uppercase disabled:opacity-50"
+              dir="ltr"
+            />
+          </div>
+        </div>
+
+        <!-- Optional Description -->
         <div>
-          <label class="block text-[10px] text-tg-hint mb-1">کد تخفیف (انگلیسی):</label>
-          <input type="text" v-model="discountForm.code" placeholder="OFF30" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left uppercase" dir="ltr" />
+          <label class="block text-[10px] text-tg-hint mb-1">توضیحات تخفیف (اختیاری - جهت نمایش در پنل کاربر یا یادداشت):</label>
+          <textarea
+            v-model="discountForm.description"
+            rows="2"
+            placeholder="مثلاً: شرایط استفاده، پلن‌های مشمول یا توضیحات تکمیلی..."
+            class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs resize-none"
+          ></textarea>
         </div>
-        <div class="grid grid-cols-2 gap-2">
+
+        <!-- Time (Days) & Limits -->
+        <div class="grid grid-cols-3 gap-2">
           <div>
-            <label class="block text-[10px] text-tg-hint mb-1">نوع تخفیف:</label>
-            <select v-model="discountForm.discount_type" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2 py-2 text-xs">
-              <option value="PERCENT">درصدی (%)</option>
-              <option value="FIXED">مبلغ ثابت (تومان)</option>
-            </select>
+            <label class="block text-[10px] text-tg-hint mb-1">⏳ اعتبار زمانی (روز):</label>
+            <input
+              type="number"
+              min="0"
+              v-model.number="discountForm.days"
+              placeholder="0 = دائمی"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs text-center"
+            />
+            <span class="text-[9px] text-tg-hint block mt-0.5">0 = بدون انقضا</span>
           </div>
           <div>
-            <label class="block text-[10px] text-tg-hint mb-1">مقدار تخفیف:</label>
-            <input type="number" v-model.number="discountForm.value" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <label class="block text-[10px] text-tg-hint mb-1">💳 حداقل خرید (تومان):</label>
+            <input
+              type="number"
+              min="0"
+              step="10000"
+              v-model.number="discountForm.min_purchase"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs text-center"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">👥 ظرفیت کل استفاده:</label>
+            <input
+              type="number"
+              min="0"
+              v-model.number="discountForm.max_uses"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs text-center"
+            />
+            <span class="text-[9px] text-tg-hint block mt-0.5">0 = نامحدود</span>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-[10px] text-tg-hint mb-1">حداقل خرید (تومان):</label>
-            <input type="number" v-model.number="discountForm.min_purchase" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+
+        <!-- Structure Selector: Simple vs Tiered -->
+        <div class="space-y-2 pt-1 border-t border-gray-700/30">
+          <div class="flex justify-between items-center">
+            <label class="font-bold text-xs text-tg">ساختار تخفیف و کش‌بک:</label>
+            <div class="flex gap-1 bg-tg p-1 rounded-xl border border-gray-700/40">
+              <button
+                type="button"
+                @click="discountForm.is_tiered = false"
+                class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition"
+                :class="!discountForm.is_tiered ? 'bg-emerald-500 text-black' : 'text-tg-hint'"
+              >
+                بدون پله (ثابت)
+              </button>
+              <button
+                type="button"
+                @click="enableTieredMode"
+                class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition"
+                :class="discountForm.is_tiered ? 'bg-purple-500 text-white' : 'text-tg-hint'"
+              >
+                🪜 پلکانی (چندمرحله‌ای)
+              </button>
+            </div>
           </div>
-          <div>
-            <label class="block text-[10px] text-tg-hint mb-1">سقف استفاده (0=نامحدود):</label>
-            <input type="number" v-model.number="discountForm.max_uses" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+
+          <!-- Quick Presets -->
+          <div class="space-y-1">
+            <span class="text-[10px] text-tg-hint block">⚡ الگوهای آماده (کلیک برای جایگذاری سریع):</span>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                @click="applyDiscountPreset('100_50_25_rep')"
+                class="px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-200 text-[10px]"
+              >
+                ۱۰۰٪، ۵۰٪، ۲۵٪ (و بعدی‌ها ۲۵٪)
+              </button>
+              <button
+                type="button"
+                @click="applyDiscountPreset('25x2_35x2_50_rep')"
+                class="px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-200 text-[10px]"
+              >
+                دفعه ۱و۲ (۲۵٪)، ۳و۴ (۳۵٪)، بعدی (۵۰٪)
+              </button>
+              <button
+                type="button"
+                @click="applyDiscountPreset('25_50_once')"
+                class="px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-200 text-[10px]"
+              >
+                دفعه اول ۲۵٪، دفعه دوم ۵۰٪ (۲ بار)
+              </button>
+              <button
+                type="button"
+                @click="applyDiscountPreset('combo_25off_10cb')"
+                class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-200 text-[10px]"
+              >
+                ۲۵٪ تخفیف + ۱۰٪ کش‌بک (ثابت)
+              </button>
+              <button
+                type="button"
+                @click="applyDiscountPreset('step1_off_step2_cb')"
+                class="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-200 text-[10px]"
+              >
+                بار اول ۱۰٪ تخفیف، بار دوم ۱۰٪ کش‌بک
+              </button>
+            </div>
+          </div>
+
+          <!-- Simple Mode Fields -->
+          <div v-if="!discountForm.is_tiered" class="bg-tg p-3 rounded-xl border border-gray-700/40 space-y-2.5">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] text-tg-hint mb-1">نوع تخفیف:</label>
+                <select v-model="discountForm.discount_type" class="w-full bg-tg-sec border border-gray-700/40 rounded-xl px-2 py-2 text-xs">
+                  <option value="PERCENT">درصدی (%)</option>
+                  <option value="FIXED">مبلغ ثابت (تومان)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] text-tg-hint mb-1">
+                  {{ discountForm.discount_type === 'PERCENT' ? 'درصد تخفیف (0 تا 100):' : 'مبلغ تخفیف (تومان):' }}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="discountForm.value"
+                  class="w-full bg-tg-sec border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] text-cyan-300 mb-1">💰 درصد کش‌بک ترکیبی (0 تا 100):</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  v-model.number="discountForm.cashback_percent"
+                  class="w-full bg-tg-sec border border-cyan-500/30 rounded-xl px-3 py-2 font-mono text-xs text-center"
+                />
+                <span class="text-[9px] text-tg-hint block mt-0.5">پس از خرید به کیف پول برمی‌گردد</span>
+              </div>
+              <div>
+                <label class="block text-[10px] text-tg-hint mb-1">👤 سقف استفاده هر کاربر:</label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="discountForm.per_user_limit"
+                  class="w-full bg-tg-sec border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-center"
+                />
+                <span class="text-[9px] text-tg-hint block mt-0.5">0 = بدون محدودیت دفعات</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tiered Mode Steps Builder -->
+          <div v-else class="bg-tg p-3 rounded-xl border border-purple-500/30 space-y-2.5">
+            <div class="flex justify-between items-center">
+              <span class="text-[11px] font-bold text-purple-300">🪜 مراحل پلکانی به ترتیب دفعات خرید کاربر:</span>
+              <button
+                type="button"
+                @click="addDiscountStep"
+                class="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 font-bold text-[10px]"
+              >
+                + افزودن پله (دفعه {{ discountForm.steps.length + 1 }})
+              </button>
+            </div>
+
+            <div class="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+              <div
+                v-for="(step, idx) in discountForm.steps"
+                :key="idx"
+                class="bg-tg-sec p-2.5 rounded-xl border border-gray-700/40 space-y-2"
+              >
+                <div class="flex justify-between items-center">
+                  <span class="font-bold text-xs text-amber-300">
+                    {{ idx === discountForm.steps.length - 1 && step.repeat_after ? `🔄 دفعه ${idx + 1} و تمام دفعات بعدی` : `🔹 دفعه ${idx + 1} (خرید شماره ${idx + 1})` }}
+                  </span>
+                  <button
+                    v-if="discountForm.steps.length > 1"
+                    type="button"
+                    @click="removeDiscountStep(idx)"
+                    class="text-rose-400 hover:text-rose-300 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/10"
+                  >
+                    حذف پله ✕
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-3 gap-1.5">
+                  <div>
+                    <label class="block text-[9px] text-tg-hint mb-0.5">نوع تخفیف:</label>
+                    <select v-model="step.discount_type" class="w-full bg-tg border border-gray-700/40 rounded-lg px-1.5 py-1.5 text-[11px]">
+                      <option value="PERCENT">درصدی (%)</option>
+                      <option value="FIXED">مبلغ ثابت</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[9px] text-emerald-300 mb-0.5">
+                      {{ step.discount_type === 'FIXED' ? 'تخفیف (تومان):' : 'تخفیف (%):' }}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      v-model.number="step.discount_value"
+                      class="w-full bg-tg border border-emerald-500/30 rounded-lg px-2 py-1.5 font-mono text-xs text-center"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[9px] text-cyan-300 mb-0.5">کش‌بک کیف پول (%):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      v-model.number="step.cashback_percent"
+                      class="w-full bg-tg border border-cyan-500/30 rounded-lg px-2 py-1.5 font-mono text-xs text-center"
+                    />
+                  </div>
+                </div>
+
+                <!-- Repeat toggle on the last step -->
+                <div v-if="idx === discountForm.steps.length - 1" class="pt-1 border-t border-gray-700/30 flex items-center justify-between">
+                  <label class="flex items-center gap-1.5 cursor-pointer select-none text-[10px] text-tg">
+                    <input type="checkbox" v-model="step.repeat_after" class="rounded accent-purple-500" />
+                    <span>تکرار این پله برای <b>دفعات بعدی</b> (نامحدود برای خریدهای شماره {{ idx + 1 }} به بعد)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="text-[10px] text-tg-hint bg-black/20 p-2 rounded-lg">
+              <span v-if="discountForm.steps[discountForm.steps.length - 1]?.repeat_after">
+                ♾ با فعال بودن «تکرار برای دفعات بعدی»، کاربر از خرید شماره {{ discountForm.steps.length }} به بعد همیشه مزایای پله آخر را دریافت می‌کند.
+              </span>
+              <span v-else>
+                🛑 چون تیک «تکرار برای دفعات بعدی» فعال نیست، هر کاربر حداکثر <b>{{ discountForm.steps.length }} بار</b> می‌تواند از این طرح استفاده کند.
+              </span>
+            </div>
           </div>
         </div>
-        <div class="flex gap-2 pt-1">
-          <button @click="handleCreateDiscount" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
-            ثبت کد تخفیف 💾
+
+        <div class="flex gap-2 pt-2">
+          <button @click="handleCreateDiscount" class="flex-1 btn-tg py-2.5 rounded-xl font-bold shadow text-xs">
+            {{ isEditingDiscount ? 'ذخیره تغییرات 💾' : 'ثبت و فعال‌سازی 🚀' }}
           </button>
           <button @click="showDiscountModal = false" class="px-4 bg-gray-700/40 text-tg-hint rounded-xl">
             انصراف
@@ -1362,15 +1756,28 @@
           <label class="block text-[10px] text-tg-hint mb-1">کد هدیه (انگلیسی):</label>
           <input type="text" v-model="giftForm.code" placeholder="GIFT50" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left uppercase" dir="ltr" />
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="grid grid-cols-3 gap-2">
           <div>
             <label class="block text-[10px] text-tg-hint mb-1">مبلغ هدیه (تومان):</label>
-            <input type="number" v-model.number="giftForm.amount" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <input type="number" v-model.number="giftForm.amount" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs" />
           </div>
           <div>
             <label class="block text-[10px] text-tg-hint mb-1">ظرفیت استفاده:</label>
-            <input type="number" v-model.number="giftForm.max_uses" class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs" />
+            <input type="number" v-model.number="giftForm.max_uses" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs" />
           </div>
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1">اعتبار (روز):</label>
+            <input type="number" min="0" v-model.number="giftForm.days" placeholder="0=دائمی" class="w-full bg-tg border border-gray-700/40 rounded-xl px-2.5 py-2 font-mono text-xs" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-[10px] text-tg-hint mb-1">توضیحات (اختیاری):</label>
+          <input
+            type="text"
+            v-model="giftForm.description"
+            placeholder="مثلاً: هدیه ثبت‌نام یا جبران اختلال شبکه..."
+            class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 text-xs"
+          />
         </div>
         <div class="flex gap-2 pt-1">
           <button @click="handleCreateGift" class="flex-1 btn-tg py-2 rounded-xl font-bold shadow">
@@ -1427,6 +1834,7 @@ import {
   getAdminRewards,
   saveAdminCashback,
   createAdminDiscount,
+  toggleAdminDiscount,
   deleteAdminDiscount,
   createAdminGift,
   deleteAdminGift,
@@ -1491,9 +1899,28 @@ const deletingClient = ref(false)
 const rewardsData = ref({ cashback_percent: 0, discount_codes: [], gift_codes: [] })
 const savingCashback = ref(false)
 const showDiscountModal = ref(false)
-const discountForm = ref({ code: '', discount_type: 'PERCENT', value: 10, min_purchase: 0, max_uses: 0, per_user_limit: 1 })
+const isEditingDiscount = ref(false)
+const defaultDiscountForm = () => ({
+  code: '',
+  title: '',
+  description: '',
+  is_auto: false,
+  is_tiered: false,
+  discount_type: 'PERCENT',
+  value: 25,
+  cashback_percent: 0,
+  min_purchase: 0,
+  max_uses: 0,
+  per_user_limit: 1,
+  days: 0,
+  steps: [
+    { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: false },
+    { discount_type: 'PERCENT', discount_value: 50, cashback_percent: 0, repeat_after: true },
+  ]
+})
+const discountForm = ref(defaultDiscountForm())
 const showGiftModal = ref(false)
-const giftForm = ref({ code: '', amount: 10000, max_uses: 1 })
+const giftForm = ref({ code: '', amount: 10000, max_uses: 1, days: 0, description: '' })
 
 // Affiliate & Referrals
 const affiliateData = ref({
@@ -1984,25 +2411,174 @@ const handleSaveCashback = async () => {
   }
 }
 
+const openCreateDiscountModal = () => {
+  isEditingDiscount.value = false
+  discountForm.value = defaultDiscountForm()
+  showDiscountModal.value = true
+}
+
+const openEditDiscountModal = (d) => {
+  isEditingDiscount.value = true
+  const rawSteps = Array.isArray(d.steps) && d.steps.length
+    ? d.steps.map(st => ({
+        discount_type: st.discount_type || 'PERCENT',
+        discount_value: Number(st.discount_value || 0),
+        cashback_percent: Number(st.cashback_percent || 0),
+        repeat_after: Boolean(st.repeat_after),
+      }))
+    : [
+        {
+          discount_type: d.discount_type || 'PERCENT',
+          discount_value: Number(d.value || 0),
+          cashback_percent: Number(d.cashback_percent || 0),
+          repeat_after: Number(d.per_user_limit || 0) <= 0,
+        }
+      ]
+  discountForm.value = {
+    code: d.code || '',
+    title: d.title || '',
+    description: d.description || '',
+    is_auto: Boolean(d.is_auto),
+    is_tiered: Boolean(d.is_tiered),
+    discount_type: d.discount_type || 'PERCENT',
+    value: Number(d.value || 0),
+    cashback_percent: Number(d.cashback_percent || 0),
+    min_purchase: Number(d.min_purchase || 0),
+    max_uses: Number(d.max_uses || 0),
+    per_user_limit: Number(d.per_user_limit ?? 1),
+    days: d.remaining_days ? Number(d.remaining_days) : 0,
+    steps: rawSteps,
+  }
+  showDiscountModal.value = true
+}
+
+const enableTieredMode = () => {
+  discountForm.value.is_tiered = true
+  if (!Array.isArray(discountForm.value.steps) || discountForm.value.steps.length < 1) {
+    discountForm.value.steps = [
+      { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 50, cashback_percent: 0, repeat_after: true },
+    ]
+  }
+}
+
+const addDiscountStep = () => {
+  const steps = discountForm.value.steps || []
+  if (steps.length > 0) {
+    steps[steps.length - 1].repeat_after = false
+  }
+  const lastStep = steps[steps.length - 1] || { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0 }
+  steps.push({
+    discount_type: lastStep.discount_type || 'PERCENT',
+    discount_value: Number(lastStep.discount_value || 0),
+    cashback_percent: Number(lastStep.cashback_percent || 0),
+    repeat_after: true,
+  })
+  discountForm.value.steps = [...steps]
+}
+
+const removeDiscountStep = (idx) => {
+  if (discountForm.value.steps.length <= 1) return
+  discountForm.value.steps.splice(idx, 1)
+}
+
+const applyDiscountPreset = (presetKey) => {
+  if (presetKey === '100_50_25_rep') {
+    discountForm.value.is_tiered = true
+    if (!discountForm.value.title) discountForm.value.title = 'تخفیف پلکانی ۱۰۰٪، ۵۰٪ و ۲۵٪'
+    discountForm.value.steps = [
+      { discount_type: 'PERCENT', discount_value: 100, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 50, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: true },
+    ]
+  } else if (presetKey === '25x2_35x2_50_rep') {
+    discountForm.value.is_tiered = true
+    if (!discountForm.value.title) discountForm.value.title = 'پلکانی وفاداری (۲۵٪، ۳۵٪، ۵۰٪)'
+    discountForm.value.steps = [
+      { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 35, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 35, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 50, cashback_percent: 0, repeat_after: true },
+    ]
+  } else if (presetKey === '25_50_once') {
+    discountForm.value.is_tiered = true
+    if (!discountForm.value.title) discountForm.value.title = 'تخفیف دو مرحله‌ای (۲۵٪ و ۵۰٪)'
+    discountForm.value.steps = [
+      { discount_type: 'PERCENT', discount_value: 25, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 50, cashback_percent: 0, repeat_after: false },
+    ]
+  } else if (presetKey === 'combo_25off_10cb') {
+    discountForm.value.is_tiered = false
+    if (!discountForm.value.title) discountForm.value.title = '۲۵٪ تخفیف + ۱۰٪ کش‌بک'
+    discountForm.value.discount_type = 'PERCENT'
+    discountForm.value.value = 25
+    discountForm.value.cashback_percent = 10
+    discountForm.value.per_user_limit = 0
+  } else if (presetKey === 'step1_off_step2_cb') {
+    discountForm.value.is_tiered = true
+    if (!discountForm.value.title) discountForm.value.title = 'بار اول ۱۰٪ تخفیف، بار بعدی ۱۰٪ کش‌بک'
+    discountForm.value.steps = [
+      { discount_type: 'PERCENT', discount_value: 10, cashback_percent: 0, repeat_after: false },
+      { discount_type: 'PERCENT', discount_value: 0, cashback_percent: 10, repeat_after: true },
+    ]
+  }
+}
+
 const handleCreateDiscount = async () => {
-  if (!discountForm.value.code) return
+  if (!discountForm.value.is_auto && !discountForm.value.code?.trim()) {
+    showNotify('لطفاً کد تخفیف را وارد کنید یا حالت کمپین خودکار را انتخاب نمایید.', false)
+    return
+  }
   try {
-    await createAdminDiscount(discountForm.value)
-    showNotify('کد تخفیف جدید ایجاد شد.')
+    const payload = {
+      code: discountForm.value.code?.trim() || '',
+      title: discountForm.value.title?.trim() || '',
+      description: discountForm.value.description?.trim() || '',
+      is_auto: Boolean(discountForm.value.is_auto),
+      discount_type: discountForm.value.discount_type || 'PERCENT',
+      value: Number(discountForm.value.value || 0),
+      cashback_percent: Number(discountForm.value.cashback_percent || 0),
+      min_purchase: Number(discountForm.value.min_purchase || 0),
+      max_uses: Number(discountForm.value.max_uses || 0),
+      per_user_limit: Number(discountForm.value.per_user_limit ?? 1),
+      days: Number(discountForm.value.days || 0),
+      steps: discountForm.value.is_tiered
+        ? discountForm.value.steps.map((st, idx, arr) => ({
+            discount_type: st.discount_type || 'PERCENT',
+            discount_value: Number(st.discount_value || 0),
+            cashback_percent: Number(st.cashback_percent || 0),
+            repeat_after: idx === arr.length - 1 ? Boolean(st.repeat_after) : false,
+          }))
+        : [],
+    }
+    const res = await createAdminDiscount(payload)
+    showNotify(res.data?.message || 'تخفیف / کمپین با موفقیت ذخیره شد ✓')
     showDiscountModal.value = false
-    discountForm.value = { code: '', discount_type: 'PERCENT', value: 10, min_purchase: 0, max_uses: 0, per_user_limit: 1 }
+    discountForm.value = defaultDiscountForm()
     const rRes = await getAdminRewards()
     if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
   } catch (e) {
-    showNotify(e.response?.data?.detail || 'خطا در ایجاد کد تخفیف', false)
+    showNotify(e.response?.data?.detail || 'خطا در ذخیره تخفیف', false)
+  }
+}
+
+const handleToggleDiscount = async (code) => {
+  try {
+    const res = await toggleAdminDiscount(code)
+    showNotify(res.data?.message || 'وضعیت تغییر کرد.')
+    const rRes = await getAdminRewards()
+    if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در تغییر وضعیت', false)
   }
 }
 
 const handleDeleteDiscount = async (code) => {
-  if (!confirm(`آیا از حذف کد تخفیف ${code} اطمینان دارید؟`)) return
+  if (!confirm(`آیا از حذف ${code} اطمینان دارید؟`)) return
   try {
     await deleteAdminDiscount(code)
-    showNotify('کد تخفیف حذف شد.')
+    showNotify('کد تخفیف / کمپین حذف شد.')
     const rRes = await getAdminRewards()
     if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
   } catch (e) {
@@ -2016,7 +2592,7 @@ const handleCreateGift = async () => {
     await createAdminGift(giftForm.value)
     showNotify('کد هدیه جدید ایجاد شد.')
     showGiftModal.value = false
-    giftForm.value = { code: '', amount: 10000, max_uses: 1 }
+    giftForm.value = { code: '', amount: 10000, max_uses: 1, days: 0, description: '' }
     const rRes = await getAdminRewards()
     if (rRes?.data) rewardsData.value = { ...rewardsData.value, ...rRes.data }
   } catch (e) {

@@ -134,35 +134,55 @@ def send_category(chat_id, uid, cid):
         "SELECT * FROM plans WHERE active=1 AND category_id=? ORDER BY sort_order,id", (int(cid),)
     ).fetchall()
     bal = c.execute("SELECT COALESCE(balance,0) FROM users WHERE id=?", (int(uid),)).fetchone()
-    c.close()
+    promo_info = C.CORE.resolve_checkout_promotion(c, int(uid), 0, kind='NEW')
+    promo_ev = promo_info.get('eval') or C.CORE.get_active_campaign_for_user(int(uid), base_price=0, conn=c, check_min_purchase=False)
     if not cat or not plans:
+        c.close()
         C.BOT.send_message(chat_id, "⛔️ در این دسته پلان فعالی نیست.", reply_markup=main_menu())
         return
     balance = int(bal[0] or 0) if bal else 0
-    out = [f"🗂 <b>{cat['name']}</b>", "━━━━━━━━━━━━━━━━"]
+    out = [f"🗂 <b>{escape(cat['name'])}</b>", "━━━━━━━━━━━━━━━━"]
+    if promo_ev and promo_ev.get('eligible'):
+        days_txt = f" (⏳ {promo_ev['remaining_days']} روز مانده)" if promo_ev.get('remaining_days') else ""
+        out.append(
+            f"🔥 <b>{escape(promo_ev['title'])}{days_txt}</b>\n"
+            f"🎁 سهم خرید فعلی شما: <b>{escape(promo_ev['benefit_text'])}</b>\n"
+            f"📊 مراحل: <i>{escape(promo_ev['summary_text'])}</i>\n━━━━━━━━━━━━━━━━"
+        )
     m = C.CORE.types.InlineKeyboardMarkup(row_width=1)
     for p in plans:
         vol = "نامحدود" if float(p["volume_gb"] or 0) <= 0 else f"{float(p['volume_gb']):g} GB"
         ip = "بدون محدودیت" if int(p["ip_limit"] or 0) <= 0 else f"{int(p['ip_limit'])} IP"
+        p_promo = C.CORE.resolve_checkout_promotion(c, int(uid), int(p["price"]), kind='NEW')
+        final_p = int(p_promo['final_price'])
+        disc_amt = int(p_promo['discount_amount'])
+        cb_pct = max(float(p_promo['cashback_percent'] or 0), C.CORE.get_cashback_percent())
+        if disc_amt > 0:
+            price_line = f"<s>{int(p['price']):,}</s> 👈 <b>{final_p:,} تومان</b>"
+        else:
+            price_line = f"{int(p['price']):,} تومان"
+        if cb_pct > 0:
+            price_line += f" (🎁 {cb_pct:g}٪ کش‌بک)"
         out.append(
-            f"\n📦 <b>{p['name']}</b>\n├ 💵 {int(p['price']):,} تومان\n├ 📅 {int(p['days'])} روز\n├ 📊 {vol}\n└ 👥 {ip}"
+            f"\n📦 <b>{escape(p['name'])}</b>\n├ 💵 {price_line}\n├ 📅 {int(p['days'])} روز\n├ 📊 {vol}\n└ 👥 {ip}"
         )
         m.add(
             C.inline(
-                f"🛒 خرید {p['name'][:30]} • {int(p['price']):,}",
+                f"🛒 خرید {p['name'][:30]} • {final_p:,}",
                 callback_data=f"buy:{p['id']}",
                 style_name="success",
                 emoji_key="buy",
             )
         )
-        if balance >= int(p["price"]):
+        if balance >= final_p:
             m.add(
                 C.inline(
-                    f"👛 کیف پول • {p['name'][:28]}",
+                    f"👛 کیف پول • {p['name'][:28]} ({final_p:,})",
                     callback_data=f"walletbuy:{p['id']}",
                     style_name="primary",
                 )
             )
+    c.close()
     m.add(C.inline("↩️ دسته‌بندی‌ها", callback_data="plus:shop", style_name="primary"))
     out.append(f"\n━━━━━━━━━━━━━━━━\n👛 موجودی: <b>{balance:,} تومان</b>")
     C.BOT.send_message(chat_id, "\n".join(out), parse_mode="HTML", reply_markup=m)

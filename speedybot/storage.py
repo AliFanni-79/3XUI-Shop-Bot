@@ -3,6 +3,9 @@ from .context import db
 
 
 def _ensure_column(c, table, col, definition):
+    exists = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+    if not exists:
+        return
     cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
     if col not in cols:
         c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
@@ -18,7 +21,17 @@ def init_db():
     _ensure_column(c, "plans", "group_name", "TEXT")
     _ensure_column(c, "transactions", "sub_id", "TEXT")
     _ensure_column(c, "transactions", "custom_name", "TEXT")
+    _ensure_column(c, "transactions", "promo_cashback_percent", "REAL NOT NULL DEFAULT 0")
     _ensure_column(c, "trial_services", "sub_id", "TEXT")
+    _ensure_column(c, "discount_codes", "is_auto", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(c, "discount_codes", "title", "TEXT")
+    _ensure_column(c, "discount_codes", "cashback_percent", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(c, "discount_codes", "steps_json", "TEXT")
+    _ensure_column(c, "discount_codes", "description", "TEXT")
+    _ensure_column(c, "gift_codes", "description", "TEXT")
+    _ensure_column(c, "discount_redemptions", "cashback_percent", "REAL NOT NULL DEFAULT 0")
+    _ensure_column(c, "discount_redemptions", "step_index", "INTEGER NOT NULL DEFAULT 1")
+    c.execute("CREATE TABLE IF NOT EXISTS user_saved_discounts(user_id INTEGER NOT NULL, code TEXT NOT NULL, saved_at INTEGER NOT NULL, PRIMARY KEY(user_id, code))")
     c.execute("CREATE TABLE IF NOT EXISTS trial_overrides(user_id INTEGER PRIMARY KEY,volume_gb REAL NOT NULL DEFAULT 1,days INTEGER NOT NULL DEFAULT 1,ip_limit INTEGER NOT NULL DEFAULT 1,note TEXT,updated_at INTEGER NOT NULL,updated_by INTEGER NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS customer_feedback(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,rating INTEGER NOT NULL,comment TEXT,created_at INTEGER NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,event_type TEXT NOT NULL,actor_id INTEGER,target_id TEXT,detail TEXT,created_at INTEGER NOT NULL)")

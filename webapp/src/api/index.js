@@ -23,8 +23,11 @@ const client = axios.create({
 // ─── Auth ────────────────────────────────────────────────────────────────────
 export const getMe = () => client.get('/auth/me')
 
-// ─── Plans & Trial ───────────────────────────────────────────────────────────
+// ─── Plans & Trial & Promotions ──────────────────────────────────────────────
 export const getPlans = () => client.get('/plans')
+export const getActivePromotions = () => client.get('/promotions/active')
+export const validateDiscountCode = (code = null, basePrice = 0, kind = 'NEW') =>
+  client.post('/discounts/validate', { code, base_price: basePrice, kind })
 export const getTrialStatus = () => client.get('/trial/status')
 export const claimFreeTrial = (customName = null) =>
   client.post('/trial/claim', { custom_name: customName })
@@ -34,6 +37,8 @@ export const getServices = () => client.get('/services')
 
 // ─── Wallet ──────────────────────────────────────────────────────────────────
 export const getWallet = () => client.get('/wallet')
+export const redeemWalletCode = (code) => client.post('/wallet/code/redeem', { code })
+export const getWalletDiscounts = () => client.get('/wallet/discounts')
 
 // ─── Referral ────────────────────────────────────────────────────────────────
 export const getReferral = () => client.get('/referral')
@@ -164,6 +169,7 @@ export const deleteAdminPanelClient = (email) =>
 export const getAdminRewards = () => client.get('/admin/rewards')
 export const saveAdminCashback = (percent) => client.post('/admin/rewards/cashback', { percent })
 export const createAdminDiscount = (payload) => client.post('/admin/rewards/discounts', payload)
+export const toggleAdminDiscount = (code) => client.post(`/admin/rewards/discounts/${code}/toggle`)
 export const deleteAdminDiscount = (code) => client.delete(`/admin/rewards/discounts/${code}`)
 export const createAdminGift = (payload) => client.post('/admin/rewards/gifts', payload)
 export const deleteAdminGift = (code) => client.delete(`/admin/rewards/gifts/${code}`)

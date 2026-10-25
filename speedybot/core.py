@@ -225,25 +225,51 @@ def init_db():
         per_user_limit INTEGER NOT NULL DEFAULT 1,
         expires_at INTEGER,
         active INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        is_auto INTEGER NOT NULL DEFAULT 0,
+        title TEXT,
+        cashback_percent REAL NOT NULL DEFAULT 0,
+        steps_json TEXT,
+        description TEXT
     )''')
+    for col, definition in [
+        ('is_auto', 'INTEGER NOT NULL DEFAULT 0'),
+        ('title', 'TEXT'),
+        ('cashback_percent', 'REAL NOT NULL DEFAULT 0'),
+        ('steps_json', 'TEXT'),
+        ('description', 'TEXT'),
+    ]:
+        _ensure_column(cursor, 'discount_codes', col, definition)
+    _ensure_column(cursor, 'transactions', 'promo_cashback_percent', 'REAL NOT NULL DEFAULT 0')
     cursor.execute('''CREATE TABLE IF NOT EXISTS discount_redemptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         code TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         tx_id INTEGER NOT NULL UNIQUE,
         discount_amount INTEGER NOT NULL DEFAULT 0,
+        cashback_percent REAL NOT NULL DEFAULT 0,
+        step_index INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'RESERVED',
         created_at INTEGER NOT NULL,
         applied_at INTEGER
     )''')
+    _ensure_column(cursor, 'discount_redemptions', 'cashback_percent', 'REAL NOT NULL DEFAULT 0')
+    _ensure_column(cursor, 'discount_redemptions', 'step_index', 'INTEGER NOT NULL DEFAULT 1')
     cursor.execute('''CREATE TABLE IF NOT EXISTS gift_codes (
         code TEXT PRIMARY KEY COLLATE NOCASE,
         amount INTEGER NOT NULL,
         max_uses INTEGER NOT NULL DEFAULT 1,
         expires_at INTEGER,
         active INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        description TEXT
+    )''')
+    _ensure_column(cursor, 'gift_codes', 'description', 'TEXT')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS user_saved_discounts (
+        user_id INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        saved_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, code)
     )''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS gift_redemptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -637,53 +663,464 @@ def _discount_row(code):
     return dict(row) if row else None
 
 
+def parse_discount_steps(row):
+    """Parse steps_json from a discount_codes row into a normalized list of steps."""
+    if not row:
+        return []
+    raw = row['steps_json'] if 'steps_json' in row.keys() else None
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(data, list):
+            return []
+        steps = []
+        for idx, item in enumerate(data, 1):
+            if not isinstance(item, dict):
+                continue
+            dtype = str(item.get('discount_type') or row['discount_type'] or 'PERCENT').upper()
+            if dtype not in ('PERCENT', 'FIXED'):
+                dtype = 'PERCENT'
+            val = max(0.0, float(item.get('discount_value', item.get('value', 0)) or 0))
+            if dtype == 'PERCENT':
+                val = min(100.0, val)
+            cb = max(0.0, min(100.0, float(item.get('cashback_percent', 0) or 0)))
+            repeat = bool(item.get('repeat_after', False))
+            label = str(item.get('label') or f"مرحله {idx}")
+            steps.append({
+                'step': idx,
+                'discount_type': dtype,
+                'discount_value': val,
+                'cashback_percent': cb,
+                'repeat_after': repeat,
+                'label': label,
+            })
+        return steps
+    except Exception:
+        return []
+
+
+def format_step_benefit_fa(dtype, val, cb):
+    parts = []
+    val = float(val or 0)
+    cb = float(cb or 0)
+    if val > 0:
+        if str(dtype).upper() == 'PERCENT':
+            parts.append(f"{val:g}٪ تخفیف")
+        else:
+            parts.append(f"{int(val):,} تومان تخفیف")
+    if cb > 0:
+        parts.append(f"{cb:g}٪ کش‌بک")
+    return " + ".join(parts) if parts else "بدون تخفیف"
+
+
+def describe_discount_rule_fa(row, current_step=None):
+    """Return a human-readable Persian summary of a discount code or auto-campaign."""
+    if not row:
+        return ""
+    steps = parse_discount_steps(row)
+    if not steps:
+        dtype = str(row['discount_type'] or 'PERCENT').upper()
+        val = float(row['value'] or 0)
+        cb = float((row['cashback_percent'] if 'cashback_percent' in row.keys() else 0) or 0)
+        return format_step_benefit_fa(dtype, val, cb)
+    step_texts = []
+    for idx, s in enumerate(steps, 1):
+        b_txt = format_step_benefit_fa(s['discount_type'], s['discount_value'], s['cashback_percent'])
+        is_last = (idx == len(steps))
+        if is_last and s.get('repeat_after'):
+            prefix = f"دفعه {idx} و بعدی"
+        else:
+            prefix = f"دفعه {idx}"
+        if current_step == idx:
+            step_texts.append(f"【{prefix}: {b_txt}】")
+        else:
+            step_texts.append(f"{prefix}: {b_txt}")
+    return " | ".join(step_texts)
+
+
+def evaluate_discount_row_for_user(conn, row, user_id, base_price=0, check_min_purchase=True):
+    """Evaluate a discount_codes row for a user.
+    Returns dict with eligible, code, title, is_auto, step_index, total_steps, repeat_last,
+    discount_type, discount_value, discount_amount, cashback_percent, final_price, reason, steps_summary, steps.
+    """
+    if not row:
+        return {'eligible': False, 'reason': 'کد تخفیف یافت نشد.'}
+    keys = row.keys() if hasattr(row, 'keys') else row.keys()
+    now_ts = int(time.time())
+    if not int(row['active'] or 0):
+        return {'eligible': False, 'reason': 'این تخفیف غیرفعال شده است.'}
+    if row['expires_at'] and int(row['expires_at']) <= now_ts:
+        return {'eligible': False, 'reason': 'مهلت اعتبار این تخفیف به پایان رسیده است.'}
+    min_p = int(row['min_purchase'] or 0)
+    if check_min_purchase and base_price > 0 and int(base_price) < min_p:
+        return {'eligible': False, 'reason': f"حداقل مبلغ خرید برای این تخفیف {min_p:,} تومان است."}
+
+    code = str(row['code'])
+    used_total = conn.execute(
+        "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')",
+        (code,)
+    ).fetchone()['c']
+    if int(row['max_uses'] or 0) > 0 and int(used_total) >= int(row['max_uses']):
+        return {'eligible': False, 'reason': 'ظرفیت کل استفاده از این تخفیف تکمیل شده است.'}
+
+    used_user = conn.execute(
+        "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND user_id = ? AND status IN ('RESERVED','APPLIED')",
+        (code, int(user_id))
+    ).fetchone()['c']
+
+    steps = parse_discount_steps(row)
+    next_step_num = int(used_user) + 1
+    per_user_limit = int(row['per_user_limit'] or 0)
+
+    if steps:
+        if next_step_num <= len(steps):
+            chosen = steps[next_step_num - 1]
+            effective_step_idx = next_step_num
+        else:
+            last_step = steps[-1]
+            if last_step.get('repeat_after'):
+                if per_user_limit > 0 and int(used_user) >= per_user_limit:
+                    return {'eligible': False, 'reason': 'سقف مجاز استفاده شما از این تخفیف به پایان رسیده است.'}
+                chosen = last_step
+                effective_step_idx = len(steps)
+            else:
+                return {'eligible': False, 'reason': 'تمامی مراحل این تخفیف پلکانی برای شما استفاده شده است.'}
+        if per_user_limit > 0 and int(used_user) >= per_user_limit:
+            return {'eligible': False, 'reason': 'سقف مجاز استفاده شما از این تخفیف به پایان رسیده است.'}
+        dtype = chosen['discount_type']
+        dval = float(chosen['discount_value'])
+        cb_pct = float(chosen['cashback_percent'])
+        repeat_last = bool(steps[-1].get('repeat_after'))
+        total_steps = len(steps)
+    else:
+        if per_user_limit > 0 and int(used_user) >= per_user_limit:
+            return {'eligible': False, 'reason': 'شما قبلاً از این تخفیف استفاده کرده‌اید.'}
+        dtype = str(row['discount_type'] or 'PERCENT').upper()
+        dval = float(row['value'] or 0)
+        cb_pct = float((row['cashback_percent'] if 'cashback_percent' in keys else 0) or 0)
+        effective_step_idx = 1
+        repeat_last = (per_user_limit == 0)
+        total_steps = 1
+
+    if base_price > 0:
+        if dtype == 'PERCENT':
+            discount_amount = int(round(int(base_price) * dval / 100.0))
+        else:
+            discount_amount = int(round(dval))
+        discount_amount = max(0, min(discount_amount, int(base_price)))
+        final_price = max(0, int(base_price) - discount_amount)
+    else:
+        discount_amount = 0
+        final_price = 0
+
+    rem_days = None
+    if row['expires_at']:
+        rem_secs = max(0, int(row['expires_at']) - now_ts)
+        rem_days = max(1, int((rem_secs + 86399) // 86400))
+
+    rem_uses = None
+    if per_user_limit > 0:
+        rem_uses = max(0, per_user_limit - int(used_user))
+    elif steps and not steps[-1].get('repeat_after'):
+        rem_uses = max(0, len(steps) - int(used_user))
+
+    if int(row['max_uses'] or 0) > 0:
+        rem_total = max(0, int(row['max_uses']) - int(used_total))
+        rem_uses = rem_total if rem_uses is None else min(rem_uses, rem_total)
+
+    is_auto = bool(int((row['is_auto'] if 'is_auto' in keys else 0) or 0))
+    title = str((row['title'] if 'title' in keys else '') or '').strip() or (
+        "کمپین تخفیف ویژه" if is_auto else f"کد تخفیف {code}"
+    )
+    desc = str((row['description'] if 'description' in keys else '') or '').strip()
+
+    return {
+        'eligible': True,
+        'code': code,
+        'title': title,
+        'description': desc,
+        'is_auto': is_auto,
+        'used_count': int(used_user),
+        'purchase_number': next_step_num,
+        'step_index': effective_step_idx,
+        'total_steps': total_steps,
+        'repeat_last': repeat_last,
+        'discount_type': dtype,
+        'discount_value': dval,
+        'discount_amount': discount_amount,
+        'cashback_percent': cb_pct,
+        'base_price': int(base_price),
+        'final_price': final_price,
+        'min_purchase': min_p,
+        'expires_at': row['expires_at'],
+        'remaining_days': rem_days,
+        'remaining_uses': rem_uses,
+        'benefit_text': format_step_benefit_fa(dtype, dval, cb_pct),
+        'summary_text': describe_discount_rule_fa(row, current_step=effective_step_idx),
+        'steps': steps,
+        'reason': None,
+    }
+
+
+def cleanup_expired_or_exhausted_discounts(conn=None):
+    """Purge expired or exhausted discount codes and gifts from DB and user saved lists."""
+    own_conn = False
+    if conn is None:
+        conn = _db_connect()
+        own_conn = True
+    try:
+        now_ts = int(time.time())
+        # Clean up discount_codes that have expired or reached max_uses
+        rows = conn.execute("SELECT code, max_uses, expires_at FROM discount_codes").fetchall()
+        for r in rows:
+            code = r['code']
+            exp = r['expires_at']
+            is_expired = bool(exp and int(exp) <= now_ts)
+            is_exhausted = False
+            if int(r['max_uses'] or 0) > 0:
+                used = conn.execute(
+                    "SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')",
+                    (code,)
+                ).fetchone()['c']
+                if int(used) >= int(r['max_uses']):
+                    is_exhausted = True
+            if is_expired or is_exhausted:
+                conn.execute("DELETE FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,))
+                conn.execute("DELETE FROM user_saved_discounts WHERE code = ? COLLATE NOCASE", (code,))
+
+        # Clean up gift_codes that have expired or reached max_uses
+        g_rows = conn.execute("SELECT code, max_uses, expires_at FROM gift_codes").fetchall()
+        for g in g_rows:
+            g_code = g['code']
+            g_exp = g['expires_at']
+            g_expired = bool(g_exp and int(g_exp) <= now_ts)
+            g_exhausted = False
+            if int(g['max_uses'] or 0) > 0:
+                g_used = conn.execute("SELECT COUNT(*) AS c FROM gift_redemptions WHERE code = ? COLLATE NOCASE", (g_code,)).fetchone()['c']
+                if int(g_used) >= int(g['max_uses']):
+                    g_exhausted = True
+            if g_expired or g_exhausted:
+                conn.execute("DELETE FROM gift_codes WHERE code = ? COLLATE NOCASE", (g_code,))
+
+        # Clean up user_saved_discounts where code was deleted or deactivated
+        conn.execute(
+            """DELETE FROM user_saved_discounts
+               WHERE code NOT IN (SELECT code FROM discount_codes WHERE active = 1)"""
+        )
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def save_user_discount(user_id, code, conn=None):
+    """Validate a discount code for user and save it to user_saved_discounts and pending_discount."""
+    code = (code or '').strip().upper()
+    own_conn = False
+    if conn is None:
+        conn = _db_connect()
+        own_conn = True
+    try:
+        cleanup_expired_or_exhausted_discounts(conn)
+        row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+        if not row:
+            return False, "کد تخفیف معتبر نیست یا یافت نشد.", None
+        ev = evaluate_discount_row_for_user(conn, row, user_id, base_price=0, check_min_purchase=False)
+        if not ev.get('eligible'):
+            return False, ev.get('reason') or "این کد تخفیف در حال حاضر قابل استفاده نیست.", None
+
+        now_ts = int(time.time())
+        conn.execute(
+            "INSERT OR REPLACE INTO user_saved_discounts (user_id, code, saved_at) VALUES (?, ?, ?)",
+            (int(user_id), row['code'], now_ts)
+        )
+        conn.execute("UPDATE users SET pending_discount_code = ? WHERE id = ?", (row['code'], int(user_id)))
+        conn.commit()
+        return True, "کد تخفیف با موفقیت در پنل شما ذخیره شد.", ev
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_user_saved_discounts(user_id, conn=None):
+    """Retrieve all valid, eligible saved discounts for a user, cleaning up any that became invalid."""
+    own_conn = False
+    if conn is None:
+        conn = _db_connect()
+        own_conn = True
+    try:
+        cleanup_expired_or_exhausted_discounts(conn)
+        saved = conn.execute(
+            "SELECT code FROM user_saved_discounts WHERE user_id = ? ORDER BY saved_at DESC",
+            (int(user_id),)
+        ).fetchall()
+
+        results = []
+        to_delete = []
+        for s in saved:
+            code = s['code']
+            row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
+            if not row:
+                to_delete.append(code)
+                continue
+            ev = evaluate_discount_row_for_user(conn, row, user_id, base_price=0, check_min_purchase=False)
+            if not ev.get('eligible'):
+                to_delete.append(code)
+            else:
+                results.append(ev)
+
+        for code in to_delete:
+            conn.execute("DELETE FROM user_saved_discounts WHERE user_id = ? AND code = ? COLLATE NOCASE", (int(user_id), code))
+        if to_delete:
+            conn.commit()
+
+        return results
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_active_campaign_for_user(user_id, base_price=0, conn=None, check_min_purchase=False):
+    """Find the best active automatic campaign or user's pending discount code."""
+    own_conn = False
+    if conn is None:
+        conn = _db_connect()
+        own_conn = True
+    try:
+        has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='discount_codes'").fetchone()
+        if not has_table:
+            return None
+        now_ts = int(time.time())
+        dc_cols = {r['name'] if isinstance(r, sqlite3.Row) else r[1] for r in conn.execute("PRAGMA table_info(discount_codes)").fetchall()}
+        if 'is_auto' not in dc_cols:
+            return None
+        # Check auto campaigns first
+        rows = conn.execute(
+            "SELECT * FROM discount_codes WHERE active = 1 AND is_auto = 1 AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC",
+            (now_ts,)
+        ).fetchall()
+        for r in rows:
+            ev = evaluate_discount_row_for_user(conn, r, user_id, base_price=base_price, check_min_purchase=check_min_purchase)
+            if ev.get('eligible'):
+                return ev
+        return None
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def set_pending_discount(user_id, code):
     code = (code or '').strip().upper()
-    row = _discount_row(code)
-    now_ts = int(time.time())
-    if not row or not int(row['active'] or 0):
-        return False, "کد تخفیف معتبر نیست یا غیرفعال شده است."
-    if row.get('expires_at') and int(row['expires_at']) <= now_ts:
-        return False, "اعتبار این کد تخفیف تمام شده است."
     conn = _db_connect()
-    conn.execute("UPDATE users SET pending_discount_code = ? WHERE id = ?", (row['code'], int(user_id)))
-    conn.commit()
-    conn.close()
-    return True, f"کد تخفیف {row['code']} برای خرید بعدی شما ذخیره شد."
+    try:
+        ok, msg, ev = save_user_discount(user_id, code, conn=conn)
+        if not ok:
+            return False, msg
+        step_info = f" ({ev['benefit_text']})" if ev and ev.get('benefit_text') else ""
+        return True, f"کد تخفیف {ev['code']}{step_info} برای خرید بعدی شما ذخیره شد."
+    finally:
+        conn.close()
 
 
-def _calculate_pending_discount(conn, user_id, base_price):
+def resolve_checkout_promotion(conn, user_id, base_price, explicit_code=None, kind='NEW'):
+    """Resolve the applicable discount & cashback for a transaction.
+    Applies only to NEW and RENEWAL purchases (not VOLUME).
+    Priority:
+      1. explicit_code passed in checkout request
+      2. user's pending_discount_code in DB
+      3. active automatic campaign (is_auto = 1)
+    """
+    if str(kind or 'NEW').upper() not in ('NEW', 'RENEWAL', 'CUSTOM'):
+        return {
+            'code': None,
+            'discount_amount': 0,
+            'cashback_percent': 0.0,
+            'final_price': int(base_price),
+            'step_index': 1,
+            'eval': None,
+        }
+
+    has_dc = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='discount_codes'").fetchone()
+    if not has_dc:
+        return {
+            'code': None,
+            'discount_amount': 0,
+            'cashback_percent': 0.0,
+            'final_price': int(base_price),
+            'step_index': 1,
+            'eval': None,
+        }
+
+    # 1. Explicit code
+    if explicit_code and str(explicit_code).strip():
+        row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (str(explicit_code).strip(),)).fetchone()
+        if row:
+            ev = evaluate_discount_row_for_user(conn, row, user_id, base_price=int(base_price), check_min_purchase=True)
+            if ev.get('eligible'):
+                return {
+                    'code': ev['code'],
+                    'discount_amount': int(ev['discount_amount']),
+                    'cashback_percent': float(ev['cashback_percent']),
+                    'final_price': int(ev['final_price']),
+                    'step_index': int(ev['step_index']),
+                    'eval': ev,
+                }
+
+    # 2. Pending discount code on user row
     user = conn.execute("SELECT pending_discount_code FROM users WHERE id = ?", (int(user_id),)).fetchone()
-    code = user['pending_discount_code'] if user else None
-    if not code:
-        return None, 0, int(base_price)
-    row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (code,)).fetchone()
-    now_ts = int(time.time())
-    if not row or not int(row['active'] or 0) or (row['expires_at'] and int(row['expires_at']) <= now_ts):
-        conn.execute("UPDATE users SET pending_discount_code = NULL WHERE id = ?", (int(user_id),))
-        return None, 0, int(base_price)
-    if int(base_price) < int(row['min_purchase'] or 0):
-        return None, 0, int(base_price)
-    used_total = conn.execute("SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND status IN ('RESERVED','APPLIED')", (code,)).fetchone()['c']
-    used_user = conn.execute("SELECT COUNT(*) AS c FROM discount_redemptions WHERE code = ? COLLATE NOCASE AND user_id = ? AND status IN ('RESERVED','APPLIED')", (code, int(user_id))).fetchone()['c']
-    if int(row['max_uses'] or 0) > 0 and int(used_total) >= int(row['max_uses']):
-        return None, 0, int(base_price)
-    if int(row['per_user_limit'] or 0) > 0 and int(used_user) >= int(row['per_user_limit']):
-        return None, 0, int(base_price)
-    if str(row['discount_type']).upper() == 'PERCENT':
-        amount = int(round(int(base_price) * float(row['value']) / 100.0))
-    else:
-        amount = int(round(float(row['value'])))
-    amount = max(0, min(amount, int(base_price)))
-    return str(row['code']), amount, int(base_price) - amount
+    pending_code = user['pending_discount_code'] if user else None
+    if pending_code:
+        row = conn.execute("SELECT * FROM discount_codes WHERE code = ? COLLATE NOCASE", (pending_code,)).fetchone()
+        if not row or not int(row['active'] or 0) or (row['expires_at'] and int(row['expires_at']) <= int(time.time())):
+            conn.execute("UPDATE users SET pending_discount_code = NULL WHERE id = ?", (int(user_id),))
+        else:
+            ev = evaluate_discount_row_for_user(conn, row, user_id, base_price=int(base_price), check_min_purchase=True)
+            if ev.get('eligible'):
+                return {
+                    'code': ev['code'],
+                    'discount_amount': int(ev['discount_amount']),
+                    'cashback_percent': float(ev['cashback_percent']),
+                    'final_price': int(ev['final_price']),
+                    'step_index': int(ev['step_index']),
+                    'eval': ev,
+                }
+
+    # 3. Automatic store campaign
+    auto_ev = get_active_campaign_for_user(user_id, base_price=int(base_price), conn=conn, check_min_purchase=True)
+    if auto_ev and auto_ev.get('eligible'):
+        return {
+            'code': auto_ev['code'],
+            'discount_amount': int(auto_ev['discount_amount']),
+            'cashback_percent': float(auto_ev['cashback_percent']),
+            'final_price': int(auto_ev['final_price']),
+            'step_index': int(auto_ev['step_index']),
+            'eval': auto_ev,
+        }
+
+    return {
+        'code': None,
+        'discount_amount': 0,
+        'cashback_percent': 0.0,
+        'final_price': int(base_price),
+        'step_index': 1,
+        'eval': None,
+    }
 
 
-def _reserve_discount(conn, user_id, tx_id, code, amount):
-    if not code or int(amount) <= 0:
+def _calculate_pending_discount(conn, user_id, base_price, explicit_code=None, kind='NEW'):
+    res = resolve_checkout_promotion(conn, user_id, base_price, explicit_code=explicit_code, kind=kind)
+    return res['code'], res['discount_amount'], res['final_price']
+
+
+def _reserve_discount(conn, user_id, tx_id, code, amount, cashback_percent=0.0, step_index=1):
+    if not code or (int(amount) <= 0 and float(cashback_percent or 0) <= 0):
         return
     conn.execute(
-        "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, status, created_at) VALUES (?, ?, ?, ?, 'RESERVED', ?)",
-        (code, int(user_id), int(tx_id), int(amount), int(time.time()))
+        """INSERT INTO discount_redemptions
+           (code, user_id, tx_id, discount_amount, cashback_percent, step_index, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'RESERVED', ?)""",
+        (code, int(user_id), int(tx_id), int(amount), float(cashback_percent or 0), int(step_index or 1), int(time.time()))
     )
     conn.execute("UPDATE users SET pending_discount_code = NULL WHERE id = ?", (int(user_id),))
 
@@ -743,19 +1180,32 @@ def get_cashback_percent():
 
 
 def credit_cashback(tx_id):
-    percent = get_cashback_percent()
-    if percent <= 0:
-        return None
+    global_percent = get_cashback_percent()
     conn = _db_connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
         if conn.execute("SELECT 1 FROM cashback_rewards WHERE tx_id = ?", (int(tx_id),)).fetchone():
             conn.rollback(); return None
-        tx = conn.execute("SELECT user_id,status,cash_amount FROM transactions WHERE id = ?", (int(tx_id),)).fetchone()
-        if not tx or tx['status'] != 'APPROVED' or int(tx['cash_amount'] or 0) <= 0:
+        tx = conn.execute(
+            "SELECT user_id, status, price, cash_amount, kind, promo_cashback_percent FROM transactions WHERE id = ?",
+            (int(tx_id),)
+        ).fetchone()
+        if not tx or tx['status'] != 'APPROVED':
             conn.rollback(); return None
-        base = int(tx['cash_amount'])
-        amount = int(base * percent / 100.0)
+        kind = str(tx['kind'] or 'NEW').upper()
+        if kind not in ('NEW', 'RENEWAL', 'CUSTOM'):
+            conn.rollback(); return None
+        promo_cb = float(tx['promo_cashback_percent'] or 0.0)
+        # If transaction has a promo/tiered cashback, use it (or combine if higher); global cashback applies to cash_amount
+        if promo_cb > 0:
+            percent = max(promo_cb, global_percent)
+            base = int(tx['price'] or tx['cash_amount'] or 0)
+        else:
+            percent = global_percent
+            base = int(tx['cash_amount'] or 0)
+        if percent <= 0 or base <= 0:
+            conn.rollback(); return None
+        amount = int(round(base * percent / 100.0))
         if amount <= 0:
             conn.rollback(); return None
         row = conn.execute("SELECT balance FROM users WHERE id = ?", (int(tx['user_id']),)).fetchone()
@@ -766,7 +1216,7 @@ def credit_cashback(tx_id):
         conn.execute("INSERT INTO cashback_rewards (tx_id,user_id,base_amount,percent,amount,created_at) VALUES (?,?,?,?,?,?)",
                      (int(tx_id), int(tx['user_id']), base, percent, amount, now_ts))
         conn.execute("INSERT INTO wallet_transactions (user_id,amount,balance_after,type,description,related_tx_id,unique_key,created_at) VALUES (?,?,?,'CASHBACK',?,?,?,?)",
-                     (int(tx['user_id']), amount, new_balance, f"کش‌بک خرید #{tx_id}", int(tx_id), f"cashback:{tx_id}", now_ts))
+                     (int(tx['user_id']), amount, new_balance, f"کش‌بک خرید #{tx_id} ({percent:g}%)", int(tx_id), f"cashback:{tx_id}", now_ts))
         conn.commit()
         return {'user_id': int(tx['user_id']), 'amount': amount, 'balance': new_balance, 'percent': percent}
     finally:
@@ -1478,9 +1928,45 @@ def process_user_code(message):
         USER_STATES[message.chat.id] = None
         bot.send_message(message.chat.id, ("✅ " if ok else "❌ ") + text, reply_markup=main_menu())
         return
-    ok, text = set_pending_discount(message.from_user.id, code)
+    ok, text, ev = save_user_discount(message.from_user.id, code)
     USER_STATES[message.chat.id] = None
-    bot.send_message(message.chat.id, ("✅ " if ok else "❌ ") + text, reply_markup=main_menu())
+    if not ok:
+        bot.send_message(message.chat.id, f"❌ {text}", reply_markup=main_menu())
+        return
+
+    days_text = f"{ev['remaining_days']} روز" if ev.get('remaining_days') is not None else "نامحدود"
+    uses_text = f"{ev['remaining_uses']} بار" if ev.get('remaining_uses') is not None else "نامحدود"
+    desc_text = f"\n📝 **توضیحات:** {ev['description']}" if ev.get('description') else ""
+    steps_text = ""
+    if ev.get('steps') and len(ev['steps']) > 1:
+        steps_lines = []
+        for s in ev['steps']:
+            curr = " 👈 (مرحله فعلی شما)" if s['step'] == ev['step_index'] else ""
+            cb = f" + {s['cashback_percent']:g}٪ کش‌بک" if s.get('cashback_percent') else ""
+            val = f"{s['discount_value']:g}٪ تخفیف" if s['discount_type'] == 'PERCENT' else f"{int(s['discount_value']):,} تومان تخفیف"
+            steps_lines.append(f"• مرحله {s['step']}: {val}{cb}{curr}")
+        steps_text = "\n\n📊 **مراحل تخفیف پلکانی:**\n" + "\n".join(steps_lines)
+
+    msg_body = (
+        f"🎉 **کد تخفیف معتبر است و در پنل شما ذخیره شد!**\n\n"
+        f"🎟 **کد:** `{ev['code']}`\n"
+        f"🏷 **عنوان:** {ev['title']}\n"
+        f"✨ **مزیت مرحله فعلی:** {ev['benefit_text']}\n"
+        f"⏳ **مهلت باقیمانده:** {days_text}\n"
+        f"🔄 **تعداد استفاده باقیمانده:** {uses_text}"
+        f"{desc_text}"
+        f"{steps_text}\n\n"
+        f"برای استفاده، می‌توانید اکنون پلان مورد نظر خود را انتخاب کنید."
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🛍 مشاهده و خرید پلان‌ها", callback_data="buy_plan_now"))
+    bot.send_message(message.chat.id, msg_body, parse_mode="Markdown", reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'buy_plan_now')
+def buy_plan_now_callback(call):
+    bot.answer_callback_query(call.id)
+    show_plans(call.message)
 
 
 @bot.message_handler(func=lambda message: message.text == "📲 راهنمای اتصال")
@@ -1516,28 +2002,47 @@ def show_plans(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     plan_lines = []
     active_plans = get_active_plans()
+    conn = _db_connect()
+    promo_info = resolve_checkout_promotion(conn, user_id, 0, kind='NEW')
+    promo_ev = promo_info.get('eval')
+    if not promo_ev:
+        promo_ev = get_active_campaign_for_user(user_id, base_price=0, conn=conn, check_min_purchase=False)
     for info in active_plans:
         plan_id = int(info['id'])
         volume_text = "نامحدود" if float(info['volume'] or 0) <= 0 else f"{float(info['volume']):g} گیگ"
         ip_text = f"{int(info['ip_limit'])} کاربر/IP" if int(info['ip_limit']) > 0 else "بدون IP Limit"
+        p_promo = resolve_checkout_promotion(conn, user_id, int(info['price']), kind='NEW')
+        final_p = int(p_promo['final_price'])
+        disc_amt = int(p_promo['discount_amount'])
+        cb_pct = max(float(p_promo['cashback_percent'] or 0), get_cashback_percent())
+        if disc_amt > 0:
+            price_str = f"~{info['price']:,}~ 👈 `{final_p:,}` تومان"
+        else:
+            price_str = f"`{info['price']:,}` تومان"
+        cb_str = f" | 🎁 `{cb_pct:g}%` کش‌بک" if cb_pct > 0 else ""
         plan_lines.append(
-            f"• **{info['name']}**\n  💵 `{info['price']:,}` تومان | 📦 {volume_text} | 📅 {int(info['days'])} روز | 👥 {ip_text}"
+            f"• **{info['name']}**\n  💵 {price_str}{cb_str} | 📦 {volume_text} | 📅 {int(info['days'])} روز | 👥 {ip_text}"
         )
         markup.add(types.InlineKeyboardButton(
-            text=f"💳 خرید {info['name']} — {info['price']:,}",
+            text=f"💳 خرید {info['name']} — {final_p:,}",
             callback_data=f"buy:{plan_id}"
         ))
-        if balance >= info['price']:
+        if balance >= final_p:
             markup.add(types.InlineKeyboardButton(
                 text=f"👛 پرداخت از کیف پول — {info['name']}",
                 callback_data=f"walletbuy:{plan_id}"
             ))
+    conn.close()
     if not active_plans:
         bot.send_message(message.chat.id, "⛔️ در حال حاضر پلن فعالی برای فروش وجود ندارد.", reply_markup=main_menu())
         return
+    promo_banner = ""
+    if promo_ev and promo_ev.get('eligible'):
+        days_txt = f" (⏳ {promo_ev['remaining_days']} روز مانده)" if promo_ev.get('remaining_days') else ""
+        promo_banner = f"🔥 **{promo_ev['title']}**{days_txt}\n🎁 سهم خرید فعلی شما: **{promo_ev['benefit_text']}**\n📊 مراحل: {promo_ev['summary_text']}\n\n"
     bot.send_message(
         message.chat.id,
-        f"🛒 **لیست پلان‌های {get_brand_name()}**\n\n" + "\n\n".join(plan_lines) +
+        f"🛒 **لیست پلان‌های {get_brand_name()}**\n\n" + promo_banner + "\n\n".join(plan_lines) +
         f"\n\n👛 موجودی کیف پول شما: `{balance:,} تومان`\n\n💡 تعداد کاربر هر پلن همان IP Limit سرویس روی پنل Sanaei است.",
         reply_markup=markup,
         parse_mode="Markdown"
@@ -1678,9 +2183,11 @@ def _release_stale_checkouts(user_id=None):
         rows = conn.execute("SELECT id FROM transactions WHERE status='AWAITING_RECEIPT' AND created_at < ?", (cutoff,)).fetchall()
     else:
         rows = conn.execute("SELECT id FROM transactions WHERE user_id=? AND status='AWAITING_RECEIPT' AND created_at < ?", (int(user_id), cutoff)).fetchall()
+    has_dr = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='discount_redemptions'").fetchone()
     for row in rows:
         conn.execute("UPDATE transactions SET status='CANCELLED', last_error='checkout expired' WHERE id=?", (int(row['id']),))
-        conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(row['id']),))
+        if has_dr:
+            conn.execute("UPDATE discount_redemptions SET status='RELEASED' WHERE tx_id=? AND status='RESERVED'", (int(row['id']),))
     conn.commit(); conn.close()
 
 
@@ -1695,15 +2202,25 @@ def _product_snapshot(plan):
     }
 
 
-def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
+def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None):
     plan = _product_snapshot(plan)
     _release_stale_checkouts(user_id)
     conn = _db_connect()
     try:
+        tx_cols = {r[1] for r in conn.execute("PRAGMA table_info(transactions)").fetchall()}
+        if 'promo_cashback_percent' not in tx_cols:
+            conn.execute("ALTER TABLE transactions ADD COLUMN promo_cashback_percent REAL NOT NULL DEFAULT 0")
+            conn.commit()
         conn.execute("BEGIN IMMEDIATE")
-        code, discount_amount, final_price = _calculate_pending_discount(conn, int(user_id), int(plan['price']))
+        promo = resolve_checkout_promotion(conn, int(user_id), int(plan['price']), explicit_code=explicit_code, kind=kind)
+        code = promo['code']
+        discount_amount = int(promo['discount_amount'])
+        promo_cb = float(promo['cashback_percent'])
+        final_price = int(promo['final_price'])
+        step_idx = int(promo['step_index'])
+
         wallet_used = final_price if payment_method == 'WALLET' else 0
-        cash_amount = final_price if payment_method == 'CARD' else 0
+        cash_amount = final_price if payment_method != 'WALLET' else 0
         if payment_method == 'WALLET':
             row = conn.execute("SELECT balance FROM users WHERE id = ?", (int(user_id),)).fetchone()
             balance = int(row['balance'] or 0) if row else 0
@@ -1716,11 +2233,11 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
             """INSERT INTO transactions
                (user_id, photo_id, plan_id, status, price, payment_method, wallet_used, cash_amount, created_at,
                 service_email, custom_name, kind, plan_name_snapshot, plan_days_snapshot, plan_volume_gb_snapshot,
-                plan_ip_limit_snapshot, discount_code, discount_amount, extra_volume_gb)
-               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                plan_ip_limit_snapshot, discount_code, discount_amount, promo_cashback_percent, extra_volume_gb)
+               VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (int(user_id), int(plan['plan_id']), status, int(final_price), payment_method, int(wallet_used), int(cash_amount), now_ts,
              target_service_email, custom_name, kind, plan['name'], int(plan['days']), float(plan['volume']), int(plan['ip_limit']),
-             code, int(discount_amount), float(extra_volume_gb or 0))
+             code, int(discount_amount), float(promo_cb), float(extra_volume_gb or 0))
         )
         tx_id = int(cur.lastrowid)
         if kind == 'NEW' and not target_service_email:
@@ -1735,8 +2252,8 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
                 from .db import resolve_unique_service_email
                 service_email = resolve_unique_service_email(None, user_id=user_id, tx_id=tx_id, conn=conn)
             conn.execute("UPDATE transactions SET service_email = ?, custom_name = ? WHERE id = ?", (service_email, custom_name or service_email, tx_id))
-        if code and discount_amount > 0:
-            _reserve_discount(conn, int(user_id), tx_id, code, discount_amount)
+        if code and (discount_amount > 0 or promo_cb > 0):
+            _reserve_discount(conn, int(user_id), tx_id, code, discount_amount, cashback_percent=promo_cb, step_index=step_idx)
         if payment_method == 'WALLET':
             row = conn.execute("SELECT balance FROM users WHERE id = ?", (int(user_id),)).fetchone()
             balance = int(row['balance'] or 0)
@@ -1754,6 +2271,8 @@ def _create_checkout_transaction(user_id, plan, payment_method, kind='NEW', targ
             'price': int(final_price),
             'discount': int(discount_amount),
             'discount_code': code,
+            'cashback_percent': float(promo_cb),
+            'step_index': step_idx,
             'name': plan['name'],
         }, None
     except Exception as e:
@@ -1770,6 +2289,8 @@ def _checkout_caption(tx_id):
     if not tx:
         return "تراکنش نامعتبر"
     kind_names = {'NEW': 'خرید سرویس', 'RENEWAL': 'تمدید سرویس', 'VOLUME': 'خرید حجم اضافه'}
+    cb_pct = float(tx['promo_cashback_percent'] or 0) if 'promo_cashback_percent' in tx.keys() else 0.0
+    cb_line = f"💰 کش‌بک پس از تایید: **{cb_pct:g}٪**\n" if cb_pct > 0 else ""
     return (
         f"🔔 **{kind_names.get(tx['kind'], 'تراکنش')} جدید!**\n\n"
         f"👤 کاربر: `{int(tx['user_id'])}`\n"
@@ -1777,6 +2298,7 @@ def _checkout_caption(tx_id):
         f"💵 مبلغ: **{int(tx['price'] or 0):,} تومان**\n"
         f"🎟 تخفیف: **{int(tx['discount_amount'] or 0):,} تومان**"
         + (f" (`{tx['discount_code']}`)" if tx['discount_code'] else "") + "\n"
+        + cb_line +
         f"✉️ سرویس: `{tx['service_email'] or '-'}`\n"
         f"🆔 کد تراکنش: `{int(tx['id'])}`"
     )
@@ -1796,16 +2318,36 @@ def _send_receipt_to_admins(tx_id, photo_id):
             continue
 
 
-def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None):
-    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name)
+def _start_card_checkout(chat_id, user_id, plan, kind='NEW', target_service_email=None, extra_volume_gb=0, custom_name=None, explicit_code=None):
+    result, error = _create_checkout_transaction(user_id, plan, 'CARD', kind, target_service_email, extra_volume_gb, custom_name=custom_name, explicit_code=explicit_code)
     if not result:
         bot.send_message(chat_id, f"❌ خطا در ایجاد تراکنش: {error}", reply_markup=main_menu())
+        return
+    if int(result['price']) <= 0:
+        conn = _db_connect()
+        conn.execute("UPDATE transactions SET status='PROCESSING' WHERE id=?", (result['tx_id'],))
+        conn.commit()
+        conn.close()
+        bot.send_message(
+            chat_id,
+            f"🎉 **تخفیف ۱۰۰٪ اعمال شد و هزینه سرویس رایگان است!**\n\n"
+            f"⚡️ سرویس **{result['name']}** با موفقیت و بدون هزینه برای شما ثبت شد.\n"
+            f"🆔 کد پیگیری: `{result['tx_id']}`\n\n"
+            f"اطلاعات کانفیگ تا چند ثانیه دیگر برای شما ارسال می‌گردد...",
+            parse_mode="Markdown",
+            reply_markup=main_menu()
+        )
+        finalize_service_transaction(result['tx_id'])
         return
     card_num = get_db_setting('card_number')
     card_holder = get_db_setting('card_holder')
     bank_name = get_db_setting('bank_name')
     card_photo = get_db_setting('card_photo', '').strip()
     discount_line = f"\n🎟 تخفیف اعمال‌شده: **{result['discount']:,} تومان**" if result['discount'] else ""
+    cb_pct = max(float(result.get('cashback_percent') or 0), get_cashback_percent())
+    if cb_pct > 0 and int(result['price']) > 0:
+        cb_amt = int(round(int(result['price']) * cb_pct / 100.0))
+        discount_line += f"\n💰 کش‌بک به کیف پول: **{cb_amt:,} تومان ({cb_pct:g}٪)**"
     caption_text = (
         f"💵 **{result['name']}**\n\n"
         f"💳 مبلغ قابل پرداخت: **{result['price']:,} تومان**{discount_line}\n\n"
@@ -2270,19 +2812,29 @@ def service_renew_menu(call):
     if not purchase_gate(call.from_user.id):
         bot.answer_callback_query(call.id, "ابتدا شرایط خرید را تکمیل کنید.", show_alert=True); return
     plans = get_active_plans()
+    balance = get_user_balance(call.from_user.id)
+    conn = _db_connect()
+    promo_info = resolve_checkout_promotion(conn, call.from_user.id, 0, kind='RENEWAL')
+    promo_ev = promo_info.get('eval') or get_active_campaign_for_user(call.from_user.id, base_price=0, conn=conn, check_min_purchase=False)
     m = types.InlineKeyboardMarkup(row_width=1)
     for plan in plans:
+        p_promo = resolve_checkout_promotion(conn, call.from_user.id, int(plan['price']), kind='RENEWAL')
+        final_p = int(p_promo['final_price'])
         m.add(types.InlineKeyboardButton(
-            f"💳 تمدید با {plan['name']} — {plan['price']:,} تومان",
+            f"💳 تمدید با {plan['name']} — {final_p:,} تومان",
             callback_data=f"renewcard:{tx_id}:{plan['id']}"
         ))
-        if get_user_balance(call.from_user.id) >= plan['price']:
+        if balance >= final_p:
             m.add(types.InlineKeyboardButton(
-                f"👛 کیف پول | {plan['name']}",
+                f"👛 کیف پول | {plan['name']} ({final_p:,})",
                 callback_data=f"renewwallet:{tx_id}:{plan['id']}"
             ))
+    conn.close()
+    promo_txt = ""
+    if promo_ev and promo_ev.get('eligible'):
+        promo_txt = f"\n🔥 **{promo_ev['title']}**: **{promo_ev['benefit_text']}**\n"
     bot.answer_callback_query(call.id)
-    bot.send_message(call.from_user.id, "♻️ **تمدید سرویس**\n\nپلن تمدید را انتخاب کنید. تعداد کاربر/IP Limit نیز مطابق پلن انتخابی به‌روزرسانی می‌شود.", parse_mode="Markdown", reply_markup=m)
+    bot.send_message(call.from_user.id, f"♻️ **تمدید سرویس**{promo_txt}\nپلن تمدید را انتخاب کنید. تعداد کاربر/IP Limit نیز مطابق پلن انتخابی به‌روزرسانی می‌شود.", parse_mode="Markdown", reply_markup=m)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('renewcard:'))
@@ -2955,24 +3507,42 @@ def handle_admin_panel_callbacks(call):
 
     elif action == "rewards":
         conn = _db_connect()
-        discounts = conn.execute("SELECT COUNT(*) AS c FROM discount_codes WHERE active=1").fetchone()['c']
+        disc_rows = conn.execute("SELECT * FROM discount_codes ORDER BY is_auto DESC, created_at DESC LIMIT 15").fetchall()
         gifts = conn.execute("SELECT COUNT(*) AS c FROM gift_codes WHERE active=1").fetchone()['c']
         cashbacks = conn.execute("SELECT COALESCE(SUM(amount),0) AS s FROM cashback_rewards").fetchone()['s']
         conn.close()
-        text = (
-            "🎟 **کدها و پاداش‌ها**\n\n"
-            f"کش‌بک فعلی: **{get_cashback_percent():g}٪** از پرداخت نقدی\n"
-            f"کد تخفیف فعال: **{int(discounts)}**\n"
-            f"کد هدیه فعال: **{int(gifts)}**\n"
-            f"کش‌بک پرداخت‌شده: **{int(cashbacks):,} تومان**"
-        )
+        active_disc = [r for r in disc_rows if int(r['active'] or 0) == 1]
+        lines = [
+            "🎟 **کدها، جشنواره‌های پلکانی و پاداش‌ها**\n",
+            f"💰 کش‌بک پایه سراسری: **{get_cashback_percent():g}٪**",
+            f"🔥 کد/کمپین تخفیف فعال: **{len(active_disc)}**",
+            f"🎁 کد هدیه فعال: **{int(gifts)}**",
+            f"💳 کل کش‌بک واریزشده: **{int(cashbacks):,} تومان**",
+        ]
+        if disc_rows:
+            lines.append("\n📋 **فهرست کمپین‌ها و کدهای تخفیف:**")
+            now_ts = int(time.time())
+            for r in disc_rows[:10]:
+                d_row = dict(r)
+                status_icon = "🟢" if int(d_row.get('active') or 0) == 1 else "🔴"
+                kind_badge = "🔥کمپین خودکار" if int(d_row.get('is_auto') or 0) == 1 else "🎟کد"
+                exp_ts = int(d_row.get('expires_at') or 0) if d_row.get('expires_at') else 0
+                if exp_ts > 0:
+                    rem_d = max(0, math.ceil((exp_ts - now_ts) / 86400)) if exp_ts > now_ts else 0
+                    exp_txt = f"{rem_d}روز" if exp_ts > now_ts else "منقضی"
+                else:
+                    exp_txt = "دائمی"
+                rule_txt = describe_discount_rule_fa(d_row)
+                title_part = f" ({d_row.get('title')})" if d_row.get('title') else ""
+                lines.append(f"{status_icon} `{d_row['code']}`{title_part} [{kind_badge} | {exp_txt}]\n   └ {rule_txt}")
+        text = "\n".join(lines)
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(
-            types.InlineKeyboardButton("💸 تغییر کش‌بک", callback_data="admin:cashback_percent"),
-            types.InlineKeyboardButton("🏷 ساخت کد تخفیف", callback_data="admin:discount_add"),
+            types.InlineKeyboardButton("💸 تغییر کش‌بک پایه", callback_data="admin:cashback_percent"),
+            types.InlineKeyboardButton("🏷 ساخت تخفیف/پلکانی", callback_data="admin:discount_add"),
             types.InlineKeyboardButton("🎁 ساخت کد هدیه", callback_data="admin:gift_add"),
-            types.InlineKeyboardButton("⏯ کد تخفیف", callback_data="admin:discount_toggle"),
-            types.InlineKeyboardButton("⏯ کد هدیه", callback_data="admin:gift_toggle")
+            types.InlineKeyboardButton("⏯ فعال/غیرفعال تخفیف", callback_data="admin:discount_toggle"),
+            types.InlineKeyboardButton("⏯ فعال/غیرفعال هدیه", callback_data="admin:gift_toggle")
         )
         bot.send_message(admin_chat, text, parse_mode="Markdown", reply_markup=m)
 
@@ -2981,7 +3551,23 @@ def handle_admin_panel_callbacks(call):
         bot.register_next_step_handler(msg, process_admin_cashback_percent)
 
     elif action == "discount_add":
-        msg = bot.send_message(admin_chat, "🏷 کد تخفیف:\n`CODE | percent/fixed | مقدار | حداقل خرید | حداکثر استفاده | روز اعتبار`\nمثال: `WELCOME20 | percent | 20 | 200000 | 100 | 30`", parse_mode="Markdown")
+        help_txt = (
+            "🏷 **ساخت کد تخفیف یا کمپین پلکانی / ترکیبی**\n\n"
+            "🔹 **روش ۱ (ساده یا ترکیبی با کش‌بک):**\n"
+            "`CODE | percent/fixed | مقدار | حداقل_خرید | سقف_کل | روز_اعتبار | کش‌بک% | auto/code | عنوان`\n"
+            "مثال ۲۵٪ تخفیف + ۱۰٪ کش‌بک (۷ روزه):\n"
+            "`OFF25 | percent | 25 | 0 | 0 | 7 | 10 | code | تخفیف ویژه`\n\n"
+            "🔸 **روش ۲ (پلکانی چندمرحله‌ای):**\n"
+            "`CODE | steps | پله‌ها | حداقل_خرید | سقف_کل | روز_اعتبار | auto/code | عنوان`\n"
+            "هر پله با `,` جدا می‌شود: `تخفیف%+کش‌بک%` (علامت `*` در پله آخر یعنی تکرار برای دفعات بعدی)\n"
+            "• مثال ۱ (بار اول ۱۰۰٪، دوم ۵۰٪، بعدی ۲۵٪):\n"
+            "`VIP | steps | 100,50,25* | 0 | 0 | 10 | auto | جشنواره وفاداری`\n"
+            "• مثال ۲ (دفعه ۱و۲ ۲۵٪، ۳و۴ ۳۵٪، بعدی ۵۰٪):\n"
+            "`STEP50 | steps | 25,25,35,35,50* | 0 | 0 | 14 | auto | جشنواره پلکانی`\n"
+            "• مثال ۳ (بار اول ۱۰٪ تخفیف، بار دوم ۱۰٪ کش‌بک):\n"
+            "`COMBO | steps | 10+0,0+10* | 0 | 0 | 30 | code | طرح ترکیبی`"
+        )
+        msg = bot.send_message(admin_chat, help_txt, parse_mode="Markdown")
         bot.register_next_step_handler(msg, process_admin_discount_add)
 
     elif action == "gift_add":
@@ -3396,17 +3982,97 @@ def process_admin_cashback_percent(message):
 
 def process_admin_discount_add(message):
     try:
-        parts=[x.strip() for x in (message.text or '').split('|')]
-        if len(parts)!=6: raise ValueError
-        code=parts[0].upper(); dtype=parts[1].upper(); value=float(parts[2]); min_purchase=int(parts[3].replace(',','')); max_uses=int(parts[4]); days=int(parts[5])
-        if not re.fullmatch(r'[A-Z0-9_-]{3,32}',code) or dtype not in ('PERCENT','FIXED') or value<=0 or min_purchase<0 or max_uses<0 or days<0: raise ValueError
-        if dtype=='PERCENT' and value>100: raise ValueError
-        expires=int(time.time())+days*86400 if days>0 else None
-        conn=_db_connect(); conn.execute("INSERT OR REPLACE INTO discount_codes (code,discount_type,value,min_purchase,max_uses,per_user_limit,expires_at,active,created_at) VALUES (?,?,?,?,?,1,?,1,?)",
-            (code,dtype,value,min_purchase,max_uses,expires,int(time.time()))); conn.commit(); conn.close()
-        _admin_reply(message,f"✅ کد تخفیف `{code}` ساخته شد.",parse_mode="Markdown")
+        parts = [x.strip() for x in (message.text or '').split('|')]
+        if len(parts) < 6:
+            raise ValueError
+        code = parts[0].upper()
+        if not re.fullmatch(r'[A-Z0-9_-]{2,32}', code):
+            raise ValueError
+        mode = parts[1].upper()
+        now_ts = int(time.time())
+
+        if mode == 'STEPS':
+            # CODE | steps | 100,50,25* | min_purchase | max_uses | days [| auto/code | title]
+            raw_steps = [s.strip() for s in parts[2].split(',') if s.strip()]
+            if not raw_steps:
+                raise ValueError
+            min_purchase = int(parts[3].replace(',', ''))
+            max_uses = int(parts[4])
+            days = int(parts[5])
+            is_auto = 1 if (len(parts) >= 7 and parts[6].strip().lower() in ('auto', '1', 'true', 'yes')) else 0
+            title = parts[7].strip() if len(parts) >= 8 else ''
+
+            parsed_steps = []
+            for idx, token in enumerate(raw_steps):
+                repeat_after = token.endswith('*')
+                clean_tok = token.rstrip('*').strip()
+                if '+' in clean_tok:
+                    d_part, cb_part = clean_tok.split('+', 1)
+                else:
+                    d_part, cb_part = clean_tok, '0'
+                d_part = d_part.strip().upper()
+                if d_part.endswith('T') or d_part.endswith('F'):
+                    st_type = 'FIXED'
+                    st_val = float(d_part[:-1].replace(',', ''))
+                else:
+                    st_type = 'PERCENT'
+                    st_val = float(d_part.replace('%', '').replace('٪', ''))
+                cb_val = float(cb_part.replace('%', '').replace('٪', '').strip() or 0)
+                if st_val < 0 or (st_type == 'PERCENT' and st_val > 100) or cb_val < 0 or cb_val > 100:
+                    raise ValueError
+                if st_val <= 0 and cb_val <= 0:
+                    raise ValueError
+                parsed_steps.append({
+                    'discount_type': st_type,
+                    'discount_value': st_val,
+                    'cashback_percent': cb_val,
+                    'repeat_after': bool(repeat_after and idx == len(raw_steps) - 1),
+                })
+
+            dtype = parsed_steps[0]['discount_type']
+            value = parsed_steps[0]['discount_value']
+            cb_percent = parsed_steps[0]['cashback_percent']
+            per_user_limit = 0 if parsed_steps[-1]['repeat_after'] else len(parsed_steps)
+            steps_json = json.dumps(parsed_steps, ensure_ascii=False)
+        else:
+            # CODE | percent/fixed | value | min_purchase | max_uses | days [| cashback_percent | auto/code | title]
+            dtype = mode
+            value = float(parts[2])
+            min_purchase = int(parts[3].replace(',', ''))
+            max_uses = int(parts[4])
+            days = int(parts[5])
+            cb_percent = float(parts[6].replace('%', '').replace('٪', '')) if len(parts) >= 7 and parts[6] else 0.0
+            is_auto = 1 if (len(parts) >= 8 and parts[7].strip().lower() in ('auto', '1', 'true', 'yes')) else 0
+            title = parts[8].strip() if len(parts) >= 9 else ''
+            if dtype not in ('PERCENT', 'FIXED') or (value <= 0 and cb_percent <= 0) or min_purchase < 0 or max_uses < 0 or days < 0:
+                raise ValueError
+            if (dtype == 'PERCENT' and value > 100) or cb_percent < 0 or cb_percent > 100:
+                raise ValueError
+            per_user_limit = 0 if is_auto else 1
+            steps_json = None
+
+        expires = now_ts + days * 86400 if days > 0 else None
+        conn = _db_connect()
+        conn.execute(
+            """INSERT OR REPLACE INTO discount_codes
+               (code, discount_type, value, min_purchase, max_uses, per_user_limit, expires_at, active, created_at, is_auto, title, cashback_percent, steps_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+            (code, dtype, value, min_purchase, max_uses, per_user_limit, expires, now_ts, is_auto, title, cb_percent, steps_json)
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM discount_codes WHERE code=?", (code,)).fetchone()
+        conn.close()
+        summary = describe_discount_rule_fa(dict(row)) if row else code
+        kind_str = "کمپین خودکار" if is_auto else "کد تخفیف"
+        _admin_reply(message, f"✅ {kind_str} `{code}` ساخته شد.\n📋 ساختار: **{summary}**", parse_mode="Markdown")
     except Exception:
-        _admin_reply(message,"❌ فرمت نامعتبر. مثال:\n`WELCOME20 | percent | 20 | 200000 | 100 | 30`",parse_mode="Markdown")
+        _admin_reply(
+            message,
+            "❌ فرمت نامعتبر است.\n"
+            "• مثال ساده/ترکیبی:\n`WELCOME20 | percent | 20 | 0 | 100 | 30 | 10 | code | خوش‌آمد`\n"
+            "• مثال پلکانی:\n`VIP | steps | 100,50,25* | 0 | 0 | 10 | auto | جشنواره وفاداری`",
+            parse_mode="Markdown"
+        )
 
 
 def process_admin_gift_add(message):
