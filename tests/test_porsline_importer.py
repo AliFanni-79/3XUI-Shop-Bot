@@ -33,19 +33,19 @@ class TestPorslineImporter(unittest.TestCase):
     def test_extract_identifiers(self):
         sample_responses = [
             {"responder_id": 111, "responder_code": "codeA"},
-            {"responder_id": 222, "responder_code": "codeB"},
+            {"responder_id": 222, "responder_code": "CqyRa"},
             {"responder_id": 333, "responder_code": "codeA"},  # duplicate codeA
         ]
 
-        # Default mode: code (just responder_code)
+        # Default mode: code (exact case preserved from Porsline)
         default_codes = extract_identifiers(sample_responses)
         self.assertEqual(len(default_codes), 2)
-        self.assertEqual([c["code"] for c in default_codes], ["CODEA", "CODEB"])
+        self.assertEqual([c["code"] for c in default_codes], ["codeA", "CqyRa"])
 
         # Explicit mode: code
         codes = extract_identifiers(sample_responses, mode="code")
         self.assertEqual(len(codes), 2)
-        self.assertEqual([c["code"] for c in codes], ["CODEA", "CODEB"])
+        self.assertEqual([c["code"] for c in codes], ["codeA", "CqyRa"])
 
         # Mode: id
         ids = extract_identifiers(sample_responses, mode="id")
@@ -54,11 +54,12 @@ class TestPorslineImporter(unittest.TestCase):
 
         # Mode: both
         both = extract_identifiers(sample_responses, mode="both")
-        self.assertEqual(len(both), 5)  # CODEA, 111, CODEB, 222, 333
+        self.assertEqual(len(both), 5)  # codeA, 111, CqyRa, 222, 333
+        self.assertEqual([c["code"] for c in both], ["codeA", "111", "CqyRa", "222", "333"])
 
     def test_build_stepped_discount_payload(self):
-        payload = build_stepped_discount_payload("TEST_CODE", days=180, max_uses=10, survey_id=2682416, responder_id=999)
-        self.assertEqual(payload["code"], "TEST_CODE")
+        payload = build_stepped_discount_payload("CqyRa", days=180, max_uses=10, survey_id=2682416, responder_id=999)
+        self.assertEqual(payload["code"], "CqyRa")
         self.assertEqual(payload["discount_type"], "PERCENT")
         self.assertEqual(payload["value"], 100.0)
         self.assertEqual(payload["max_uses"], 10)
@@ -85,9 +86,24 @@ class TestPorslineImporter(unittest.TestCase):
         self.assertNotIn("همیشگی", steps[2]["label"])
 
     def test_save_to_db_and_evaluate_multi_step(self):
-        payload = build_stepped_discount_payload("TEST_STEPPED", days=180, max_uses=10, survey_id=2682416)
+        payload = build_stepped_discount_payload("Test_Stepped", days=180, max_uses=10, survey_id=2682416)
         saved = save_discounts_to_db([payload], db_path=self.db_path)
         self.assertEqual(saved, 1)
+        self.assertEqual(saved.inserted, 1)
+        self.assertEqual(saved.skipped, 0)
+
+        # Attempt to save the same code again: must be skipped (not re-added or overwritten)
+        saved_again = save_discounts_to_db([payload], db_path=self.db_path)
+        self.assertEqual(saved_again, 0)
+        self.assertEqual(saved_again.inserted, 0)
+        self.assertEqual(saved_again.skipped, 1)
+
+        # Attempt to save a mix of existing and new: only new is added
+        payload2 = build_stepped_discount_payload("New_Code_2", days=180, max_uses=10)
+        saved_mix = save_discounts_to_db([payload, payload2], db_path=self.db_path)
+        self.assertEqual(saved_mix, 1)
+        self.assertEqual(saved_mix.inserted, 1)
+        self.assertEqual(saved_mix.skipped, 1)
 
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -109,8 +125,9 @@ class TestPorslineImporter(unittest.TestCase):
         )
         conn.commit()
 
-        row = conn.execute("SELECT * FROM discount_codes WHERE code = 'TEST_STEPPED'").fetchone()
+        row = conn.execute("SELECT * FROM discount_codes WHERE code = 'Test_Stepped'").fetchone()
         self.assertIsNotNone(row)
+        self.assertEqual(row["code"], "Test_Stepped")  # exact case preserved
 
         uid = 5001
         base_price = 200000
@@ -125,7 +142,7 @@ class TestPorslineImporter(unittest.TestCase):
         # Record 1st redemption
         now_ts = int(time.time())
         conn.execute(
-            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, 1, 200000, 1, 'APPLIED', ?)",
+            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('Test_Stepped', ?, 1, 200000, 1, 'APPLIED', ?)",
             (uid, now_ts)
         )
         conn.commit()
@@ -139,7 +156,7 @@ class TestPorslineImporter(unittest.TestCase):
 
         # Record 2nd redemption
         conn.execute(
-            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, 2, 100000, 2, 'APPLIED', ?)",
+            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('Test_Stepped', ?, 2, 100000, 2, 'APPLIED', ?)",
             (uid, now_ts)
         )
         conn.commit()
@@ -152,7 +169,7 @@ class TestPorslineImporter(unittest.TestCase):
             self.assertEqual(ev["discount_amount"], 50000)
             self.assertEqual(ev["final_price"], 150000)
             conn.execute(
-                "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, ?, 50000, 3, 'APPLIED', ?)",
+                "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('Test_Stepped', ?, ?, 50000, 3, 'APPLIED', ?)",
                 (uid, use_num, now_ts)
             )
             conn.commit()

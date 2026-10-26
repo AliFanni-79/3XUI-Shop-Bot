@@ -11,8 +11,9 @@ Discount rules applied:
 - Step 3+ (3rd use onwards): 25% discount (repeat_after = True, up to max_uses)
 - Validity / Expiration: 6 months (180 days)
 - Max uses: 10 maximum (max_uses = 10, per_user_limit = 10)
-- Identifier: responder_code (e.g. CqyRa)
+- Identifier: Exact responder_code from Porsline (case-preserved, e.g. CqyRa)
 - Target: Direct DB query (least overhead)
+- Incremental sync: Only adds new codes; ignores codes already in DB (ideal for hourly cron)
 """
 
 import argparse
@@ -116,11 +117,11 @@ def extract_identifiers(
         r_id = item.get("responder_id")
 
         if mode in ("code", "both") and r_code:
-            norm_code = r_code.upper()
-            if norm_code not in seen_codes:
-                seen_codes.add(norm_code)
+            # Preserve exact case as received from Porsline API (e.g. CqyRa)
+            if r_code not in seen_codes:
+                seen_codes.add(r_code)
                 records.append({
-                    "code": norm_code,
+                    "code": r_code,
                     "raw_code": r_code,
                     "responder_id": r_id,
                     "kind": "responder_code",
@@ -190,7 +191,7 @@ def build_stepped_discount_payload(
     desc = f"تخفیف پله‌ای ویژه پاسخ‌دهنده پرسلاین{extra_info} - پرسشنامه #{survey_id} (۱۰۰٪، ۵۰٪، ۲۵٪ - حداکثر {limit_val} بار)"
 
     return {
-        "code": code.strip().upper(),
+        "code": code.strip(),
         "discount_type": "PERCENT",
         "value": 100.0,
         "min_purchase": 0,
@@ -238,36 +239,68 @@ def ensure_db_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+class SaveResult:
+    """Result of saving discounts: acts as int (newly inserted count) for backwards compatibility
+    while exposing .inserted and .skipped attributes, and unpacking as (inserted, skipped).
+    """
+
+    def __init__(self, inserted: int, skipped: int):
+        self.inserted = inserted
+        self.skipped = skipped
+
+    def __iter__(self):
+        return iter((self.inserted, self.skipped))
+
+    def __int__(self) -> int:
+        return self.inserted
+
+    def __index__(self) -> int:
+        return self.inserted
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, int):
+            return self.inserted == other
+        if isinstance(other, (tuple, list)):
+            return (self.inserted, self.skipped) == tuple(other)
+        return False
+
+    def __repr__(self) -> str:
+        return f"SaveResult(inserted={self.inserted}, skipped={self.skipped})"
+
+
 def save_discounts_to_db(
     discounts: List[Dict[str, Any]],
     db_path: str = DEFAULT_DB_PATH,
-) -> int:
-    """Insert or update discount codes in SQLite database via direct batch DB query.
+    skip_existing: bool = True,
+) -> SaveResult:
+    """Insert discount codes in SQLite database via direct batch DB query.
+    If skip_existing=True (default), existing codes in the database are NOT overwritten or re-added.
     Direct DB query provides the lowest overhead (no network latency or HTTP overhead).
+    Returns SaveResult(inserted, skipped).
     """
     conn = sqlite3.connect(db_path)
     try:
         ensure_db_schema(conn)
         cursor = conn.cursor()
+
+        existing_codes: Set[str] = set()
+        if skip_existing:
+            rows = cursor.execute("SELECT code FROM discount_codes").fetchall()
+            existing_codes = {str(r[0]).lower() for r in rows if r[0]}
+
+        to_insert = [d for d in discounts if d["code"].lower() not in existing_codes]
+        skipped_count = len(discounts) - len(to_insert)
+
+        if not to_insert:
+            return SaveResult(0, skipped_count)
+
         sql = """
             INSERT INTO discount_codes (
                 code, discount_type, value, min_purchase, max_uses, per_user_limit,
                 expires_at, active, created_at, is_auto, title, cashback_percent,
                 steps_json, description
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(code) DO UPDATE SET
-                discount_type = excluded.discount_type,
-                value = excluded.value,
-                min_purchase = excluded.min_purchase,
-                max_uses = excluded.max_uses,
-                per_user_limit = excluded.per_user_limit,
-                expires_at = excluded.expires_at,
-                active = excluded.active,
-                is_auto = excluded.is_auto,
-                title = excluded.title,
-                cashback_percent = excluded.cashback_percent,
-                steps_json = excluded.steps_json,
-                description = excluded.description
+            ON CONFLICT(code) DO NOTHING
         """
         rows = [
             (
@@ -286,11 +319,11 @@ def save_discounts_to_db(
                 d["steps_json"],
                 d["description"],
             )
-            for d in discounts
+            for d in to_insert
         ]
         cursor.executemany(sql, rows)
         conn.commit()
-        return len(rows)
+        return SaveResult(len(rows), skipped_count)
     finally:
         conn.close()
 
@@ -299,8 +332,10 @@ def save_discounts_via_api(
     discounts: List[Dict[str, Any]],
     api_url: str = "http://127.0.0.1:8000",
     admin_token: str = "",
-) -> int:
+    skip_existing: bool = True,
+) -> SaveResult:
     """Save discount codes via SpeedyBot Admin HTTP API.
+    If skip_existing=True (default), skips codes that already exist in the API.
     Note: Has higher overhead than direct DB query due to HTTP round-trips and JWT auth.
     """
     if not admin_token:
@@ -311,8 +346,24 @@ def save_discounts_via_api(
         "Accept": "application/json",
     }
     endpoint = f"{api_url.rstrip('/')}/api/admin/rewards/discounts"
+
+    existing_codes: Set[str] = set()
+    if skip_existing:
+        try:
+            req = urllib.request.Request(endpoint, headers=headers, method="GET")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    items = data.get("discount_codes", [])
+                    existing_codes = {str(item.get("code") or "").lower() for item in items}
+        except Exception:
+            pass
+
+    to_insert = [d for d in discounts if d["code"].lower() not in existing_codes]
+    skipped_count = len(discounts) - len(to_insert)
+
     saved = 0
-    for d in discounts:
+    for d in to_insert:
         steps = json.loads(d.get("steps_json") or "[]")
         payload = {
             "code": d["code"],
@@ -336,7 +387,7 @@ def save_discounts_via_api(
                     saved += 1
         except Exception as exc:
             raise RuntimeError(f"API request failed for code {d['code']}: {exc}") from exc
-    return saved
+    return SaveResult(saved, skipped_count)
 
 
 def main():
@@ -346,19 +397,19 @@ def main():
     parser.add_argument(
         "--token",
         default=os.getenv("PORSLINE_API_TOKEN", DEFAULT_PORSLINE_TOKEN),
-        help="Porsline API token",
+        help="Porsline API token (default: from env PORSLINE_API_TOKEN)",
     )
     parser.add_argument(
         "--survey-id",
         type=int,
         default=int(os.getenv("PORSLINE_SURVEY_ID", DEFAULT_SURVEY_ID)),
-        help="Porsline Survey ID",
+        help="Porsline Survey ID (default: 2682416)",
     )
     parser.add_argument(
         "--mode",
         choices=["code", "id", "both"],
         default="code",
-        help="Identifier type to import: 'code' (responder_code e.g. CqyRa) [default], 'id' (numeric responder_id), or 'both'",
+        help="Identifier type to import: 'code' (exact responder_code e.g. CqyRa) [default], 'id', or 'both'",
     )
     parser.add_argument(
         "--max-uses",
@@ -403,45 +454,54 @@ def main():
         action="store_true",
         help="Simulate database import without making persistent changes",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Minimal output for cron jobs (single-line summary)",
+    )
 
     args = parser.parse_args()
 
-    print("================================================================")
-    print(" 🚀 استخراج شناسه‌های پاسخ‌دهندگان پرسلاین و تبدیل به کد تخفیف پله‌ای")
-    print("================================================================")
-    print(f"📌 شماره پرسشنامه (Survey ID): {args.survey_id}")
-    print(f"🔑 توکن ارتباطی: {args.token[:8]}...{args.token[-6:]}")
-    print(f"⚙️ حالت شناسه‌ها (Mode): {args.mode} (فقط responder_code)")
-    print(f"⏳ مهلت استفاده: {args.days} روز (۶ ماه)")
-    print(f"🔢 حداکثر دفعات استفاده: {args.max_uses} بار (بدون استفاده نامحدود)")
-    if args.target == "db":
-        print(f"🗄 روش ذخیره‌سازی: Direct DB Query با کمترین سربار (مسیر: {args.db_path})")
-    else:
-        print(f"🌐 روش ذخیره‌سازی: HTTP Admin API (آدرس: {args.api_url})")
-    print("----------------------------------------------------------------")
+    if not args.quiet:
+        print("================================================================")
+        print("  Porsline Survey Stepped Discount Importer")
+        print("================================================================")
+        print(f"  Survey ID:        {args.survey_id}")
+        print(f"  Porsline Token:   {args.token[:8]}...{args.token[-6:]}")
+        print(f"  Identifier Mode:  {args.mode} (exact responder_code)")
+        print(f"  Code Validity:    {args.days} days (~6 months)")
+        print(f"  Usage Cap:        Maximum {args.max_uses} uses per code (no unlimited)")
+        if args.target == "db":
+            print(f"  Target Storage:   Direct DB Query (Database: {args.db_path})")
+        else:
+            print(f"  Target Storage:   HTTP Admin API (URL: {args.api_url})")
+        print("----------------------------------------------------------------")
 
     # 1. Fetch from Porsline
-    print("📡 در حال دریافت پاسخ‌ها از API پرسلاین بدون نیاز به اشتراک حرفه‌ای...")
+    if not args.quiet:
+        print("Fetching survey responses from Porsline API...")
     try:
         responses, meta = fetch_porsline_responses(survey_id=args.survey_id, api_token=args.token)
     except Exception as exc:
-        print(f"❌ خطا در اتصال به پرسلاین: {exc}", file=sys.stderr)
+        print(f"Error connecting to Porsline API: {exc}", file=sys.stderr)
         sys.exit(1)
 
     total_responders = meta.get("responders_count", len(responses))
-    print(f"✅ با موفقیت {len(responses)} پاسخ از مجموع {total_responders} پاسخ‌دهنده دریافت شد.")
+    if not args.quiet:
+        print(f"Successfully fetched {len(responses)} responses (total respondents: {total_responders}).")
 
     # 2. Extract identifiers
     identifiers = extract_identifiers(responses, mode=args.mode)
-    print(f"📋 تعداد کل شناسه‌های استخراج‌شده برای ایجاد کد تخفیف: {len(identifiers)}")
-    print("\n🔍 نمونه شناسه‌های استخراج‌شده:")
-    for i, it in enumerate(identifiers[:10], 1):
-        print(f"  {i}. کد تخفیف: {it['code']} (نوع: {it['kind']} | کد اصلی: {it['raw_code']} | شناسه عددی: {it['responder_id']})")
-    if len(identifiers) > 10:
-        print(f"  ... و {len(identifiers) - 10} شناسه دیگر.")
+    if not args.quiet:
+        print(f"Extracted {len(identifiers)} unique responder codes (exact case preserved).")
+        print("\nSample extracted codes:")
+        for i, it in enumerate(identifiers[:10], 1):
+            print(f"  {i}. Code: {it['code']} (numeric ID: {it.get('responder_id')})")
+        if len(identifiers) > 10:
+            print(f"  ... and {len(identifiers) - 10} more codes.")
 
     if args.list_only:
-        print("\n🏁 عملیات بر اساس گزینه --list-only خاتمه یافت (هیچ تغییری در دیتابیس ثبت نشد).")
+        print("\nExiting (--list-only specified, no database changes made).")
         return
 
     # 3. Build discount payloads
@@ -456,27 +516,43 @@ def main():
         for it in identifiers
     ]
 
-    print("\n📊 ساختار تخفیف پلکانی تنظیم‌شده:")
-    print("  • مرحله ۱ (خرید اول): ۱۰۰٪ تخفیف رایگان")
-    print("  • مرحله ۲ (خرید دوم): ۵۰٪ تخفیف")
-    print("  • مرحله ۳ به بعد (خرید سوم و دفعات بعد): ۲۵٪ تخفیف")
-    print(f"  • مهلت استفاده: {args.days} روز")
-    print(f"  • محدودیت سقف استفاده: حداکثر {args.max_uses} بار")
+    if not args.quiet:
+        print("\nStepped Discount Structure:")
+        print("  * Step 1 (1st purchase): 100% discount (free)")
+        print("  * Step 2 (2nd purchase): 50% discount")
+        print("  * Step 3+ (3rd to 10th purchase): 25% discount")
+        print(f"  * Validity: {args.days} days")
+        print(f"  * Usage cap: Maximum {args.max_uses} uses")
 
-    # 4. Save to Database or API
+    # 4. Save to Database or API (Incremental sync: only adds new codes)
     if args.dry_run:
-        print(f"\n⚠️ حالت آزمایشی (--dry-run): {len(discounts)} رکورد آماده ثبت بود اما در دیتابیس ذخیره نشد.")
+        print(f"\nDry-run mode (--dry-run): {len(discounts)} codes prepared, none written to database.")
     else:
         if args.target == "db":
-            print(f"\n💾 در حال درج/بروزرسانی مستقیم {len(discounts)} کد تخفیف در دیتابیس '{args.db_path}' (Direct DB Query - کمترین سربار)...")
-            saved_count = save_discounts_to_db(discounts, db_path=args.db_path)
-            print(f"🎉 عملیات با موفقیت انجام شد! {saved_count} کد تخفیف پلکانی در دیتابیس ذخیره گردید.")
+            if not args.quiet:
+                print(f"\nChecking database '{args.db_path}' for existing codes...")
+            result = save_discounts_to_db(discounts, db_path=args.db_path, skip_existing=True)
+            if args.quiet:
+                print(f"Porsline sync: {result.inserted} new added, {result.skipped} existing, {len(discounts)} total.")
+            else:
+                print("Database sync completed successfully:")
+                print(f"  - Total respondents fetched:       {len(discounts)}")
+                print(f"  - Already in database (skipped):   {result.skipped}")
+                print(f"  - Newly added discount codes:      {result.inserted}")
         else:
-            print(f"\n🌐 در حال ارسال {len(discounts)} کد تخفیف از طریق API به '{args.api_url}'...")
-            saved_count = save_discounts_via_api(discounts, api_url=args.api_url, admin_token=args.api_token)
-            print(f"🎉 عملیات با موفقیت انجام شد! {saved_count} کد تخفیف پلکانی از طریق API ثبت گردید.")
+            if not args.quiet:
+                print(f"\nSending new discount codes via API to '{args.api_url}'...")
+            result = save_discounts_via_api(discounts, api_url=args.api_url, admin_token=args.api_token, skip_existing=True)
+            if args.quiet:
+                print(f"Porsline sync: {result.inserted} new added, {result.skipped} existing, {len(discounts)} total.")
+            else:
+                print("API sync completed successfully:")
+                print(f"  - Total respondents fetched:       {len(discounts)}")
+                print(f"  - Already in database (skipped):   {result.skipped}")
+                print(f"  - Newly added discount codes:      {result.inserted}")
 
-    print("================================================================")
+    if not args.quiet:
+        print("================================================================")
 
 
 if __name__ == "__main__":
