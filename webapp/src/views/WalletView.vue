@@ -152,14 +152,23 @@
             <p class="leading-relaxed whitespace-pre-line">{{ d.description }}</p>
           </div>
 
-          <!-- Action Button: «استفاده» -> Redirects to Store / Plans -->
+          <!-- Action Button: «کپی و استفاده» -> Copies Code and Redirects to Store -->
           <div class="pt-1 flex justify-end">
             <button
-              @click="goToStore"
-              class="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition"
+              type="button"
+              @click="copyAndUseDiscount(d.code)"
+              :disabled="copiedCode === d.code"
+              class="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition active:scale-95 disabled:opacity-80"
             >
-              <span>🛍 استفاده در خرید سرویس</span>
-              <span>←</span>
+              <template v-if="copiedCode === d.code">
+                <span>✓</span>
+                <span>کپی شد! در حال انتقال...</span>
+              </template>
+              <template v-else>
+                <span>📋</span>
+                <span>کپی و استفاده</span>
+                <span>←</span>
+              </template>
             </button>
           </div>
         </div>
@@ -269,6 +278,49 @@ const handleRedeemCode = async () => {
   } finally {
     submittingCode.value = false
   }
+}
+
+const copiedCode = ref(null)
+
+const copyToClipboard = async (text) => {
+  let success = false
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      success = true
+    } catch (_) {}
+  }
+  if (!success) {
+    try {
+      const el = document.createElement('textarea')
+      el.value = text
+      el.setAttribute('readonly', '')
+      el.style.position = 'fixed'
+      el.style.left = '-9999px'
+      el.style.top = '-9999px'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      el.setSelectionRange(0, 99999)
+      success = document.execCommand('copy')
+      document.body.removeChild(el)
+    } catch (_) {}
+  }
+  return success
+}
+
+const copyAndUseDiscount = async (code) => {
+  if (!code) return
+  copiedCode.value = code
+  await copyToClipboard(code)
+
+  try {
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred('success')
+  } catch (_) {}
+
+  setTimeout(() => {
+    router.push({ path: '/store', query: { code } })
+  }, 350)
 }
 
 const goToStore = () => {

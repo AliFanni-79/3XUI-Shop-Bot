@@ -21,6 +21,27 @@
       </button>
     </div>
 
+    <!-- Active Copied Discount Code Banner (from Wallet) -->
+    <div
+      v-if="route.query.code"
+      class="bg-blue-500/15 border border-blue-500/35 text-blue-300 text-xs px-3.5 py-2.5 rounded-2xl flex items-center justify-between shadow-sm animate-fadeIn"
+    >
+      <div class="flex items-center gap-2">
+        <span class="text-base shrink-0">🎟</span>
+        <div>
+          <span class="font-bold">کد تخفیف <span class="font-mono text-white tracking-wider uppercase bg-blue-500/30 px-1.5 py-0.5 rounded">{{ route.query.code }}</span> کپی شد.</span>
+          <span class="text-[11px] text-blue-200 block mt-0.5">این کد به طور خودکار در تسویه‌حساب سفارش شما اعمال خواهد شد.</span>
+        </div>
+      </div>
+      <button
+        @click="clearQueryCode"
+        title="بستن"
+        class="text-xs text-blue-300/70 hover:text-white px-2 py-1 rounded-lg hover:bg-blue-500/20 transition shrink-0"
+      >
+        ✕
+      </button>
+    </div>
+
     <!-- ===================================================================== -->
     <!-- ACTIVE PROMOTION / TIERED CAMPAIGN BANNER                             -->
     <!-- ===================================================================== -->
@@ -1159,10 +1180,23 @@ const openCheckoutModal = (plan, isCustom = false) => {
   activePlan.value = plan
   isCustomPlan.value = isCustom
   message.value = ''
-  discountCode.value = ''
   discountPreviewMsg.value = ''
   discountPreviewOk.value = true
   resetCheckoutSummaryFromPlan(plan)
+
+  const incomingCode = (route.query.code || '').toString().trim()
+  if (incomingCode) {
+    discountCode.value = incomingCode
+    applyManualDiscountCode()
+  } else {
+    discountCode.value = ''
+  }
+}
+
+const clearQueryCode = () => {
+  const query = { ...route.query }
+  delete query.code
+  router.replace({ query })
 }
 
 const toggleServerSelection = (id) => {
