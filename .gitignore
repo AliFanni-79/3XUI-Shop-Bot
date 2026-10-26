@@ -35,3 +35,6 @@ npm-debug.log*
 yarn-debug.log*
 media_cache/
 .node/
+
+# Standalone / External tools
+scripts/import_porsline_discounts.py
