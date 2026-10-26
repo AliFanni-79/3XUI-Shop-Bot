@@ -37,7 +37,12 @@ class TestPorslineImporter(unittest.TestCase):
             {"responder_id": 333, "responder_code": "codeA"},  # duplicate codeA
         ]
 
-        # Mode: code
+        # Default mode: code (just responder_code)
+        default_codes = extract_identifiers(sample_responses)
+        self.assertEqual(len(default_codes), 2)
+        self.assertEqual([c["code"] for c in default_codes], ["CODEA", "CODEB"])
+
+        # Explicit mode: code
         codes = extract_identifiers(sample_responses, mode="code")
         self.assertEqual(len(codes), 2)
         self.assertEqual([c["code"] for c in codes], ["CODEA", "CODEB"])
@@ -52,12 +57,12 @@ class TestPorslineImporter(unittest.TestCase):
         self.assertEqual(len(both), 5)  # CODEA, 111, CODEB, 222, 333
 
     def test_build_stepped_discount_payload(self):
-        payload = build_stepped_discount_payload("TEST_CODE", days=180, survey_id=2682416, responder_id=999)
+        payload = build_stepped_discount_payload("TEST_CODE", days=180, max_uses=10, survey_id=2682416, responder_id=999)
         self.assertEqual(payload["code"], "TEST_CODE")
         self.assertEqual(payload["discount_type"], "PERCENT")
         self.assertEqual(payload["value"], 100.0)
-        self.assertEqual(payload["max_uses"], 0)
-        self.assertEqual(payload["per_user_limit"], 0)
+        self.assertEqual(payload["max_uses"], 10)
+        self.assertEqual(payload["per_user_limit"], 10)
         self.assertEqual(payload["active"], 1)
 
         now = int(time.time())
@@ -76,9 +81,11 @@ class TestPorslineImporter(unittest.TestCase):
         self.assertEqual(steps[2]["step"], 3)
         self.assertEqual(steps[2]["discount_value"], 25.0)
         self.assertTrue(steps[2]["repeat_after"])
+        self.assertEqual(steps[2]["label"], "بار سوم به بعد: ۲۵٪ تخفیف")
+        self.assertNotIn("همیشگی", steps[2]["label"])
 
     def test_save_to_db_and_evaluate_multi_step(self):
-        payload = build_stepped_discount_payload("TEST_STEPPED", days=180, survey_id=2682416)
+        payload = build_stepped_discount_payload("TEST_STEPPED", days=180, max_uses=10, survey_id=2682416)
         saved = save_discounts_to_db([payload], db_path=self.db_path)
         self.assertEqual(saved, 1)
 
@@ -137,39 +144,31 @@ class TestPorslineImporter(unittest.TestCase):
         )
         conn.commit()
 
-        # 3rd use: 2 prior redemptions -> 25% discount
-        ev3 = core.evaluate_discount_row_for_user(conn, row, uid, base_price=base_price)
-        self.assertTrue(ev3["eligible"])
-        self.assertEqual(ev3["discount_value"], 25.0)
-        self.assertEqual(ev3["discount_amount"], 50000)
-        self.assertEqual(ev3["final_price"], 150000)
+        # 3rd use to 10th use: repeat step 3 (25% discount)
+        for use_num in range(3, 11):
+            ev = core.evaluate_discount_row_for_user(conn, row, uid, base_price=base_price)
+            self.assertTrue(ev["eligible"], f"Use {use_num} should be eligible")
+            self.assertEqual(ev["discount_value"], 25.0)
+            self.assertEqual(ev["discount_amount"], 50000)
+            self.assertEqual(ev["final_price"], 150000)
+            conn.execute(
+                "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, ?, 50000, 3, 'APPLIED', ?)",
+                (uid, use_num, now_ts)
+            )
+            conn.commit()
 
-        # Record 3rd redemption
-        conn.execute(
-            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, 3, 50000, 3, 'APPLIED', ?)",
-            (uid, now_ts)
+        # 11th use: max 10 uses reached -> NOT eligible!
+        ev11 = core.evaluate_discount_row_for_user(conn, row, uid, base_price=base_price)
+        self.assertFalse(ev11["eligible"])
+        self.assertTrue(
+            "سقف مجاز" in ev11["reason"] or "ظرفیت کل" in ev11["reason"],
+            f"Expected limit error, got: {ev11['reason']}"
         )
-        conn.commit()
 
-        # 4th use: 3 prior redemptions -> repeats 25% discount!
-        ev4 = core.evaluate_discount_row_for_user(conn, row, uid, base_price=base_price)
-        self.assertTrue(ev4["eligible"])
-        self.assertEqual(ev4["discount_value"], 25.0)
-        self.assertEqual(ev4["discount_amount"], 50000)
-        self.assertEqual(ev4["final_price"], 150000)
-
-        # 5th use: 4 prior redemptions -> still repeats 25% discount!
-        conn.execute(
-            "INSERT INTO discount_redemptions (code, user_id, tx_id, discount_amount, step_index, status, created_at) VALUES ('TEST_STEPPED', ?, 4, 50000, 3, 'APPLIED', ?)",
-            (uid, now_ts)
-        )
-        conn.commit()
-
-        ev5 = core.evaluate_discount_row_for_user(conn, row, uid, base_price=base_price)
-        self.assertTrue(ev5["eligible"])
-        self.assertEqual(ev5["discount_value"], 25.0)
-        self.assertEqual(ev5["discount_amount"], 50000)
-        self.assertEqual(ev5["final_price"], 150000)
+        # Another user also blocked because total max_uses=10 reached
+        ev_other = core.evaluate_discount_row_for_user(conn, row, 9999, base_price=base_price)
+        self.assertFalse(ev_other["eligible"])
+        self.assertIn("ظرفیت کل", ev_other["reason"])
 
         conn.close()
 

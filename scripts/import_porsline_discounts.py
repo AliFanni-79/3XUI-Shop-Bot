@@ -8,9 +8,11 @@ https://survey.porsline.ir/api/v2/surveys/{survey_id}/responses/results-table/
 Discount rules applied:
 - Step 1 (1st use): 100% discount
 - Step 2 (2nd use): 50% discount
-- Step 3+ (3rd use onwards): 25% discount (repeat_after = True)
+- Step 3+ (3rd use onwards): 25% discount (repeat_after = True, up to max_uses)
 - Validity / Expiration: 6 months (180 days)
-- Max uses: Unlimited (max_uses = 0, per_user_limit = 0)
+- Max uses: 10 maximum (max_uses = 10, per_user_limit = 10)
+- Identifier: responder_code (e.g. CqyRa)
+- Target: Direct DB query (least overhead)
 """
 
 import argparse
@@ -32,6 +34,7 @@ DEFAULT_PORSLINE_TOKEN = "5bf19a2541c51e30c8a2fb88009f50f235ae3c01"
 DEFAULT_SURVEY_ID = 2682416
 DEFAULT_DB_PATH = "app.db"
 DEFAULT_DAYS = 180  # 6 months
+DEFAULT_MAX_USES = 10  # 10 maximum uses (no unlimited usage)
 
 
 def fetch_porsline_responses(
@@ -96,12 +99,12 @@ def fetch_porsline_responses(
 
 def extract_identifiers(
     responses: List[Dict[str, Any]],
-    mode: str = "both",
+    mode: str = "code",
 ) -> List[Dict[str, Any]]:
     """Extract responder codes, IDs, or both from response body items.
 
     mode:
-      - 'code': extract responder_code (e.g. CqyRa)
+      - 'code': extract responder_code (e.g. CqyRa) [default]
       - 'id': extract responder_id (e.g. 566319380)
       - 'both': extract both as separate discount codes
     """
@@ -140,6 +143,7 @@ def extract_identifiers(
 def build_stepped_discount_payload(
     code: str,
     days: int = DEFAULT_DAYS,
+    max_uses: int = DEFAULT_MAX_USES,
     survey_id: int = DEFAULT_SURVEY_ID,
     responder_id: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -147,9 +151,9 @@ def build_stepped_discount_payload(
 
     - Step 1: 100% discount
     - Step 2: 50% discount
-    - Step 3: 25% discount (repeat_after = True)
+    - Step 3+: 25% discount (repeat_after = True, up to max_uses)
     - 6-month validity (days * 86400)
-    - Unlimited uses (max_uses = 0, per_user_limit = 0)
+    - 10 maximum uses (max_uses = 10, per_user_limit = 10)
     """
     now_ts = int(time.time())
     expires_at = now_ts + (days * 86400)
@@ -177,20 +181,21 @@ def build_stepped_discount_payload(
             "discount_value": 25.0,
             "cashback_percent": 0.0,
             "repeat_after": True,
-            "label": "بار سوم به بعد: ۲۵٪ تخفیف همیشگی",
+            "label": "بار سوم به بعد: ۲۵٪ تخفیف",
         },
     ]
 
+    limit_val = max(0, int(max_uses))
     extra_info = f" (شناسه پاسخ: {responder_id})" if responder_id else ""
-    desc = f"تخفیف پله‌ای ویژه پاسخ‌دهنده پرسلاین{extra_info} - پرسشنامه #{survey_id} (۱۰۰٪، ۵۰٪، ۲۵٪)"
+    desc = f"تخفیف پله‌ای ویژه پاسخ‌دهنده پرسلاین{extra_info} - پرسشنامه #{survey_id} (۱۰۰٪، ۵۰٪، ۲۵٪ - حداکثر {limit_val} بار)"
 
     return {
         "code": code.strip().upper(),
         "discount_type": "PERCENT",
         "value": 100.0,
         "min_purchase": 0,
-        "max_uses": 0,
-        "per_user_limit": 0,
+        "max_uses": limit_val,
+        "per_user_limit": limit_val,
         "expires_at": expires_at,
         "active": 1,
         "created_at": now_ts,
@@ -237,56 +242,101 @@ def save_discounts_to_db(
     discounts: List[Dict[str, Any]],
     db_path: str = DEFAULT_DB_PATH,
 ) -> int:
-    """Insert or update discount codes in SQLite database."""
+    """Insert or update discount codes in SQLite database via direct batch DB query.
+    Direct DB query provides the lowest overhead (no network latency or HTTP overhead).
+    """
     conn = sqlite3.connect(db_path)
     try:
         ensure_db_schema(conn)
         cursor = conn.cursor()
-        saved_count = 0
-        for d in discounts:
-            cursor.execute(
-                """
-                INSERT INTO discount_codes (
-                    code, discount_type, value, min_purchase, max_uses, per_user_limit,
-                    expires_at, active, created_at, is_auto, title, cashback_percent,
-                    steps_json, description
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code) DO UPDATE SET
-                    discount_type = excluded.discount_type,
-                    value = excluded.value,
-                    min_purchase = excluded.min_purchase,
-                    max_uses = excluded.max_uses,
-                    per_user_limit = excluded.per_user_limit,
-                    expires_at = excluded.expires_at,
-                    active = excluded.active,
-                    is_auto = excluded.is_auto,
-                    title = excluded.title,
-                    cashback_percent = excluded.cashback_percent,
-                    steps_json = excluded.steps_json,
-                    description = excluded.description
-                """,
-                (
-                    d["code"],
-                    d["discount_type"],
-                    d["value"],
-                    d["min_purchase"],
-                    d["max_uses"],
-                    d["per_user_limit"],
-                    d["expires_at"],
-                    d["active"],
-                    d["created_at"],
-                    d["is_auto"],
-                    d["title"],
-                    d["cashback_percent"],
-                    d["steps_json"],
-                    d["description"],
-                ),
+        sql = """
+            INSERT INTO discount_codes (
+                code, discount_type, value, min_purchase, max_uses, per_user_limit,
+                expires_at, active, created_at, is_auto, title, cashback_percent,
+                steps_json, description
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code) DO UPDATE SET
+                discount_type = excluded.discount_type,
+                value = excluded.value,
+                min_purchase = excluded.min_purchase,
+                max_uses = excluded.max_uses,
+                per_user_limit = excluded.per_user_limit,
+                expires_at = excluded.expires_at,
+                active = excluded.active,
+                is_auto = excluded.is_auto,
+                title = excluded.title,
+                cashback_percent = excluded.cashback_percent,
+                steps_json = excluded.steps_json,
+                description = excluded.description
+        """
+        rows = [
+            (
+                d["code"],
+                d["discount_type"],
+                d["value"],
+                d["min_purchase"],
+                d["max_uses"],
+                d["per_user_limit"],
+                d["expires_at"],
+                d["active"],
+                d["created_at"],
+                d["is_auto"],
+                d["title"],
+                d["cashback_percent"],
+                d["steps_json"],
+                d["description"],
             )
-            saved_count += 1
+            for d in discounts
+        ]
+        cursor.executemany(sql, rows)
         conn.commit()
-        return saved_count
+        return len(rows)
     finally:
         conn.close()
+
+
+def save_discounts_via_api(
+    discounts: List[Dict[str, Any]],
+    api_url: str = "http://127.0.0.1:8000",
+    admin_token: str = "",
+) -> int:
+    """Save discount codes via SpeedyBot Admin HTTP API.
+    Note: Has higher overhead than direct DB query due to HTTP round-trips and JWT auth.
+    """
+    if not admin_token:
+        raise ValueError("Admin token (--api-token) is required when using API mode")
+    headers = {
+        "Authorization": f"Bearer {admin_token.strip()}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    endpoint = f"{api_url.rstrip('/')}/api/admin/rewards/discounts"
+    saved = 0
+    for d in discounts:
+        steps = json.loads(d.get("steps_json") or "[]")
+        payload = {
+            "code": d["code"],
+            "discount_type": d["discount_type"],
+            "value": d["value"],
+            "min_purchase": d["min_purchase"],
+            "max_uses": d["max_uses"],
+            "per_user_limit": d["per_user_limit"],
+            "days": max(1, (d["expires_at"] - d["created_at"]) // 86400) if d.get("expires_at") else 0,
+            "is_auto": bool(d.get("is_auto")),
+            "title": d.get("title") or "",
+            "description": d.get("description") or "",
+            "cashback_percent": d.get("cashback_percent") or 0.0,
+            "steps": steps,
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 201):
+                    saved += 1
+        except Exception as exc:
+            raise RuntimeError(f"API request failed for code {d['code']}: {exc}") from exc
+    return saved
 
 
 def main():
@@ -305,21 +355,43 @@ def main():
         help="Porsline Survey ID",
     )
     parser.add_argument(
-        "--db-path",
-        default=os.getenv("DATABASE_PATH", DEFAULT_DB_PATH),
-        help="Path to SQLite database (default: app.db)",
-    )
-    parser.add_argument(
         "--mode",
         choices=["code", "id", "both"],
-        default="both",
-        help="Identifier type to import: 'code' (responder_code e.g. CqyRa), 'id' (numeric responder_id), or 'both' (default: both)",
+        default="code",
+        help="Identifier type to import: 'code' (responder_code e.g. CqyRa) [default], 'id' (numeric responder_id), or 'both'",
+    )
+    parser.add_argument(
+        "--max-uses",
+        type=int,
+        default=DEFAULT_MAX_USES,
+        help="Maximum uses allowed per discount code (default: 10, no unlimited usage)",
     )
     parser.add_argument(
         "--days",
         type=int,
         default=DEFAULT_DAYS,
         help="Discount code validity in days (default: 180 = 6 months)",
+    )
+    parser.add_argument(
+        "--target",
+        choices=["db", "api"],
+        default="db",
+        help="Import destination: 'db' for direct SQLite query (least overhead) [default], or 'api' for SpeedyBot Admin REST API",
+    )
+    parser.add_argument(
+        "--db-path",
+        default=os.getenv("DATABASE_PATH", DEFAULT_DB_PATH),
+        help="Path to SQLite database for direct DB query (default: app.db)",
+    )
+    parser.add_argument(
+        "--api-url",
+        default=os.getenv("SPEEDYBOT_API_URL", "http://127.0.0.1:8000"),
+        help="SpeedyBot API base URL (used when --target=api, default: http://127.0.0.1:8000)",
+    )
+    parser.add_argument(
+        "--api-token",
+        default=os.getenv("SPEEDYBOT_ADMIN_TOKEN", ""),
+        help="Admin JWT token for SpeedyBot API (required when --target=api)",
     )
     parser.add_argument(
         "--list-only",
@@ -339,9 +411,13 @@ def main():
     print("================================================================")
     print(f"📌 شماره پرسشنامه (Survey ID): {args.survey_id}")
     print(f"🔑 توکن ارتباطی: {args.token[:8]}...{args.token[-6:]}")
-    print(f"⚙️ حالت شناسه‌ها (Mode): {args.mode}")
+    print(f"⚙️ حالت شناسه‌ها (Mode): {args.mode} (فقط responder_code)")
     print(f"⏳ مهلت استفاده: {args.days} روز (۶ ماه)")
-    print(f"🗄 مسیر دیتابیس: {args.db_path}")
+    print(f"🔢 حداکثر دفعات استفاده: {args.max_uses} بار (بدون استفاده نامحدود)")
+    if args.target == "db":
+        print(f"🗄 روش ذخیره‌سازی: Direct DB Query با کمترین سربار (مسیر: {args.db_path})")
+    else:
+        print(f"🌐 روش ذخیره‌سازی: HTTP Admin API (آدرس: {args.api_url})")
     print("----------------------------------------------------------------")
 
     # 1. Fetch from Porsline
@@ -373,6 +449,7 @@ def main():
         build_stepped_discount_payload(
             code=it["code"],
             days=args.days,
+            max_uses=args.max_uses,
             survey_id=args.survey_id,
             responder_id=it.get("responder_id"),
         )
@@ -382,17 +459,22 @@ def main():
     print("\n📊 ساختار تخفیف پلکانی تنظیم‌شده:")
     print("  • مرحله ۱ (خرید اول): ۱۰۰٪ تخفیف رایگان")
     print("  • مرحله ۲ (خرید دوم): ۵۰٪ تخفیف")
-    print("  • مرحله ۳ به بعد (خرید سوم و دفعات بعد): ۲۵٪ تخفیف همیشگی")
+    print("  • مرحله ۳ به بعد (خرید سوم و دفعات بعد): ۲۵٪ تخفیف")
     print(f"  • مهلت استفاده: {args.days} روز")
-    print("  • محدودیت سقف استفاده: بدون محدودیت (نامحدود)")
+    print(f"  • محدودیت سقف استفاده: حداکثر {args.max_uses} بار")
 
-    # 4. Save to Database
+    # 4. Save to Database or API
     if args.dry_run:
         print(f"\n⚠️ حالت آزمایشی (--dry-run): {len(discounts)} رکورد آماده ثبت بود اما در دیتابیس ذخیره نشد.")
     else:
-        print(f"\n💾 در حال درج/بروزرسانی {len(discounts)} کد تخفیف در دیتابیس '{args.db_path}'...")
-        saved_count = save_discounts_to_db(discounts, db_path=args.db_path)
-        print(f"🎉 عملیات با موفقیت انجام شد! {saved_count} کد تخفیف پلکانی در دیتابیس ذخیره گردید.")
+        if args.target == "db":
+            print(f"\n💾 در حال درج/بروزرسانی مستقیم {len(discounts)} کد تخفیف در دیتابیس '{args.db_path}' (Direct DB Query - کمترین سربار)...")
+            saved_count = save_discounts_to_db(discounts, db_path=args.db_path)
+            print(f"🎉 عملیات با موفقیت انجام شد! {saved_count} کد تخفیف پلکانی در دیتابیس ذخیره گردید.")
+        else:
+            print(f"\n🌐 در حال ارسال {len(discounts)} کد تخفیف از طریق API به '{args.api_url}'...")
+            saved_count = save_discounts_via_api(discounts, api_url=args.api_url, admin_token=args.api_token)
+            print(f"🎉 عملیات با موفقیت انجام شد! {saved_count} کد تخفیف پلکانی از طریق API ثبت گردید.")
 
     print("================================================================")
 
