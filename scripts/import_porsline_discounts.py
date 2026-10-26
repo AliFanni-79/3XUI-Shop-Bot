@@ -31,46 +31,11 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_PORSLINE_TOKEN = "5bf19a2541c51e30c8a2fb88009f50f235ae3c01"
 DEFAULT_SURVEY_ID = 2682416
-DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "app.db")
+DEFAULT_DB_PATH = "app.db"
 DEFAULT_DAYS = 180  # 6 months
 DEFAULT_MAX_USES = 10  # 10 maximum uses (no unlimited usage)
-
-
-def resolve_database_path(path_str: str) -> str:
-    """Resolve database path, attempting case-insensitive directory/file matching on Linux."""
-    expanded = os.path.expanduser(os.path.expandvars(path_str))
-    if os.path.exists(expanded):
-        return os.path.abspath(expanded)
-
-    in_project = os.path.join(PROJECT_ROOT, expanded)
-    if os.path.exists(in_project):
-        return os.path.abspath(in_project)
-
-    parts = os.path.normpath(expanded).split(os.sep)
-    curr = os.sep if expanded.startswith(os.sep) else ""
-    for part in parts:
-        if not part:
-            continue
-        test_path = os.path.join(curr, part) if curr else part
-        if os.path.exists(test_path):
-            curr = test_path
-        else:
-            parent_dir = curr or "."
-            if os.path.isdir(parent_dir):
-                try:
-                    candidates = os.listdir(parent_dir)
-                    match = next((c for c in candidates if c.lower() == part.lower()), None)
-                    if match:
-                        curr = os.path.join(parent_dir, match)
-                        continue
-                except OSError:
-                    pass
-            curr = os.path.join(curr, part) if curr else part
-
-    return os.path.abspath(curr)
 
 
 def fetch_porsline_responses(
@@ -313,19 +278,7 @@ def save_discounts_to_db(
     Direct DB query provides the lowest overhead (no network latency or HTTP overhead).
     Returns SaveResult(inserted, skipped).
     """
-    resolved_path = resolve_database_path(db_path)
-    parent_dir = os.path.dirname(resolved_path)
-    if parent_dir and not os.path.exists(parent_dir):
-        raise FileNotFoundError(
-            f"Database directory not found: '{parent_dir}'. "
-            f"Please verify path spelling and case-sensitivity (e.g. '/root/SpeedyBot' vs '/root/Speedybot')."
-        )
-    conn = sqlite3.connect(resolved_path, timeout=30.0)
-    try:
-        conn.execute("PRAGMA busy_timeout = 30000;")
-        conn.execute("PRAGMA journal_mode = WAL;")
-    except Exception:
-        pass
+    conn = sqlite3.connect(db_path)
     try:
         ensure_db_schema(conn)
         cursor = conn.cursor()
@@ -509,10 +462,6 @@ def main():
 
     args = parser.parse_args()
 
-    original_db = args.db_path
-    if args.target == "db":
-        args.db_path = resolve_database_path(args.db_path)
-
     if not args.quiet:
         print("================================================================")
         print("  Porsline Survey Stepped Discount Importer")
@@ -524,8 +473,6 @@ def main():
         print(f"  Usage Cap:        Maximum {args.max_uses} uses per code (no unlimited)")
         if args.target == "db":
             print(f"  Target Storage:   Direct DB Query (Database: {args.db_path})")
-            if os.path.normpath(original_db) != os.path.normpath(args.db_path):
-                print(f"  Path Correction:  Auto-resolved from '{original_db}'")
         else:
             print(f"  Target Storage:   HTTP Admin API (URL: {args.api_url})")
         print("----------------------------------------------------------------")
