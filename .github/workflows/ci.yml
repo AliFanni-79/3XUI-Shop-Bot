@@ -41,6 +41,14 @@ jobs:
           bash -n update.sh
           bash -n upgrade.sh
           bash -n restore.sh
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Webapp build check
+        run: |
+          npm --prefix webapp ci || npm --prefix webapp install
+          npm --prefix webapp run build
       - name: Integrated layout
         run: |
           test -f main.py
@@ -72,13 +80,21 @@ jobs:
       - name: Bump Pre-release Version
         run: |
           python scripts/bump_version.py --mode prerelease
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build Webapp Assets
+        run: |
+          npm --prefix webapp ci || npm --prefix webapp install
+          npm --prefix webapp run build
       - name: Commit and Push Pre-release Version
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          git add VERSION.txt xuishop/__init__.py webapp/package.json webapp/dist
           if ! git diff --cached --quiet; then
             git commit -m "chore(prerelease): bump to ${TAG} [skip ci]"
             git pull --rebase origin main
@@ -121,13 +137,21 @@ jobs:
       - name: Bump Minor Version and Remove Patch
         run: |
           python scripts/bump_version.py --mode minor
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build Webapp Assets
+        run: |
+          npm --prefix webapp ci || npm --prefix webapp install
+          npm --prefix webapp run build
       - name: Commit and Push Release Version
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          git add VERSION.txt xuishop/__init__.py webapp/package.json webapp/dist
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): release ${TAG} [skip ci]"
             git pull --rebase origin main
@@ -174,13 +198,21 @@ jobs:
       - name: Bump Major Version and Remove Patch
         run: |
           python scripts/bump_version.py --mode major
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build Webapp Assets
+        run: |
+          npm --prefix webapp ci || npm --prefix webapp install
+          npm --prefix webapp run build
       - name: Commit and Push Release Version
         run: |
           NEW_VER=$(cat VERSION.txt | tr -d '[:space:]')
           TAG="v${NEW_VER}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION.txt xuishop/__init__.py webapp/package.json
+          git add VERSION.txt xuishop/__init__.py webapp/package.json webapp/dist
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): release ${TAG} [skip ci]"
             git pull --rebase origin main

@@ -869,7 +869,6 @@ const builderConfig = ref({
 
 // Checkout Modal state
 const activePlan = ref(null)
-const modalPrice = computed(() => Number(activePlan.value?.price || 0))
 const isCustomPlan = ref(false)
 const customServiceName = ref('')
 const discountCode = ref('')
