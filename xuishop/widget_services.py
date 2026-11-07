@@ -21,6 +21,8 @@ from urllib.parse import quote
 
 import requests
 
+from telebot import types
+
 from . import context as C
 
 try:
@@ -73,7 +75,7 @@ def build_services_payload(user_id: int) -> Dict[str, Any]:
     
     # 4. Query trial service
     trial_row = conn.execute(
-        "SELECT id, email, status, sub_id FROM trial_services WHERE user_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT user_id, email, status, sub_id FROM trial_services WHERE user_id=? ORDER BY created_at DESC LIMIT 1",
         (uid,)
     ).fetchone()
     
@@ -728,14 +730,16 @@ render();
 
 def fallback_send_services_message(bot, chat_id: int, user_id: int, payload: Dict[str, Any]):
     """Deliver a rich fallback message when in-chat HTML widget is unsupported by client/API."""
-    types = C.CORE.types
     services = payload.get("services", [])
     brand = payload.get("brand_name", "Shop")
     webapp_url = payload.get("webapp_url", "")
+    widget_url = f"{webapp_url.rstrip('/')}/widget/services?user_id={user_id}" if webapp_url else ""
     
     if not services:
         msg = f"📡 <b>سرویس‌های من | {html.escape(brand)}</b>\n\n❌ در حال حاضر هیچ سرویس فعالی ندارید."
         m = types.InlineKeyboardMarkup()
+        if widget_url:
+            m.add(types.InlineKeyboardButton("📡 باز کردن کارت تعاملی", web_app=types.WebAppInfo(url=widget_url)))
         if payload.get("trial_eligible"):
             m.add(types.InlineKeyboardButton("🎁 دریافت تست رایگان", callback_data="view:trial"))
         if webapp_url:
@@ -744,8 +748,10 @@ def fallback_send_services_message(bot, chat_id: int, user_id: int, payload: Dic
 
     m = types.InlineKeyboardMarkup(row_width=1)
     
-    # If Mini App is available, place prominent WebApp launcher at the top
-    if webapp_url:
+    # Place prominent WebApp launcher at the top to open the HTML5 widget directly!
+    if widget_url:
+        m.add(types.InlineKeyboardButton("📡 مشاهده سرویس‌ها (ویجت تعاملی)", web_app=types.WebAppInfo(url=widget_url)))
+    elif webapp_url:
         services_app_url = f"{webapp_url.rstrip('/')}#/services"
         m.add(types.InlineKeyboardButton("🌐 باز کردن نمای کارتی (Mini App)", web_app=types.WebAppInfo(url=services_app_url)))
 

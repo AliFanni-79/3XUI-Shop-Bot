@@ -22,9 +22,11 @@ def _account(message):
     uid=int(message.from_user.id)
     try:
         from . import widget_services
-        res = widget_services.send_active_services_widget(C.BOT, message.chat.id, uid)
-        if res:
-            return
+        bot = C.BOT or (C.CORE.bot if C.CORE else None)
+        if bot:
+            res = widget_services.send_active_services_widget(bot, message.chat.id, uid)
+            if res:
+                return
     except Exception:
         pass
 

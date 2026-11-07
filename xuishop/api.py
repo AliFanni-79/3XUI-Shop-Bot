@@ -5055,6 +5055,14 @@ _STATIC_CACHE_HEADERS = {
 }
 
 
+@app.get("/widget/services", response_class=HTMLResponse)
+def get_services_widget_page(user_id: int):
+    """Serve the interactive self-contained HTML5 widget for active services."""
+    from . import widget_services
+    payload = widget_services.build_services_payload(user_id)
+    return HTMLResponse(content=widget_services.render_services_widget_html(payload))
+
+
 def _mount_static():
     """Mount static assets and handle SPA client-side routing."""
     assets_dir = os.path.join(_WEBAPP_DIST, "assets")
