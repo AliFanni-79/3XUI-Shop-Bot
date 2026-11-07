@@ -1062,6 +1062,64 @@ class TestAdminEndpointsAndStars(unittest.TestCase):
                 self.assertIsNotNone(srow)
                 self.assertEqual(json.loads(srow["server_ids"]), [9001])
 
+    def test_admin_env_config_endpoints(self):
+        from xuishop import core
+        with patch("xuishop.api._get_bot_token", return_value=self.bot_token):
+            with patch("xuishop.api._is_admin", return_value=True):
+                init_data = self._generate_valid_init_data({"id": 111222, "first_name": "Admin"})
+
+                # 1. GET /api/admin/env
+                res = self.client.get("/api/admin/env", headers={"X-Telegram-Init-Data": init_data})
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertIn("xui_api_url", data)
+                self.assertIn("sub_link_format", data)
+                self.assertIn("xui_sub_json_path", data)
+                self.assertIn("protected_vars", data)
+                self.assertIn("BOT_TOKEN", data["protected_vars"])
+                self.assertIn("ADMIN_ID", data["protected_vars"])
+
+                # 2. POST /api/admin/env - update on the fly
+                save_res = self.client.post(
+                    "/api/admin/env",
+                    json={
+                        "xui_api_url": "https://panel-live.example.com:2053",
+                        "sub_link_format": "both",
+                        "xui_sub_json_path": "/sub-json/",
+                        "custom_vars": {"EXTRA_KEY": "EXTRA_VAL"}
+                    },
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(save_res.status_code, 200)
+                self.assertEqual(core.get_sub_link_format(), "both")
+                self.assertEqual(core.get_xui_sub_json_path(), "/sub-json/")
+                self.assertEqual(core.get_xui_api_url(), "https://panel-live.example.com:2053")
+
+                # 3. POST /api/admin/env - try modifying BOT_TOKEN (should be blocked with 400)
+                bad_res = self.client.post(
+                    "/api/admin/env",
+                    json={"custom_vars": {"BOT_TOKEN": "forbidden"}},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(bad_res.status_code, 400)
+
+                # 4. POST /api/admin/env - try modifying ADMIN_ID (should be blocked with 400)
+                bad_admin_res = self.client.post(
+                    "/api/admin/env",
+                    json={"custom_vars": {"ADMIN_ID": "999"}},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(bad_admin_res.status_code, 400)
+
+                # 5. Switch to 'json' format
+                switch_res = self.client.post(
+                    "/api/admin/env",
+                    json={"sub_link_format": "json"},
+                    headers={"X-Telegram-Init-Data": init_data}
+                )
+                self.assertEqual(switch_res.status_code, 200)
+                self.assertEqual(core.get_sub_link_format(), "json")
+
 
 if __name__ == "__main__":
     unittest.main()

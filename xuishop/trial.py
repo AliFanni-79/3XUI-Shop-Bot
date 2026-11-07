@@ -200,8 +200,19 @@ def generate(uid: int, email: str, custom_name: Optional[str] = None) -> Dict[st
         f"⏱ اعتبار: <b>{days} روز</b>\n"
         f"👥 کاربر: <b>{ip_label}</b>\n"
     )
+    get_fmt = getattr(C.CORE, "get_sub_link_format", None)
+    fmt = get_fmt() if callable(get_fmt) else "normal"
     if sub:
-        text += f"\n🌐 <b>Subscription</b>\n<code>{html.escape(C.CORE._subscription_url(sub))}</code>\n"
+        sub_norm = C.CORE._subscription_url(sub)
+        json_fn = getattr(C.CORE, "_subscription_json_url", None)
+        sub_json = json_fn(sub) if callable(json_fn) else sub_norm
+        if fmt == "both":
+            text += f"\n🌐 <b>Subscription:</b>\n<code>{html.escape(sub_norm)}</code>\n"
+            text += f"\n📄 <b>JSON Subscription:</b>\n<code>{html.escape(sub_json)}</code>\n"
+        elif fmt == "json":
+            text += f"\n📄 <b>JSON Subscription:</b>\n<code>{html.escape(sub_json)}</code>\n"
+        else:
+            text += f"\n🌐 <b>Subscription:</b>\n<code>{html.escape(sub_norm)}</code>\n"
     if links:
         text += "\n🔑 <b>Direct configs</b>\n" + "\n".join(
             f"<code>{html.escape(link)}</code>" for link in links
@@ -217,11 +228,17 @@ def generate(uid: int, email: str, custom_name: Optional[str] = None) -> Dict[st
         email,
         f"{gb:g}GB/{days}d/ip={ip}/override={1 if is_override else 0}",
     )
+    sub_norm = C.CORE._subscription_url(sub) if sub else None
+    json_fn = getattr(C.CORE, "_subscription_json_url", None)
+    sub_json = json_fn(sub) if callable(json_fn) and sub else sub_norm
     return {
         "success": True,
         "email": email,
         "sub_id": sub,
-        "sub_url": C.CORE._subscription_url(sub) if sub else None,
+        "sub_url": sub_norm,
+        "sub_json_url": sub_json,
+        "sub_format": fmt,
+        "active_url": sub_json if fmt == 'json' else sub_norm,
         "links": links or [],
         "days": days,
         "volume_gb": gb,

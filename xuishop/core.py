@@ -38,6 +38,11 @@ XUI_BASE_PATH = os.getenv("XUI_BASE_PATH")      # مثلا /your-secret-base-pat
 XUI_BEARER_TOKEN = os.getenv("XUI_BEARER_TOKEN")
 XUI_SUB_SERVER_URL = os.getenv("XUI_SUB_SERVER_URL") # مثلا https://sub.example.com:2096
 XUI_SUB_PATH = os.getenv("XUI_SUB_PATH", "/sub/")  # مسیر Subscription در Settings → Subscription
+XUI_SUB_JSON_PATH = os.getenv("XUI_SUB_JSON_PATH", "/json/")  # مسیر Subscription JSON برای Sing-box / JSON
+SUB_LINK_FORMAT = os.getenv("SUB_LINK_FORMAT", "normal")  # 'normal' | 'json' | 'both'
+WEBAPP_PORT = os.getenv("WEBAPP_PORT", "8080")
+WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 
 _BaseExceptionHandler = getattr(telebot, "ExceptionHandler", object)
 
@@ -520,56 +525,105 @@ def get_xui_sub_path():
     val = get_db_setting('xui_sub_path', '').strip()
     return val or (XUI_SUB_PATH or "/sub/").strip()
 
-def update_xui_config(key, value):
-    """Update XUI configuration in database, runtime memory, and .env file."""
-    global XUI_API_URL, XUI_BASE_PATH, XUI_BEARER_TOKEN, XUI_SUB_SERVER_URL, XUI_SUB_PATH
-    key_lower = key.lower().strip()
+def get_xui_sub_json_path():
+    val = get_db_setting('xui_sub_json_path', '').strip()
+    return val or (XUI_SUB_JSON_PATH or "/json/").strip()
+
+def get_sub_link_format():
+    val = get_db_setting('sub_link_format', '').strip().lower()
+    if val in ('normal', 'json', 'both'):
+        return val
+    env_val = (SUB_LINK_FORMAT or os.getenv('SUB_LINK_FORMAT', 'normal')).strip().lower()
+    if env_val in ('normal', 'json', 'both'):
+        return env_val
+    return 'normal'
+
+DISALLOWED_ENV_VARS = {"BOT_TOKEN", "ADMIN_ID"}
+
+def update_env_variable(key, value):
+    """Update environment variable on the fly in memory, DB and .env file.
+    Strictly forbids altering BOT_TOKEN and ADMIN_ID."""
+    global XUI_API_URL, XUI_BASE_PATH, XUI_BEARER_TOKEN, XUI_SUB_SERVER_URL, XUI_SUB_PATH, XUI_SUB_JSON_PATH, SUB_LINK_FORMAT, WEBAPP_URL, WEBAPP_PORT, WEBAPP_HOST
+
+    key_clean = str(key).strip()
+    key_upper = key_clean.upper()
+    key_lower = key_clean.lower()
     val = str(value).strip()
 
+    if key_upper in DISALLOWED_ENV_VARS:
+        raise ValueError(f"Changing {key_upper} on the fly is strictly forbidden for security.")
+
+    if key_upper in ('XUI_API_URL', 'XUI_SUB_SERVER_URL', 'WEBAPP_URL'):
+        val = val.rstrip('/')
+    elif key_upper == 'XUI_BASE_PATH':
+        if val and not val.startswith('/'):
+            val = '/' + val
+        if val != '/' and val.endswith('/'):
+            val = val.rstrip('/')
+    elif key_upper in ('XUI_SUB_PATH', 'XUI_SUB_JSON_PATH'):
+        if not val:
+            val = '/sub/' if key_upper == 'XUI_SUB_PATH' else '/json/'
+        if not val.startswith('/'):
+            val = '/' + val
+        if not val.endswith('/'):
+            val = val + '/'
+    elif key_upper == 'SUB_LINK_FORMAT':
+        val = val.lower()
+        if val not in ('normal', 'json', 'both'):
+            val = 'normal'
+
+    # 1. Update database setting
+    update_db_setting(key_lower, val)
+    # 2. Update process os.environ
+    os.environ[key_upper] = val
+
+    # 3. Update runtime globals
+    if key_upper == 'XUI_API_URL':
+        XUI_API_URL = val
+    elif key_upper == 'XUI_BASE_PATH':
+        XUI_BASE_PATH = val
+    elif key_upper == 'XUI_BEARER_TOKEN':
+        XUI_BEARER_TOKEN = val
+    elif key_upper == 'XUI_SUB_SERVER_URL':
+        XUI_SUB_SERVER_URL = val
+    elif key_upper == 'XUI_SUB_PATH':
+        XUI_SUB_PATH = val
+    elif key_upper == 'XUI_SUB_JSON_PATH':
+        XUI_SUB_JSON_PATH = val
+    elif key_upper == 'SUB_LINK_FORMAT':
+        SUB_LINK_FORMAT = val
+    elif key_upper == 'WEBAPP_URL':
+        WEBAPP_URL = val
+    elif key_upper == 'WEBAPP_PORT':
+        WEBAPP_PORT = val
+    elif key_upper == 'WEBAPP_HOST':
+        WEBAPP_HOST = val
+
+    # 4. Write back to .env file
+    try:
+        env_manager.update_env_file({key_upper: val})
+    except Exception:
+        pass
+
+    return True
+
+def update_xui_config(key, value):
+    """Update XUI configuration in database, runtime memory, and .env file."""
     env_map = {
         'xui_api_url': 'XUI_API_URL',
         'xui_base_path': 'XUI_BASE_PATH',
         'xui_bearer_token': 'XUI_BEARER_TOKEN',
         'xui_sub_server_url': 'XUI_SUB_SERVER_URL',
         'xui_sub_path': 'XUI_SUB_PATH',
+        'xui_sub_json_path': 'XUI_SUB_JSON_PATH',
+        'sub_link_format': 'SUB_LINK_FORMAT',
+        'webapp_url': 'WEBAPP_URL',
+        'webapp_port': 'WEBAPP_PORT',
+        'webapp_host': 'WEBAPP_HOST',
     }
-    env_key = env_map.get(key_lower)
-    if not env_key:
-        return False
-
-    if key_lower in ('xui_api_url', 'xui_sub_server_url'):
-        val = val.rstrip('/')
-    elif key_lower == 'xui_base_path':
-        if val and not val.startswith('/'):
-            val = '/' + val
-        if val != '/' and val.endswith('/'):
-            val = val.rstrip('/')
-    elif key_lower == 'xui_sub_path':
-        if not val:
-            val = '/sub/'
-        if not val.startswith('/'):
-            val = '/' + val
-        if not val.endswith('/'):
-            val = val + '/'
-
-    update_db_setting(key_lower, val)
-    os.environ[env_key] = val
-    if env_key == 'XUI_API_URL':
-        XUI_API_URL = val
-    elif env_key == 'XUI_BASE_PATH':
-        XUI_BASE_PATH = val
-    elif env_key == 'XUI_BEARER_TOKEN':
-        XUI_BEARER_TOKEN = val
-    elif env_key == 'XUI_SUB_SERVER_URL':
-        XUI_SUB_SERVER_URL = val
-    elif env_key == 'XUI_SUB_PATH':
-        XUI_SUB_PATH = val
-
-    try:
-        env_manager.update_env_file({env_key: val})
-    except Exception:
-        pass
-    return True
+    key_clean = str(key).strip()
+    env_key = env_map.get(key_clean.lower(), key_clean.upper())
+    return update_env_variable(env_key, value)
 
 def replace_domain_in_all_configs(old_domain, new_domain):
     """Replace domain string across DB settings and .env."""
@@ -2888,8 +2942,23 @@ def handle_account_get_links(call):
     request_proxies = {'http': 'http://127.0.0.1:10808', 'https': 'http://127.0.0.1:10808'} if DEVELOPMENT_MODE else None
     
     if mode == "sub":
-        subscription_url = _subscription_url(param)
-        bot.send_message(user_id, f"🌐 **لینک سابسکریپشن اختصاصی شما (پورت 2096):**\n\n```\n{subscription_url}\n```", parse_mode="Markdown")
+        fmt = get_sub_link_format()
+        if fmt == "both":
+            sub_norm = _subscription_url(param)
+            sub_json = _subscription_json_url(param)
+            bot.send_message(
+                user_id,
+                f"🌐 **لینک‌های سابسکریپشن اختصاصی شما:**\n\n"
+                f"🔗 **لینک ساب معمولی:**\n```\n{sub_norm}\n```\n\n"
+                f"📄 **لینک ساب JSON (Sing-box):**\n```\n{sub_json}\n```",
+                parse_mode="Markdown"
+            )
+        elif fmt == "json":
+            sub_json = _subscription_json_url(param)
+            bot.send_message(user_id, f"📄 **لینک سابسکریپشن JSON (Sing-box) اختصاصی شما:**\n\n```\n{sub_json}\n```", parse_mode="Markdown")
+        else:
+            subscription_url = _subscription_url(param)
+            bot.send_message(user_id, f"🌐 **لینک سابسکریپشن اختصاصی شما (پورت 2096):**\n\n```\n{subscription_url}\n```", parse_mode="Markdown")
     elif mode == "dir":
         bot.answer_callback_query(call.id, "در حال استخراج...")
         get_links_url = _xui_url(f"panel/api/clients/links/{quote(str(param), safe='')}")
@@ -3231,19 +3300,30 @@ def _show_admin_xui_config(admin_chat):
     masked_token = f"{token[:6]}...{token[-4:]}" if len(token) > 10 else ("تنظیم نشده ❌" if not token else "***")
     sub_url = get_xui_sub_server_url()
     sub_path = get_xui_sub_path()
+    sub_json_path = get_xui_sub_json_path()
+    sub_format = get_sub_link_format()
+    format_titles = {
+        'normal': '🔗 فقط ساب معمولی (Normal)',
+        'json': '📄 فقط ساب JSON (Sing-box)',
+        'both': '🔀 نمایش هر دو لینک (Both)'
+    }
+    format_label = format_titles.get(sub_format, '🔗 فقط ساب معمولی (Normal)')
     env_file = env_manager.find_env_file()
 
     text = (
-        "🌐 <b>تنظیمات پنل سنائی (3x-ui) و دامنه‌ها</b>\n"
+        "🌐 <b>تنظیمات پنل سنائی (3x-ui)، فایل محیطی و سابسکریپشن</b>\n"
         "━━━━━━━━━━━━━━━━\n"
         f"🔗 <b>آدرس وب‌سرویس پنل:</b>\n<code>{escape(api_url or 'تنظیم نشده')}</code>\n\n"
         f"📂 <b>مسیر امن پنل (Base Path):</b>\n<code>{escape(base_path)}</code>\n\n"
         f"🔑 <b>توکن پنل (Bearer):</b>\n<code>{escape(masked_token)}</code>\n\n"
         f"🌐 <b>دامنه سرور سابسکریپشن:</b>\n<code>{escape(sub_url or 'تنظیم نشده')}</code>\n\n"
-        f"🛣 <b>مسیر سابسکریپشن:</b>\n<code>{escape(sub_path)}</code>\n\n"
+        f"🛣 <b>مسیر ساب معمولی:</b>\n<code>{escape(sub_path)}</code>\n\n"
+        f"📄 <b>مسیر ساب JSON (Sing-box):</b>\n<code>{escape(sub_json_path)}</code>\n\n"
+        f"🔀 <b>فرمت لینک ارسالی به کاربران:</b>\n<b>{escape(format_label)}</b>\n\n"
         f"📁 <b>فایل محیطی (.env):</b>\n<code>{escape(env_file or 'یافت نشد')}</code>\n"
         "━━━━━━━━━━━━━━━━\n"
-        "💡 با تغییر این مقادیر، هم دیتابیس ربات و هم فایل <code>.env</code> به‌روزرسانی شده و تغییرات بلافاصله روی تمام لینک‌ها و درخواست‌ها اعمال می‌گردد."
+        "💡 تغییرات این بخش به صورت زنده (On the Fly) در حافظه، دیتابیس و فایل .env اعمال می‌شوند.\n"
+        "🔒 <i>متغیرهای BOT_TOKEN و ADMIN_ID به دلایل امنیتی غیرقابل تغییر هستند.</i>"
     )
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
@@ -3255,13 +3335,17 @@ def _show_admin_xui_config(admin_chat):
         types.InlineKeyboardButton("✏️ دامنه ساب (Sub URL)", callback_data="admin:xui_edit_sub_url"),
     )
     markup.row(
-        types.InlineKeyboardButton("✏️ مسیر ساب (Sub Path)", callback_data="admin:xui_edit_sub_path"),
-        types.InlineKeyboardButton("🔄 تعویض کلی دامنه", callback_data="admin:xui_replace_domain"),
+        types.InlineKeyboardButton("✏️ مسیر ساب معمولی", callback_data="admin:xui_edit_sub_path"),
+        types.InlineKeyboardButton("✏️ مسیر ساب JSON", callback_data="admin:xui_edit_sub_json_path"),
     )
     markup.row(
-        types.InlineKeyboardButton("🧪 تست اتصال زنده", callback_data="admin:xui_test"),
-        types.InlineKeyboardButton("↩️ بازگشت به پنل", callback_data="plus:home"),
+        types.InlineKeyboardButton(f"🔄 تغییر فرمت لینک: {format_label}", callback_data="admin:xui_toggle_sub_format"),
     )
+    markup.row(
+        types.InlineKeyboardButton("🔄 تعویض کلی دامنه", callback_data="admin:xui_replace_domain"),
+        types.InlineKeyboardButton("🧪 تست اتصال زنده", callback_data="admin:xui_test"),
+    )
+    markup.add(types.InlineKeyboardButton("↩️ بازگشت به پنل", callback_data="plus:home"))
     bot.send_message(admin_chat, text, parse_mode="HTML", reply_markup=markup)
 
 
@@ -3962,13 +4046,27 @@ def handle_admin_panel_callbacks(call):
         diag = _run_xui_diagnostic()
         bot.send_message(admin_chat, f"🧪 <b>نتیجه تست اتصال به پنل سنائی:</b>\n\n{diag}", parse_mode="HTML")
 
-    elif action in ["xui_edit_api_url", "xui_edit_base_path", "xui_edit_token", "xui_edit_sub_url", "xui_edit_sub_path", "xui_replace_domain"]:
+    elif action == "xui_toggle_sub_format":
+        cur_fmt = get_sub_link_format()
+        cycle = {'normal': 'json', 'json': 'both', 'both': 'normal'}
+        next_fmt = cycle.get(cur_fmt, 'normal')
+        update_xui_config('sub_link_format', next_fmt)
+        format_titles = {
+            'normal': 'فقط ساب معمولی (Normal)',
+            'json': 'فقط ساب JSON (Sing-box)',
+            'both': 'ارائه هر دو لینک (Both)'
+        }
+        bot.answer_callback_query(call.id, f"فرمت ساب به «{format_titles[next_fmt]}» تغییر کرد ✅")
+        _show_admin_xui_config(admin_chat)
+
+    elif action in ["xui_edit_api_url", "xui_edit_base_path", "xui_edit_token", "xui_edit_sub_url", "xui_edit_sub_path", "xui_edit_sub_json_path", "xui_replace_domain"]:
         xui_handlers = {
             "xui_edit_api_url": process_edit_xui_api_url,
             "xui_edit_base_path": process_edit_xui_base_path,
             "xui_edit_token": process_edit_xui_token,
             "xui_edit_sub_url": process_edit_xui_sub_url,
             "xui_edit_sub_path": process_edit_xui_sub_path,
+            "xui_edit_sub_json_path": process_edit_xui_sub_json_path,
             "xui_replace_domain": process_xui_replace_domain,
         }
         msg = bot.send_message(admin_chat, "✍️ مقدار جدید را وارد کنید:", reply_markup=back_menu())
@@ -4573,6 +4671,15 @@ def process_edit_xui_sub_path(message):
     bot.send_message(message.chat.id, f"✅ مسیر سابسکریپشن با موفقیت به‌روزرسانی شد:\n`{raw}`", parse_mode="Markdown", reply_markup=main_menu())
 
 
+def process_edit_xui_sub_json_path(message):
+    raw = (message.text or "").strip()
+    if raw == "🔙 بازگشت به منوی اصلی":
+        bot.send_message(message.chat.id, "عملیات لغو شد.", reply_markup=main_menu())
+        return
+    update_xui_config('xui_sub_json_path', raw)
+    bot.send_message(message.chat.id, f"✅ مسیر سابسکریپشن JSON با موفقیت به‌روزرسانی شد:\n`{raw}`", parse_mode="Markdown", reply_markup=main_menu())
+
+
 def process_xui_replace_domain(message):
     raw = (message.text or "").strip()
     if raw == "🔙 بازگشت به منوی اصلی":
@@ -4771,30 +4878,69 @@ def _subscription_url(sub_id):
     return f"{base}{path}{quote(str(sub_id), safe='')}"
 
 
-def get_client_sub_url(email: str, sub_id: Optional[str] = None) -> Optional[str]:
-    """Resolve the true subscription URL using sub_id or by querying 3x-ui panel."""
-    if sub_id and str(sub_id).strip() and str(sub_id).strip().lower() not in ("none", "null", "error_id"):
-        return _subscription_url(str(sub_id).strip())
-    if not email:
-        return None
-    try:
-        headers = _xui_headers()
-        proxies = _xui_proxies()
-        client = _get_client_data(email, headers, proxies)
-        resolved_sid = _get_client_subscription_id(email, headers, proxies, client)
-        if resolved_sid:
+def _subscription_json_url(sub_id):
+    base = get_xui_sub_server_url().rstrip("/")
+    path = get_xui_sub_json_path()
+    if not path.startswith("/"):
+        path = "/" + path
+    if not path.endswith("/"):
+        path += "/"
+    return f"{base}{path}{quote(str(sub_id), safe='')}"
+
+
+def get_client_sub_urls(email: str, sub_id: Optional[str] = None) -> dict:
+    """Resolve both normal and json subscription URLs, returning a dict with details."""
+    resolved_sid = sub_id
+    if not resolved_sid or str(resolved_sid).strip().lower() in ("none", "null", "error_id"):
+        if email:
             try:
-                conn = _db_connect()
-                conn.execute("UPDATE transactions SET sub_id = ? WHERE service_email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
-                conn.execute("UPDATE trial_services SET sub_id = ? WHERE email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
-                conn.commit()
-                conn.close()
+                headers = _xui_headers()
+                proxies = _xui_proxies()
+                client = _get_client_data(email, headers, proxies)
+                resolved_sid = _get_client_subscription_id(email, headers, proxies, client)
+                if resolved_sid:
+                    try:
+                        conn = _db_connect()
+                        conn.execute("UPDATE transactions SET sub_id = ? WHERE service_email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
+                        conn.execute("UPDATE trial_services SET sub_id = ? WHERE email = ? AND (sub_id IS NULL OR sub_id = '')", (resolved_sid, email))
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
             except Exception:
                 pass
-            return _subscription_url(resolved_sid)
-    except Exception:
-        pass
-    return None
+
+    fmt = get_sub_link_format()
+    if resolved_sid and str(resolved_sid).strip().lower() not in ("none", "null", "error_id"):
+        sid_str = str(resolved_sid).strip()
+        normal_url = _subscription_url(sid_str)
+        json_url = _subscription_json_url(sid_str)
+        return {
+            "sub_id": sid_str,
+            "sub_url": normal_url,
+            "sub_json_url": json_url,
+            "format": fmt,
+            "active_url": json_url if fmt == 'json' else normal_url,
+        }
+    return {
+        "sub_id": None,
+        "sub_url": None,
+        "sub_json_url": None,
+        "format": fmt,
+        "active_url": None,
+    }
+
+
+def get_client_sub_url(email: str, sub_id: Optional[str] = None, format: Optional[str] = None) -> Optional[str]:
+    """Resolve the true subscription URL using sub_id or by querying 3x-ui panel."""
+    info = get_client_sub_urls(email, sub_id)
+    if not info.get("sub_id"):
+        return None
+    if format == 'normal':
+        return info["sub_url"]
+    elif format == 'json':
+        return info["sub_json_url"]
+    return info["active_url"]
 
 
 def _xui_response_error(response, action):
@@ -5237,8 +5383,13 @@ def generate_trial_xui_config(user_id, user_email):
     )
 
     if sub_id:
-        subscription_url = _subscription_url(sub_id)
-        msg_text += f"🌐 **لینک سابسکریپشن:**\n```\n{subscription_url}\n```\n"
+        fmt = get_sub_link_format()
+        if fmt == "both":
+            msg_text += f"🌐 **لینک سابسکریپشن معمولی:**\n```{_subscription_url(sub_id)}```\n\n📄 **لینک سابسکریپشن JSON (Sing-box):**\n```{_subscription_json_url(sub_id)}```\n"
+        elif fmt == "json":
+            msg_text += f"📄 **لینک سابسکریپشن JSON (Sing-box):**\n```{_subscription_json_url(sub_id)}```\n"
+        else:
+            msg_text += f"🌐 **لینک سابسکریپشن:**\n```{_subscription_url(sub_id)}```\n"
 
     if config_links:
         msg_text += "\n🔑 **کانفیگ‌های اتصال مستقیم:**\n"
@@ -5370,7 +5521,13 @@ def _send_transaction_success(tx_id, sub_id=None, config_links=None):
     if kind == 'NEW':
         msg_text = f"🎉 **سرویس {get_brand_name()} شما فعال شد!**\n\n📦 پلن: **{name}**\n🆔 تراکنش: `{tx_id}`\n\n"
         if sub_id:
-            msg_text += f"🌐 **لینک سابسکریپشن:**\n```\n{_subscription_url(sub_id)}\n```\n"
+            fmt = get_sub_link_format()
+            if fmt == "both":
+                msg_text += f"🌐 **لینک سابسکریپشن معمولی:**\n```{_subscription_url(sub_id)}```\n\n📄 **لینک سابسکریپشن JSON (Sing-box):**\n```{_subscription_json_url(sub_id)}```\n"
+            elif fmt == "json":
+                msg_text += f"📄 **لینک سابسکریپشن JSON (Sing-box):**\n```{_subscription_json_url(sub_id)}```\n"
+            else:
+                msg_text += f"🌐 **لینک سابسکریپشن:**\n```{_subscription_url(sub_id)}```\n"
         if config_links:
             msg_text += "\n🔑 **کانفیگ‌های اتصال مستقیم:**\n"
             for link in config_links:

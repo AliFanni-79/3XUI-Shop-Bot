@@ -99,22 +99,92 @@
         </div>
 
         <!-- Subscription URL (Active Services) -->
-        <div v-if="svc.is_active && svc.sub_url" class="space-y-2 pt-1 border-t border-gray-700/20">
-          <label class="text-[11px] text-tg-hint block">لینک اتصال (Subscription Link):</label>
-          <div class="flex items-center gap-2">
-            <input
-              type="text"
-              readonly
-              :value="svc.sub_url"
-              class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-2.5 py-1.5 text-[11px] text-left text-gray-300 font-mono focus:outline-none"
-            />
-            <button
-              @click="copyUrl(svc.sub_url)"
-              class="btn-tg px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 active:scale-95 transition"
-            >
-              {{ copiedUrl === svc.sub_url ? 'کپی شد ✓' : 'کپی' }}
-            </button>
-          </div>
+        <div v-if="svc.is_active && (svc.sub_url || svc.sub_json_url)" class="space-y-2 pt-1 border-t border-gray-700/20">
+          <!-- Both Mode: Present both normal and json links -->
+          <template v-if="svc.sub_format === 'both' && svc.sub_url && svc.sub_json_url">
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-[10px] text-tg-hint block font-medium">🔗 لینک سابسکریپشن معمولی (Normal):</label>
+                <span class="text-[9px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-mono">V2Ray / V2Box</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  readonly
+                  :value="svc.sub_url"
+                  class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-2.5 py-1.5 text-[11px] text-left text-gray-300 font-mono focus:outline-none"
+                />
+                <button
+                  @click="copyUrl(svc.sub_url)"
+                  class="btn-tg px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 active:scale-95 transition"
+                >
+                  {{ copiedUrl === svc.sub_url ? 'کپی شد ✓' : 'کپی' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1.5 pt-1 border-t border-gray-700/20">
+              <div class="flex items-center justify-between">
+                <label class="text-[10px] text-tg-hint block font-medium">📄 لینک سابسکریپشن JSON (Sing-box):</label>
+                <span class="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono">Sing-box / JSON</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  readonly
+                  :value="svc.sub_json_url"
+                  class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-2.5 py-1.5 text-[11px] text-left text-gray-300 font-mono focus:outline-none"
+                />
+                <button
+                  @click="copyUrl(svc.sub_json_url)"
+                  class="btn-tg px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 active:scale-95 transition"
+                >
+                  {{ copiedUrl === svc.sub_json_url ? 'کپی شد ✓' : 'کپی' }}
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <!-- JSON only Mode -->
+          <template v-else-if="svc.sub_format === 'json' || (!svc.sub_url && svc.sub_json_url)">
+            <div class="flex items-center justify-between">
+              <label class="text-[11px] text-tg-hint block font-medium">📄 لینک اتصال JSON / Sing-box:</label>
+              <span class="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono">Sing-box / JSON</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                type="text"
+                readonly
+                :value="svc.sub_json_url || svc.sub_url"
+                class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-2.5 py-1.5 text-[11px] text-left text-gray-300 font-mono focus:outline-none"
+              />
+              <button
+                @click="copyUrl(svc.sub_json_url || svc.sub_url)"
+                class="btn-tg px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 active:scale-95 transition"
+              >
+                {{ copiedUrl === (svc.sub_json_url || svc.sub_url) ? 'کپی شد ✓' : 'کپی' }}
+              </button>
+            </div>
+          </template>
+
+          <!-- Normal only Mode -->
+          <template v-else>
+            <label class="text-[11px] text-tg-hint block">لینک اتصال (Subscription Link):</label>
+            <div class="flex items-center gap-2">
+              <input
+                type="text"
+                readonly
+                :value="svc.sub_url"
+                class="flex-1 bg-tg border border-gray-700/50 rounded-xl px-2.5 py-1.5 text-[11px] text-left text-gray-300 font-mono focus:outline-none"
+              />
+              <button
+                @click="copyUrl(svc.sub_url)"
+                class="btn-tg px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 active:scale-95 transition"
+              >
+                {{ copiedUrl === svc.sub_url ? 'کپی شد ✓' : 'کپی' }}
+              </button>
+            </div>
+          </template>
         </div>
 
         <!-- Rebuy Action Bar (Deactivated Services) -->

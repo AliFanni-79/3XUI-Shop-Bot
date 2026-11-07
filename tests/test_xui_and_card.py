@@ -135,6 +135,9 @@ class XuiAndCardTests(unittest.TestCase):
                 "export XUI_SUB_SERVER_URL='https://sub.speed-ping.com:2096'\n"
                 "export XUI_SUB_PATH='/sub/'\n"
             )
+        core.XUI_SUB_PATH = "/sub/"
+        core.XUI_SUB_JSON_PATH = "/json/"
+        core.SUB_LINK_FORMAT = "normal"
 
     def tearDown(self):
         os.chdir(self.old_cwd)
@@ -310,6 +313,77 @@ class XuiAndCardTests(unittest.TestCase):
         with patch("telebot.apihelper.ApiException", MockApiException):
             exc_other = MockApiException(400)
             self.assertFalse(handler.handle(exc_other))
+
+    def test_update_env_variable_on_the_fly(self):
+        # 1. Updating normal variables on the fly
+        core.update_env_variable("XUI_API_URL", "https://new-panel.example.com:2053")
+        core.update_env_variable("XUI_SUB_PATH", "/customsub/")
+        core.update_env_variable("XUI_SUB_JSON_PATH", "/singbox/")
+        core.update_env_variable("SUB_LINK_FORMAT", "both")
+        core.update_env_variable("CUSTOM_BRAND_TAG", "SPEEDY_VPN")
+
+        # Verify memory globals
+        self.assertEqual(core.XUI_API_URL, "https://new-panel.example.com:2053")
+        self.assertEqual(core.XUI_SUB_PATH, "/customsub/")
+        self.assertEqual(core.XUI_SUB_JSON_PATH, "/singbox/")
+        self.assertEqual(core.SUB_LINK_FORMAT, "both")
+
+        # Verify os.environ
+        self.assertEqual(os.environ["XUI_API_URL"], "https://new-panel.example.com:2053")
+        self.assertEqual(os.environ["XUI_SUB_PATH"], "/customsub/")
+        self.assertEqual(os.environ["XUI_SUB_JSON_PATH"], "/singbox/")
+        self.assertEqual(os.environ["SUB_LINK_FORMAT"], "both")
+        self.assertEqual(os.environ["CUSTOM_BRAND_TAG"], "SPEEDY_VPN")
+
+        # Verify DB settings
+        self.assertEqual(core.get_db_setting("xui_api_url"), "https://new-panel.example.com:2053")
+        self.assertEqual(core.get_db_setting("xui_sub_path"), "/customsub/")
+        self.assertEqual(core.get_db_setting("xui_sub_json_path"), "/singbox/")
+        self.assertEqual(core.get_db_setting("sub_link_format"), "both")
+
+        # Verify .env file persistence
+        with open(self.env_path, "r", encoding="utf-8") as f:
+            env_content = f.read()
+        self.assertIn("XUI_API_URL='https://new-panel.example.com:2053'", env_content)
+        self.assertIn("XUI_SUB_PATH='/customsub/'", env_content)
+        self.assertIn("XUI_SUB_JSON_PATH='/singbox/'", env_content)
+        self.assertIn("SUB_LINK_FORMAT='both'", env_content)
+        self.assertIn("CUSTOM_BRAND_TAG='SPEEDY_VPN'", env_content)
+
+        # 2. Strict protection: BOT_TOKEN and ADMIN_ID CANNOT be modified on the fly
+        with self.assertRaises(ValueError):
+            core.update_env_variable("BOT_TOKEN", "malicious_token")
+        with self.assertRaises(ValueError):
+            core.update_env_variable("admin_id", "99999999")
+
+    def test_sub_link_format_and_json_sub(self):
+        core.update_db_setting("xui_sub_server_url", "https://sub.speed-ping.com:2096")
+        core.update_db_setting("xui_sub_path", "/sub/")
+        core.update_db_setting("xui_sub_json_path", "/json/")
+
+        # Test normal sub url vs json sub url
+        normal_url = core._subscription_url("sub12345")
+        json_url = core._subscription_json_url("sub12345")
+        self.assertEqual(normal_url, "https://sub.speed-ping.com:2096/sub/sub12345")
+        self.assertEqual(json_url, "https://sub.speed-ping.com:2096/json/sub12345")
+
+        # Test format switching: 'normal'
+        core.update_env_variable("SUB_LINK_FORMAT", "normal")
+        self.assertEqual(core.get_sub_link_format(), "normal")
+        self.assertEqual(core.get_client_sub_url("test_email", sub_id="sub12345"), normal_url)
+
+        # Test format switching: 'json'
+        core.update_env_variable("SUB_LINK_FORMAT", "json")
+        self.assertEqual(core.get_sub_link_format(), "json")
+        self.assertEqual(core.get_client_sub_url("test_email", sub_id="sub12345"), json_url)
+
+        # Test format switching: 'both'
+        core.update_env_variable("SUB_LINK_FORMAT", "both")
+        self.assertEqual(core.get_sub_link_format(), "both")
+        urls_dict = core.get_client_sub_urls("test_email", sub_id="sub12345")
+        self.assertEqual(urls_dict["sub_url"], normal_url)
+        self.assertEqual(urls_dict["sub_json_url"], json_url)
+        self.assertEqual(urls_dict["format"], "both")
 
 
 if __name__ == "__main__":

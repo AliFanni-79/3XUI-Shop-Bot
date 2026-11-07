@@ -170,6 +170,8 @@ export const replaceAdminDomain = (oldDomain, newDomain) =>
   client.post('/admin/xui/replace-domain', { old_domain: oldDomain, new_domain: newDomain })
 export const deleteAdminPanelClient = (email) =>
   client.post('/admin/xui/delete-client', { email })
+export const getAdminEnvConfig = () => client.get('/admin/env')
+export const saveAdminEnvConfig = (payload) => client.post('/admin/env', payload)
 
 // ─── Admin — Rewards (Cashback, Discounts, Gifts) ───────────────────────────
 export const getAdminRewards = () => client.get('/admin/rewards')

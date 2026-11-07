@@ -616,6 +616,20 @@ class AdminPaymentsSettingsRequest(BaseModel):
     stars_rate: Optional[int] = None
 
 
+class AdminEnvConfigRequest(BaseModel):
+    xui_api_url: Optional[str] = None
+    xui_base_path: Optional[str] = None
+    xui_bearer_token: Optional[str] = None
+    xui_sub_server_url: Optional[str] = None
+    xui_sub_path: Optional[str] = None
+    xui_sub_json_path: Optional[str] = None
+    sub_link_format: Optional[str] = None  # 'normal' | 'json' | 'both'
+    webapp_url: Optional[str] = None
+    webapp_port: Optional[str] = None
+    webapp_host: Optional[str] = None
+    custom_vars: Optional[Dict[str, str]] = None
+
+
 # ---------------------------------------------------------------------------
 # App Config & Auth endpoints
 # ---------------------------------------------------------------------------
@@ -1081,11 +1095,14 @@ def _format_service(row) -> Dict[str, Any]:
     from . import core as _core
     email = row["email"] if "email" in row.keys() else row.get("service_email", "")
     sub_id = row.get("sub_id")
-    sub_url = _core.get_client_sub_url(email, sub_id)
+    sub_info = _core.get_client_sub_urls(email, sub_id)
     return {
         "email": email,
         "custom_name": row.get("custom_name") or email,
-        "sub_url": sub_url,
+        "sub_url": sub_info.get("sub_url"),
+        "sub_json_url": sub_info.get("sub_json_url"),
+        "sub_format": sub_info.get("format", "normal"),
+        "active_sub_url": sub_info.get("active_url"),
         "kind": row.get("kind", "PAID"),
         "status": row.get("status", ""),
         "plan_name": row.get("plan_name_snapshot") or row.get("name") or "",
@@ -1177,7 +1194,7 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
 
         email = str(row.get("email") or row.get("sub_id") or "").strip()
         sub_id = row.get("sub_id")
-        sub_url = _core.get_client_sub_url(email, sub_id) if (is_active_svc and email) else None
+        sub_info = _core.get_client_sub_urls(email, sub_id) if (is_active_svc and email) else {}
 
         pid = int(row.get("plan_id") or 0)
         matched_plan = active_plans_map.get(pid)
@@ -1187,7 +1204,10 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
         svc = {
             "email": email,
             "custom_name": row.get("custom_name") or email or f"سرویس #{row['id']}",
-            "sub_url": sub_url,
+            "sub_url": sub_info.get("sub_url"),
+            "sub_json_url": sub_info.get("sub_json_url"),
+            "sub_format": sub_info.get("format", "normal"),
+            "active_sub_url": sub_info.get("active_url"),
             "kind": row.get("kind") or "PAID",
             "status": "APPROVED" if st == "ACTIVE" else st,
             "is_active": is_active_svc,
@@ -1218,10 +1238,14 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
         t_status = str(trial_row["status"] or "").strip().upper()
         if t_status in ("ACTIVE", "TRIAL_ACTIVE", "CREATING"):
             t_email = str(trial_row["email"] or "").strip()
+            t_sub = _core.get_client_sub_urls(t_email, trial_row["sub_id"]) if t_email else {}
             active_services.append({
                 "email": t_email,
                 "custom_name": t_email or "تست رایگان",
-                "sub_url": _core.get_client_sub_url(t_email, trial_row["sub_id"]) if t_email else None,
+                "sub_url": t_sub.get("sub_url"),
+                "sub_json_url": t_sub.get("sub_json_url"),
+                "sub_format": t_sub.get("format", "normal"),
+                "active_sub_url": t_sub.get("active_url"),
                 "kind": "TRIAL",
                 "status": "ACTIVE",
                 "is_active": True,
@@ -1240,10 +1264,14 @@ async def get_services(user: Dict[str, Any] = Depends(get_current_user)):
     # Linked services (always active)
     for row in linked:
         l_email = str(row["email"] or "").strip()
+        l_sub = _core.get_client_sub_urls(l_email, None) if l_email else {}
         active_services.append({
             "email": l_email,
             "custom_name": l_email or "سرویس لینک‌شده",
-            "sub_url": _core.get_client_sub_url(l_email, None) if l_email else None,
+            "sub_url": l_sub.get("sub_url"),
+            "sub_json_url": l_sub.get("sub_json_url"),
+            "sub_format": l_sub.get("format", "normal"),
+            "active_sub_url": l_sub.get("active_url"),
             "kind": "LINKED",
             "status": "ACTIVE",
             "is_active": True,
@@ -3487,6 +3515,107 @@ async def admin_xui_delete_client(body: DeleteClientRequest, _admin: Dict[str, A
 
 
 # ---------------------------------------------------------------------------
+# Admin — Environment & Connection Variables (.env On The Fly)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/env")
+async def admin_get_env_config(_admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Return environment and connection variables for on-the-fly editing."""
+    env_file = core.env_manager.find_env_file()
+    loaded_file = core.env_manager.load_env_file(env_file)
+
+    standard_keys = {
+        "BOT_TOKEN", "ADMIN_ID",
+        "XUI_API_URL", "XUI_BASE_PATH", "XUI_BEARER_TOKEN",
+        "XUI_SUB_SERVER_URL", "XUI_SUB_PATH", "XUI_SUB_JSON_PATH",
+        "SUB_LINK_FORMAT", "WEBAPP_URL", "WEBAPP_PORT", "WEBAPP_HOST"
+    }
+
+    custom_vars = {}
+    for k, v in loaded_file.items():
+        k_upper = k.upper().strip()
+        if k_upper not in standard_keys:
+            custom_vars[k] = v
+
+    return {
+        "xui_api_url": core.get_xui_api_url(),
+        "xui_base_path": core.get_xui_base_path(),
+        "xui_bearer_token": core.get_xui_bearer_token(),
+        "xui_sub_server_url": core.get_xui_sub_server_url(),
+        "xui_sub_path": core.get_xui_sub_path(),
+        "xui_sub_json_path": core.get_xui_sub_json_path(),
+        "sub_link_format": core.get_sub_link_format(),
+        "webapp_url": os.getenv("WEBAPP_URL", "") or core.get_db_setting("webapp_url", ""),
+        "webapp_port": os.getenv("WEBAPP_PORT", "8080") or core.get_db_setting("webapp_port", "8080"),
+        "webapp_host": os.getenv("WEBAPP_HOST", "0.0.0.0") or core.get_db_setting("webapp_host", "0.0.0.0"),
+        "custom_vars": custom_vars,
+        "protected_vars": ["BOT_TOKEN", "ADMIN_ID"],
+        "env_file": env_file,
+    }
+
+
+@app.post("/api/admin/env")
+async def admin_save_env_config(body: AdminEnvConfigRequest, admin: Dict[str, Any] = Depends(get_admin_user)):
+    """Save environment and connection variables on the fly, strictly blocking BOT_TOKEN and ADMIN_ID."""
+    updates = {}
+
+    if body.xui_api_url is not None:
+        updates["XUI_API_URL"] = body.xui_api_url.strip()
+    if body.xui_base_path is not None:
+        updates["XUI_BASE_PATH"] = body.xui_base_path.strip()
+    if body.xui_bearer_token is not None:
+        updates["XUI_BEARER_TOKEN"] = body.xui_bearer_token.strip()
+    if body.xui_sub_server_url is not None:
+        updates["XUI_SUB_SERVER_URL"] = body.xui_sub_server_url.strip()
+    if body.xui_sub_path is not None:
+        updates["XUI_SUB_PATH"] = body.xui_sub_path.strip()
+    if body.xui_sub_json_path is not None:
+        updates["XUI_SUB_JSON_PATH"] = body.xui_sub_json_path.strip()
+    if body.sub_link_format is not None:
+        fmt = body.sub_link_format.strip().lower()
+        if fmt not in ("normal", "json", "both"):
+            fmt = "normal"
+        updates["SUB_LINK_FORMAT"] = fmt
+    if body.webapp_url is not None:
+        updates["WEBAPP_URL"] = body.webapp_url.strip()
+    if body.webapp_port is not None:
+        updates["WEBAPP_PORT"] = body.webapp_port.strip()
+    if body.webapp_host is not None:
+        updates["WEBAPP_HOST"] = body.webapp_host.strip()
+
+    if body.custom_vars:
+        for k, v in body.custom_vars.items():
+            k_upper = k.strip().upper()
+            if k_upper in ("BOT_TOKEN", "ADMIN_ID"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"تغییر متغیر حساس {k_upper} به دلایل امنیتی مجاز نیست."
+                )
+            updates[k.strip()] = str(v).strip()
+
+    try:
+        for key, val in updates.items():
+            core.update_env_variable(key, val)
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"خطا در اعمال تغییرات: {exc}")
+
+    actor_id = admin.get("id", 0)
+    try:
+        from . import context as C
+        C.audit("ENV_CONFIG_UPDATED", actor_id, f"Updated {len(updates)} variables on the fly")
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "message": "تنظیمات و متغیرهای محیطی با موفقیت به صورت زنده (On the Fly) به‌روزرسانی شدند.",
+        "updated_keys": list(updates.keys())
+    }
+
+
+# ---------------------------------------------------------------------------
 # Admin — Customer Services Management (Edit, Quota, IPs, Expiry, Inbounds, Delete)
 # ---------------------------------------------------------------------------
 
@@ -3501,7 +3630,7 @@ async def admin_get_service_details(email: str, _admin: Dict[str, Any] = Depends
     used_bytes, total_bytes, expiry_ms = core._service_usage(client)
     real_email = str(client.get("email") or clean_email)
     sub_id = core._extract_subscription_id(client)
-    sub_url = core.get_client_sub_url(real_email, sub_id)
+    sub_info = core.get_client_sub_urls(real_email, sub_id)
 
     try:
         active_inbounds = core._get_active_inbound_details(core._xui_headers(), core._xui_proxies())
@@ -3533,7 +3662,10 @@ async def admin_get_service_details(email: str, _admin: Dict[str, Any] = Depends
         "expiry_time": expiry_ms,
         "enable": bool(client.get("enable", True)),
         "sub_id": sub_id or "",
-        "sub_url": sub_url or "",
+        "sub_url": sub_info.get("sub_url") or "",
+        "sub_json_url": sub_info.get("sub_json_url") or "",
+        "sub_format": sub_info.get("format", "normal"),
+        "active_sub_url": sub_info.get("active_url") or "",
         "inbound_ids": list(inbound_id_set),
         "all_inbounds": all_inbounds_list,
     }

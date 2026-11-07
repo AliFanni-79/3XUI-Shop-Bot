@@ -29,7 +29,7 @@ LEGACY_WIZARDS = {
     "affiliate_wallet", "broadcast", "edit_card", "edit_holder", "edit_bank",
     "edit_card_image", "delete_user", "delete_sub", "guideadd", "guidedeleteask", "guideorderask",
     "xui_edit_api_url", "xui_edit_base_path", "xui_edit_token",
-    "xui_edit_sub_url", "xui_edit_sub_path", "xui_replace_domain",
+    "xui_edit_sub_url", "xui_edit_sub_path", "xui_edit_sub_json_path", "xui_replace_domain",
     "backup_restore",
 }
 
@@ -45,7 +45,7 @@ FIX_WIZARDS = {"trial_defaults", "plan_delete", "category_delete"}
 LEGACY_MENU_NEEDS_ACK = {
     "stats", "plans", "username_mode", "rewards", "admins",
     "ops", "content", "affiliate", "affiliate_top", "notifications",
-    "bank_config", "xui_config", "backup_now", "backup_toggle", "backup_telegram_toggle",
+    "bank_config", "xui_config", "xui_toggle_sub_format", "backup_now", "backup_toggle", "backup_telegram_toggle",
 }
 
 
@@ -348,6 +348,15 @@ def _legacy_spec(call):
             "مسیر سابسکریپشن را بفرستید (پیش‌فرض: <code>/sub/</code>).\n\n"
             "<b>مثال:</b> <code>/sub/</code>",
             core.process_edit_xui_sub_path,
+            (),
+        )
+
+    if action == "xui_edit_sub_json_path":
+        return (
+            "تغییر مسیر سابسکریپشن JSON",
+            "مسیر سابسکریپشن JSON را بفرستید (پیش‌فرض: <code>/json/</code>).\n\n"
+            "<b>مثال:</b> <code>/json/</code>",
+            core.process_edit_xui_sub_json_path,
             (),
         )
 

@@ -643,6 +643,267 @@
     </div>
 <!-- ==================== Tab: Sanaei 3x-ui & Groups ==================== -->
     <div v-if="activeTab === 'xui'" class="space-y-3 text-xs">
+      <!-- Environment & Connection Config Box (On The Fly) -->
+      <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-gray-700/30">
+          <div>
+            <div class="flex items-center gap-2">
+              <h4 class="font-bold text-sm text-tg">⚡️ متغیرهای محیطی (.env) و تنظیمات اتصال پنل</h4>
+              <span class="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full font-bold">On The Fly</span>
+            </div>
+            <span class="text-[10px] text-tg-hint block mt-0.5">ویرایش آنی متغیرها و پیکربندی سابسکریپشن بدون نیاز به ریستارت ربات</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] bg-rose-500/10 text-rose-300 border border-rose-500/20 px-2 py-1 rounded-xl">
+              🔒 BOT_TOKEN و ADMIN_ID محافظت‌شده هستند
+            </span>
+          </div>
+        </div>
+
+        <!-- Subscription Link Format Selector (Core Requirement) -->
+        <div class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2">
+          <div class="flex justify-between items-center">
+            <div>
+              <span class="font-bold text-xs text-tg block">🔀 نوع لینک سابسکریپشن ارسالی به کاربران (Subscription Mode)</span>
+              <span class="text-[10px] text-tg-hint">تعیین کنید که مشتریان لینک معمولی، سابسکریپشن JSON (مخصوص Sing-box) یا هر دو را دریافت کنند</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            <button
+              type="button"
+              @click="envConfig.sub_link_format = 'normal'"
+              class="p-2.5 rounded-xl border text-right transition flex flex-col gap-1"
+              :class="envConfig.sub_link_format === 'normal' ? 'border-blue-500 bg-blue-500/15 text-white font-bold shadow' : 'border-gray-700/40 bg-tg-sec text-tg-hint hover:text-tg'"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-xs">🔗 ساب معمولی (Normal)</span>
+                <span v-if="envConfig.sub_link_format === 'normal'" class="text-blue-400 font-bold">✓</span>
+              </div>
+              <span class="text-[10px] opacity-75">لینک استاندارد base64 / مناسب V2Ray و اکثر کلاینت‌ها</span>
+            </button>
+
+            <button
+              type="button"
+              @click="envConfig.sub_link_format = 'json'"
+              class="p-2.5 rounded-xl border text-right transition flex flex-col gap-1"
+              :class="envConfig.sub_link_format === 'json' ? 'border-emerald-500 bg-emerald-500/15 text-white font-bold shadow' : 'border-gray-700/40 bg-tg-sec text-tg-hint hover:text-tg'"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-xs">📄 ساب JSON (Sing-box)</span>
+                <span v-if="envConfig.sub_link_format === 'json'" class="text-emerald-400 font-bold">✓</span>
+              </div>
+              <span class="text-[10px] opacity-75">لینک JSON سابسکریپشن سنائی / مخصوص اپ‌های مدرن</span>
+            </button>
+
+            <button
+              type="button"
+              @click="envConfig.sub_link_format = 'both'"
+              class="p-2.5 rounded-xl border text-right transition flex flex-col gap-1"
+              :class="envConfig.sub_link_format === 'both' ? 'border-amber-500 bg-amber-500/15 text-white font-bold shadow' : 'border-gray-700/40 bg-tg-sec text-tg-hint hover:text-tg'"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-xs">🔀 ارائه هر دو لینک (Present Both)</span>
+                <span v-if="envConfig.sub_link_format === 'both'" class="text-amber-400 font-bold">✓</span>
+              </div>
+              <span class="text-[10px] opacity-75">هر دو لینک معمولی و JSON همزمان به کاربر نمایش داده می‌شوند</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Connection Variables Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <!-- XUI API URL -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">🔗 آدرس وب‌سرویس پنل (XUI_API_URL):</label>
+            <input
+              type="text"
+              v-model="envConfig.xui_api_url"
+              placeholder="https://panel.example.com:2053"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- XUI Base Path -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">📂 مسیر امن پنل (XUI_BASE_PATH):</label>
+            <input
+              type="text"
+              v-model="envConfig.xui_base_path"
+              placeholder="/secret-base-path"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- XUI Bearer Token -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-[10px] text-tg-hint font-medium">🔑 توکن دسترسی سنائی (XUI_BEARER_TOKEN):</label>
+              <button
+                type="button"
+                @click="showToken = !showToken"
+                class="text-[10px] text-blue-400 hover:underline"
+              >
+                {{ showToken ? 'مخفی‌سازی 🙈' : 'نمایش 👁' }}
+              </button>
+            </div>
+            <input
+              :type="showToken ? 'text' : 'password'"
+              v-model="envConfig.xui_bearer_token"
+              placeholder="YOUR_3XUI_API_TOKEN"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- XUI Sub Server URL -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">🌐 آدرس سرور سابسکریپشن (XUI_SUB_SERVER_URL):</label>
+            <input
+              type="text"
+              v-model="envConfig.xui_sub_server_url"
+              placeholder="https://sub.example.com:2096"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- XUI Sub Path (Normal) -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">🛣 مسیر سابسکریپشن معمولی (XUI_SUB_PATH):</label>
+            <input
+              type="text"
+              v-model="envConfig.xui_sub_path"
+              placeholder="/sub/"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- XUI Sub JSON Path -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">📄 مسیر سابسکریپشن JSON (XUI_SUB_JSON_PATH):</label>
+            <input
+              type="text"
+              v-model="envConfig.xui_sub_json_path"
+              placeholder="/json/"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- WebApp URL -->
+          <div>
+            <label class="block text-[10px] text-tg-hint mb-1 font-medium">📱 آدرس مینی‌اپلیکیشن (WEBAPP_URL):</label>
+            <input
+              type="text"
+              v-model="envConfig.webapp_url"
+              placeholder="https://your-mini-app.example.com"
+              class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+              dir="ltr"
+            />
+          </div>
+
+          <!-- WebApp Host & Port -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-1 font-medium">🔌 پورت وب (PORT):</label>
+              <input
+                type="text"
+                v-model="envConfig.webapp_port"
+                placeholder="8080"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label class="block text-[10px] text-tg-hint mb-1 font-medium">🌐 هاست گوش‌دادن (HOST):</label>
+              <input
+                type="text"
+                v-model="envConfig.webapp_host"
+                placeholder="0.0.0.0"
+                class="w-full bg-tg border border-gray-700/40 rounded-xl px-3 py-2 font-mono text-xs text-left"
+                dir="ltr"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom / Arbitrary Environment Variables from .env -->
+        <div class="bg-tg p-3 rounded-xl border border-gray-700/30 space-y-2">
+          <div class="flex justify-between items-center">
+            <span class="font-bold text-xs text-tg">📋 متغیرهای سفارشی دیگر (.env)</span>
+            <span class="text-[10px] text-tg-hint">کلیدهای اضافی موجود در فایل محیطی</span>
+          </div>
+
+          <div v-if="Object.keys(envConfig.custom_vars || {}).length" class="space-y-2">
+            <div
+              v-for="(val, key) in envConfig.custom_vars"
+              :key="key"
+              class="flex items-center gap-2 bg-tg-sec p-2 rounded-lg border border-gray-700/30"
+            >
+              <span class="font-mono text-xs font-bold text-blue-400 w-1/3 truncate" dir="ltr">{{ key }}</span>
+              <input
+                type="text"
+                v-model="envConfig.custom_vars[key]"
+                class="flex-1 bg-tg border border-gray-700/40 rounded-lg px-2.5 py-1 font-mono text-xs text-left"
+                dir="ltr"
+              />
+              <button
+                type="button"
+                @click="removeCustomVar(key)"
+                class="text-rose-400 hover:text-rose-300 px-2 py-1 text-xs"
+                title="حذف متغیر"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          <div v-else class="text-[10px] text-tg-hint text-center py-2">
+            متغیر سفارشی اضافی ثبت نشده است.
+          </div>
+
+          <!-- Add Custom Variable Input -->
+          <div class="flex gap-2 pt-1 border-t border-gray-700/20">
+            <input
+              type="text"
+              v-model="newCustomKey"
+              placeholder="KEY_NAME (مثلا: BRAND_NAME)"
+              class="w-1/3 bg-tg-sec border border-gray-700/40 rounded-lg px-2.5 py-1.5 font-mono text-xs text-left uppercase"
+              dir="ltr"
+            />
+            <input
+              type="text"
+              v-model="newCustomVal"
+              placeholder="مقدار متغیر"
+              class="flex-1 bg-tg-sec border border-gray-700/40 rounded-lg px-2.5 py-1.5 font-mono text-xs text-left"
+              dir="ltr"
+            />
+            <button
+              type="button"
+              @click="addCustomVar"
+              :disabled="!newCustomKey.trim()"
+              class="btn-tg px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50"
+            >
+              ➕ افزودن
+            </button>
+          </div>
+        </div>
+
+        <!-- Save Button -->
+        <button
+          type="button"
+          @click="handleSaveEnvConfig"
+          :disabled="savingEnvConfig"
+          class="w-full btn-tg font-bold py-2.5 rounded-xl text-xs shadow-lg transition flex items-center justify-center gap-2"
+        >
+          <span>💾</span>
+          <span>{{ savingEnvConfig ? 'در حال اعمال و ذخیره زنده...' : 'ذخیره و اعمال آنی تغییرات در سیستم (On the Fly)' }}</span>
+        </button>
+      </div>
+
       <!-- Sanaei Groups Box -->
       <div class="bg-tg-sec p-4 rounded-2xl border border-gray-700/30 space-y-3">
         <div class="flex justify-between items-center">
@@ -3627,6 +3888,8 @@ import {
   testAdminXui,
   replaceAdminDomain,
   deleteAdminPanelClient,
+  getAdminEnvConfig,
+  saveAdminEnvConfig,
   getAdminRewards,
   saveAdminCashback,
   createAdminDiscount,
@@ -3873,6 +4136,24 @@ const domainForm = ref({ old_domain: '', new_domain: '' })
 const replacingDomain = ref(false)
 const deleteClientEmail = ref('')
 const deletingClient = ref(false)
+const envConfig = ref({
+  xui_api_url: '',
+  xui_base_path: '',
+  xui_bearer_token: '',
+  xui_sub_server_url: '',
+  xui_sub_path: '/sub/',
+  xui_sub_json_path: '/json/',
+  sub_link_format: 'normal',
+  webapp_url: '',
+  webapp_port: '8080',
+  webapp_host: '0.0.0.0',
+  custom_vars: {},
+  env_file: '',
+})
+const showToken = ref(false)
+const savingEnvConfig = ref(false)
+const newCustomKey = ref('')
+const newCustomVal = ref('')
 
 // Rewards & Discounts
 const rewardsData = ref({ cashback_percent: 0, discount_codes: [], gift_codes: [] })
@@ -4004,7 +4285,7 @@ const loadData = async () => {
     const [
       stRes, ordRes, plRes, uRes, bldRes, blRes, admRes, payRes,
       bkRes, srvRes, brRes, xuiRes, rewRes, affRes, csRes,
-      catRes, volRes, triRes, crmRes, guiRes, audRes, srvpRes
+      catRes, volRes, triRes, crmRes, guiRes, audRes, srvpRes, envRes
     ] = await Promise.all([
       getAdminStats().catch(() => ({ data: {} })),
       getAdminOrders().catch(() => ({ data: { orders: [] } })),
@@ -4028,6 +4309,7 @@ const loadData = async () => {
       getAdminGuides().catch(() => ({ data: null })),
       getAdminAudit().catch(() => ({ data: null })),
       getAdminServers().catch(() => ({ data: { servers: [] } })),
+      getAdminEnvConfig().catch(() => ({ data: null })),
     ])
 
     stats.value = stRes.data || {}
@@ -4057,6 +4339,23 @@ const loadData = async () => {
     categoriesList.value = catRes.data?.categories || []
     volumePacksList.value = volRes.data?.packs || []
     serverProfilesList.value = srvpRes.data?.servers || []
+
+    if (envRes?.data) {
+      envConfig.value = {
+        xui_api_url: envRes.data.xui_api_url || '',
+        xui_base_path: envRes.data.xui_base_path || '',
+        xui_bearer_token: envRes.data.xui_bearer_token || '',
+        xui_sub_server_url: envRes.data.xui_sub_server_url || '',
+        xui_sub_path: envRes.data.xui_sub_path || '/sub/',
+        xui_sub_json_path: envRes.data.xui_sub_json_path || '/json/',
+        sub_link_format: envRes.data.sub_link_format || 'normal',
+        webapp_url: envRes.data.webapp_url || '',
+        webapp_port: envRes.data.webapp_port || '8080',
+        webapp_host: envRes.data.webapp_host || '0.0.0.0',
+        custom_vars: envRes.data.custom_vars || {},
+        env_file: envRes.data.env_file || '',
+      }
+    }
 
     if (triRes?.data) {
       trialSettings.value = {
@@ -5253,6 +5552,40 @@ const handleSaveBranding = async () => {
     showNotify(err.response?.data?.detail || 'خطا در ذخیره عنوان', false)
   } finally {
     savingBranding.value = false
+  }
+}
+
+// ─── Environment & Connection Variables Handlers ─────────────────────────────
+const handleSaveEnvConfig = async () => {
+  savingEnvConfig.value = true
+  try {
+    const res = await saveAdminEnvConfig(envConfig.value)
+    showNotify(res.data?.message || 'متغیرها و تنظیمات با موفقیت به صورت زنده ذخیره شدند ✓')
+  } catch (e) {
+    showNotify(e.response?.data?.detail || 'خطا در ذخیره متغیرها', false)
+  } finally {
+    savingEnvConfig.value = false
+  }
+}
+
+const addCustomVar = () => {
+  const k = (newCustomKey.value || '').trim().toUpperCase()
+  if (!k) return
+  if (k === 'BOT_TOKEN' || k === 'ADMIN_ID') {
+    showNotify('ویرایش BOT_TOKEN و ADMIN_ID به دلایل امنیتی مجاز نیست.', false)
+    return
+  }
+  if (!envConfig.value.custom_vars) {
+    envConfig.value.custom_vars = {}
+  }
+  envConfig.value.custom_vars[k] = (newCustomVal.value || '').trim()
+  newCustomKey.value = ''
+  newCustomVal.value = ''
+}
+
+const removeCustomVar = (k) => {
+  if (envConfig.value.custom_vars) {
+    delete envConfig.value.custom_vars[k]
   }
 }
 
