@@ -2993,6 +2993,42 @@ def handle_subscription_qr(call):
     bot.send_photo(call.from_user.id, buf, caption="📷 QR لینک Subscription شما\n\nاین QR را فقط برای دستگاه‌های خودتان استفاده کنید.")
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith('widget:'))
+def handle_widget_callbacks(call):
+    parts = call.data.split(':')
+    action = parts[1] if len(parts) > 1 else ''
+    if action == 'claim_trial':
+        bot.answer_callback_query(call.id, "در حال پردازش تست رایگان...")
+        try:
+            from . import trial
+            trial.request(call.message)
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"خطا در ثبت تست: {e}")
+    elif action == 'refresh':
+        bot.answer_callback_query(call.id, "در حال بروزرسانی زنده...")
+        try:
+            from . import widget_services
+            widget_services.send_active_services_widget(bot, call.message.chat.id, call.from_user.id)
+        except Exception:
+            pass
+
+
+@bot.message_handler(content_types=['web_app_data'])
+def handle_widget_web_app_data(message):
+    try:
+        raw_data = getattr(message.web_app_data, 'data', '') or ''
+        data = json.loads(raw_data)
+        action = data.get("action")
+        if action == "claim_trial":
+            from . import trial
+            trial.request(message)
+        elif action == "refresh":
+            from . import widget_services
+            widget_services.send_active_services_widget(bot, message.chat.id, message.from_user.id)
+    except Exception:
+        pass
+
+
 def _owned_service_tx(user_id, tx_id):
     conn = _db_connect()
     row = conn.execute(

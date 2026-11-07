@@ -19,7 +19,16 @@ def _shop(message):
 
 
 def _account(message):
-    uid=int(message.from_user.id); c=C.db()
+    uid=int(message.from_user.id)
+    try:
+        from . import widget_services
+        res = widget_services.send_active_services_widget(C.BOT, message.chat.id, uid)
+        if res:
+            return
+    except Exception:
+        pass
+
+    c=C.db()
     user=c.execute('SELECT balance FROM users WHERE id=?',(uid,)).fetchone()
     paid=c.execute("SELECT id,service_email,plan_name_snapshot FROM transactions WHERE user_id=? AND UPPER(status)='APPROVED' AND (kind IS NULL OR UPPER(kind) IN ('NEW','CUSTOM','SERVICE','')) ORDER BY id DESC",(uid,)).fetchall()
     trial=c.execute("SELECT email,status FROM trial_services WHERE user_id=? ORDER BY created_at DESC LIMIT 1",(uid,)).fetchone()
